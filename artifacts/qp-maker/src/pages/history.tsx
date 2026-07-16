@@ -4,9 +4,22 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { historyData, questionBank } from "@/lib/mock-data";
+import { historyData } from "@/lib/mock-data";
 import { toast } from "sonner";
 import { PaperPreview } from "@/components/paper-preview";
+
+const MOCK_PREVIEW_QUESTIONS = [
+  { id: "q1", text: "Define Machine Learning. Explain the different types with examples.", marks: 10, co: "CO1", bloomLevel: "L1", module: 1 },
+  { id: "q2", text: "What is Bias-Variance Tradeoff? Explain with diagrams.", marks: 10, co: "CO1", bloomLevel: "L2", module: 1 },
+  { id: "q3", text: "Apply Gradient Descent to optimize Linear Regression parameters.", marks: 10, co: "CO2", bloomLevel: "L3", module: 2 },
+  { id: "q4", text: "Using SVM, apply the kernel trick to classify a non-linearly separable dataset.", marks: 10, co: "CO2", bloomLevel: "L3", module: 2 },
+  { id: "q5", text: "Analyze K-Means clustering. Explain the Elbow method for choosing K.", marks: 10, co: "CO3", bloomLevel: "L4", module: 3 },
+  { id: "q6", text: "Analyze PCA and demonstrate dimensionality reduction while preserving variance.", marks: 10, co: "CO3", bloomLevel: "L4", module: 3 },
+  { id: "q7", text: "Analyze the Backpropagation algorithm and demonstrate weight updates for a 3-layer network.", marks: 10, co: "CO3", bloomLevel: "L4", module: 4 },
+  { id: "q8", text: "Compare and analyze ReLU, Sigmoid, and Softmax activation functions.", marks: 10, co: "CO3", bloomLevel: "L4", module: 4 },
+  { id: "q9", text: "Apply cross-validation techniques to evaluate and compare ML models.", marks: 10, co: "CO2", bloomLevel: "L3", module: 5 },
+  { id: "q10", text: "Apply AdaBoost and compare results with a single Decision Tree classifier.", marks: 10, co: "CO2", bloomLevel: "L3", module: 5 },
+];
 
 export default function History() {
   const [selectedPaper, setSelectedPaper] = useState<any>(null);
@@ -102,7 +115,7 @@ export default function History() {
                   examType: selectedPaper?.examType,
                   semester: selectedPaper?.semester
                 }} 
-                questions={questionBank.slice(0, 10)} 
+                questions={MOCK_PREVIEW_QUESTIONS} 
               />
             </div>
           </div>

@@ -1,9 +1,8 @@
-import { Building2, FileText, History, Home, Settings } from "lucide-react";
+import { FileText, History, Home, Settings, BookOpen, BookMarked, Sparkles } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
 import { Moon, Sun } from "lucide-react";
@@ -14,8 +13,9 @@ interface LayoutProps {
 
 const navItems = [
   { href: "/", icon: Home, label: "Home" },
-  { href: "/generate", icon: FileText, label: "Generate Paper" },
-  { href: "/questions", icon: Building2, label: "Question Bank" },
+  { href: "/generate", icon: Sparkles, label: "Generate Paper" },
+  { href: "/materials", icon: BookOpen, label: "Study Materials" },
+  { href: "/syllabus", icon: BookMarked, label: "Syllabus" },
   { href: "/history", icon: History, label: "History" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ];

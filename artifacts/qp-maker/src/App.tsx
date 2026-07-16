@@ -9,7 +9,8 @@ import { Layout } from "@/components/layout";
 // Pages
 import Home from "@/pages/home";
 import GeneratePaper from "@/pages/generate";
-import QuestionBank from "@/pages/questions";
+import Materials from "@/pages/materials";
+import Syllabus from "@/pages/syllabus";
 import History from "@/pages/history";
 import Settings from "@/pages/settings";
 
@@ -20,7 +21,8 @@ function Router() {
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/generate" component={GeneratePaper} />
-      <Route path="/questions" component={QuestionBank} />
+      <Route path="/materials" component={Materials} />
+      <Route path="/syllabus" component={Syllabus} />
       <Route path="/history" component={History} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
