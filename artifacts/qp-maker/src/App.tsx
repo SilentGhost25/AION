@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "next-themes";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/layout";
+import { ProfileProvider } from "@/context/profile-context";
 
 // Pages
 import Home from "@/pages/home";
@@ -13,6 +14,7 @@ import Materials from "@/pages/materials";
 import Syllabus from "@/pages/syllabus";
 import History from "@/pages/history";
 import Settings from "@/pages/settings";
+import KnowledgeBase from "@/pages/knowledge-base";
 
 const queryClient = new QueryClient();
 
@@ -22,6 +24,7 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/generate" component={GeneratePaper} />
       <Route path="/materials" component={Materials} />
+      <Route path="/knowledge" component={KnowledgeBase} />
       <Route path="/syllabus" component={Syllabus} />
       <Route path="/history" component={History} />
       <Route path="/settings" component={Settings} />
@@ -35,11 +38,13 @@ function App() {
     <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
-          <WouterRouter base={import.meta.env.BASE_URL?.replace(/\/$/, "") || ""}>
-            <Layout>
-              <Router />
-            </Layout>
-          </WouterRouter>
+          <ProfileProvider>
+            <WouterRouter base={import.meta.env.BASE_URL?.replace(/\/$/, "") || ""}>
+              <Layout>
+                <Router />
+              </Layout>
+            </WouterRouter>
+          </ProfileProvider>
           <Toaster richColors position="top-right" />
         </TooltipProvider>
       </QueryClientProvider>
