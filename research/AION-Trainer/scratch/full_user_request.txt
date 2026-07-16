@@ -1,0 +1,1271 @@
+<USER_REQUEST>
+# AION Training Studio — Complete Implementation
+
+## Architecture Overview
+
+```
+training_studio/
+├── classifier/
+│   ├── document_classifier.py      # Textbook / Notes / QB / PYQ detection
+│   ├── subject_detector.py         # BAI401 from content
+│   └── module_mapper.py            # Chapter → Module via syllabus
+├── analyser/
+│   ├── analysis_pipeline.py        # Analyse stage orchestrator
+│   ├── ambiguity_detector.py       # Finds conflicts, mismatches
+│   └── analysis_result.py          # Structured result schema
+├── preview/
+│   └── course_preview_builder.py   # Course tree for UI
+├── studio_api.py                   # FastAPI routes
+└── studio_session.py               # Per-upload session state
+```
+
+---
+
+## Part 1: Document Classifier
+
+```python
+# AION-Trainer/training_studio/classifier/document_classifier.py
+"""
+Document Classifier — determines what kind of academic document
+was uploaded without asking the user.
+
+Classification hierarchy:
+    1. Structural signals (section headers, numbering patterns)
+    2. Content signals (question density, definition density)
+    3. Filename signals (weakest — used as tiebreaker only)
+
+If confidence < 0.90 on the top class, the UI presents a
+confirmation dialog rather than silently classifying.
+"""
+
+from __future__ import annotations
+
+import re
+import math
+import logging
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+logger = logging.getLogger("aion.studio.classifier")
+
+CONFIDENCE_THRESHOLD = 0.90
+
+
+class DocumentType:
+    TEXTBOOK = "textbook"
+    NOTES = "notes"
+    QUESTION_BANK = "question_bank"
+    PREVIOUS_PAPER = "previous_paper"
+    ANSWER_KEY = "answer_key"
+    SYLLABUS = "syllabus"
+    IMAGES = "images"
+    UNKNOWN = "unknown"
+
+
+@dataclass
+class ClassificationResult:
+    document_type: str
+    confidence: float
+    all_scores: Dict[str, float] = field(default_factory=dict)
+    signals_found: List[str] = field(default_factory=list)
+    needs_confirmation: bool = False
+    suggested_alternatives: List[str] = field(default_factory=list)
+
+    def is_certain(self) -> bool:
+        return self.confidence >= CONFIDENCE_THRESHOLD and not self.needs_confirmation
+
+
+# ── Signal patterns ──────────────────────────────────────────────────────────
+
+# Structural patterns for each document type
+STRUCTURAL_SIGNALS: Dict[str, List[re.Pattern]] = {
+    DocumentType.TEXTBOOK: [
+        re.compile(r"^\s*(chapter|unit)\s+\d+", re.IGNORECASE | re.MULTILINE),
+        re.compile(r"\b(learning\s+objectives?|summary|exercises?|review\s+questions?)\b",
+                   re.IGNORECASE),
+        re.compile(r"\b(definition|theorem|corollary|lemma|proof)\b", re.IGNORECASE),
+        re.compile(r"^\s*\d+\.\d+(\.\d+)?\s+\w", re.MULTILINE),   # 2.3.1 Section
+        re.compile(r"\bfigure\s+\d+\.\d+\b", re.IGNORECASE),
+    ],
+    DocumentType.NOTES: [
+        re.compile(r"^\s*(module|topic|unit)\s*[-:]?\s*\d+", re.IGNORECASE | re.MULTILINE),
+        re.compile(r"\b(refer|see\s+also|notes?|lecture\s+notes?)\b", re.IGNORECASE),
+        re.compile(r"^\s*[-•*]\s+\w", re.MULTILINE),               # Bullet lists (common in notes)
+        re.compile(r"\b(imp\.?|important|remember|note[:\s])\b", re.IGNORECASE),
+    ],
+    DocumentType.QUESTION_BANK: [
+        re.compile(r"^\s*(q\.?\s*\d+|question\s+\d+)[\s.:]", re.IGNORECASE | re.MULTILINE),
+        re.compile(r"\b(\d+\s*marks?)\b", re.IGNORECASE),
+        re.compile(r"\b(unit\s*[-:]\s*\d+|module\s*[-:]\s*\d+)\s*\n",
+                   re.IGNORECASE | re.MULTILINE),
+        re.compile(r"\b(answer\s+any|choose\s+one|attempt)\b", re.IGNORECASE),
+        re.compile(r"(a\)|b\)|c\)|d\))", re.IGNORECASE),           # MCQ options
+    ],
+    DocumentType.PREVIOUS_PAPER: [
+        re.compile(r"\b(time\s*:\s*\d+\s*hours?|max\.?\s*marks?\s*:\s*\d+)\b", re.IGNORECASE),
+        re.compile(r"\b(visvesvaraya|vtu|university\s+examination)\b", re.IGNORECASE),
+        re.compile(r"\b(semester|sem\.?)\s*[-:]?\s*\d+", re.IGNORECASE),
+        re.compile(r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\.?\s*20\d\d",
+                   re.IGNORECASE),
+        re.compile(r"\b(reg\.?\s*no\.?|usn)\b", re.IGNORECASE),
+    ],
+    DocumentType.ANSWER_KEY: [
+        re.compile(r"\b(answer\s+key|solution|model\s+answer)\b", re.IGNORECASE),
+        re.compile(r"\b(ans\.?|answer\s*:)", re.IGNORECASE | re.MULTILINE),
+        re.compile(r"^\s*(q\.?\s*\d+|question\s+\d+)\s*[:)]\s*\n.*\n.*answer",
+                   re.IGNORECASE | re.MULTILINE | re.DOTALL),
+    ],
+    DocumentType.SYLLABUS: [
+        re.compile(r"\b(course\s+(objectives?|outcomes?)|co\s*\d+)\b", re.IGNORECASE),
+        re.compile(r"\b(syllabus|curriculum|scheme\s+of\s+teaching)\b", re.IGNORECASE),
+        re.compile(r"\b(credit\s+hours?|contact\s+hours?|l\s*:\s*t\s*:\s*p)\b", re.IGNORECASE),
+        re.compile(r"module\s*\d+\s*[\n:]\s*.+hours?", re.IGNORECASE),
+    ],
+}
+
+FILENAME_HINTS: Dict[str, List[str]] = {
+    DocumentType.TEXTBOOK: ["textbook", "book", "reference", "text"],
+    DocumentType.NOTES: ["note", "notes", "lecture", "module"],
+    DocumentType.QUESTION_BANK: ["qb", "question_bank", "qbank", "bank", "questions"],
+    DocumentType.PREVIOUS_PAPER: ["pyq", "previous", "paper", "exam", "question_paper"],
+    DocumentType.ANSWER_KEY: ["answer", "key", "solution", "solved"],
+    DocumentType.SYLLABUS: ["syllabus", "scheme", "curriculum"],
+}
+
+
+class DocumentClassifier:
+    """
+    Classifies a document by type using structural, content, and
+    filename signals. Returns probability scores for all types.
+    """
+
+    def classify_text(self, text: str, filename: str = "") -> ClassificationResult:
+        scores = self._compute_scores(text, filename)
+        sorted_types = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        top_type, top_score = sorted_types[0]
+        second_type, second_score = sorted_types[1] if len(sorted_types) > 1 else (DocumentType.UNKNOWN, 0.0)
+
+        needs_confirmation = (
+            top_score < CONFIDENCE_THRESHOLD
+            or (top_score - second_score) < 0.15
+        )
+
+        signals_found = self._collect_signals(text, top_type)
+
+        result = ClassificationResult(
+            document_type=top_type,
+            confidence=round(top_score, 4),
+            all_scores={t: round(s, 4) for t, s in sorted_types},
+            signals_found=signals_found,
+            needs_confirmation=needs_confirmation,
+            suggested_alternatives=[second_type] if needs_confirmation else [],
+        )
+
+        logger.info(
+            f"[Classifier] {filename or 'document'}: "
+            f"{top_type} ({top_score:.0%}) "
+            f"{'⚠ needs confirmation' if needs_confirmation else '✓'}"
+        )
+        return result
+
+    def classify_file(self, file_path: str) -> ClassificationResult:
+        path = Path(file_path)
+        suffix = path.suffix.lower()
+
+        if suffix in (".png", ".jpg", ".jpeg", ".tiff", ".gif", ".bmp"):
+            return ClassificationResult(
+                document_type=DocumentType.IMAGES,
+                confidence=1.0,
+                signals_found=["Image file extension"],
+            )
+
+        text = self._extract_text(file_path)
+        return self.classify_text(text, filename=path.name)
+
+    def _compute_scores(self, text: str, filename: str) -> Dict[str, float]:
+        scores: Dict[str, float] = {}
+
+        for doc_type, patterns in STRUCTURAL_SIGNALS.items():
+            matched = 0
+            for pattern in patterns:
+                if pattern.search(text[:10000]):  # check first 10k chars for speed
+                    matched += 1
+            scores[doc_type] = matched / len(patterns)
+
+        # Filename signals (weak — add 10% bonus if matched)
+        fname_lower = filename.lower()
+        for doc_type, hints in FILENAME_HINTS.items():
+            if any(h in fname_lower for h in hints):
+                scores[doc_type] = min(1.0, scores.get(doc_type, 0.0) + 0.10)
+
+        # Normalise using softmax so scores sum to 1
+        return self._softmax(scores)
+
+    def _collect_signals(self, text: str, doc_type: str) -> List[str]:
+        signals = []
+        for pattern in STRUCTURAL_SIGNALS.get(doc_type, []):
+            match = pattern.search(text[:10000])
+            if match:
+                signals.append(f"Pattern: '{match.group(0)[:50].strip()}'")
+        return signals[:5]
+
+    @staticmethod
+    def _softmax(scores: Dict[str, float]) -> Dict[str, float]:
+        if not scores:
+            return {}
+        vals = list(scores.values())
+        # Shift for numerical stability
+        max_val = max(vals)
+        exps = {k: math.exp(v - max_val) for k, v in scores.items()}
+        total = sum(exps.values())
+        return {k: v / total for k, v in exps.items()} if total > 0 else scores
+
+    def _extract_text(self, file_path: str) -> str:
+        suffix = Path(file_path).suffix.lower()
+        try:
+            if suffix == ".pdf":
+                import fitz
+                doc = fitz.open(file_path)
+                # Read first 20 pages for classification — no need for full doc
+                pages = min(20, len(doc))
+                text = "\n".join(doc[i].get_text("text") for i in range(pages))
+                doc.close()
+                return text
+            elif suffix == ".docx":
+                import docx as python_docx
+                doc = python_docx.Document(file_path)
+                return "\n".join(p.text for p in doc.paragraphs[:200])
+        except Exception as e:
+            logger.warning(f"[Classifier] Text extraction failed for {file_path}: {e}")
+        return ""
+```
+
+## Part 2: Subject Detector
+
+```python
+# AION-Trainer/training_studio/classifier/subject_detector.py
+"""
+Subject Detector — identifies which subject a document belongs to.
+
+Strategy:
+    1. Extract subject code directly (e.g., "BAI401" appears in header)
+    2. Keyword matching against known subject vocabulary
+    3. LLM-based detection (fallback when signals are weak)
+
+If confidence < 0.90, the UI shows a confirmation dialog.
+"""
+
+from __future__ import annotations
+
+import re
+import logging
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple
+
+logger = logging.getLogger("aion.studio.subject_detector")
+
+CONFIDENCE_THRESHOLD = 0.90
+
+# Subject code patterns — VTU format: 2-4 letters + 3 digits
+SUBJECT_CODE_PATTERN = re.compile(r"\b([A-Z]{2,4}\d{3})\b")
+
+# Vocabulary maps: keywords that strongly imply a subject
+# Extend this as new subjects are added to the system
+SUBJECT_VOCABULARY: Dict[str, List[str]] = {
+    "BAI401": [
+        "artificial intelligence", "search algorithm", "a* search",
+        "heuristic", "knowledge representation", "predicate logic",
+        "machine learning", "neural network", "intelligent agents",
+        "planning", "natural language processing", "game theory",
+    ],
+    "BAI402": [
+        "machine learning", "supervised learning", "unsupervised learning",
+        "decision tree", "random forest", "support vector machine", "svm",
+        "gradient descent", "cross validation", "overfitting",
+    ],
+    "BCS401": [
+        "operating system", "process scheduling", "deadlock", "semaphore",
+        "virtual memory", "paging", "file system", "banker algorithm",
+    ],
+    "BCS402": [
+        "computer network", "tcp", "udp", "ip address", "routing",
+        "osi model", "ethernet", "socket", "http", "dns", "nat",
+    ],
+    "BCS403": [
+        "database", "sql", "normalization", "transaction", "acid",
+        "relational algebra", "er diagram", "indexing", "b tree",
+    ],
+    "BCS301": [
+        "data structure", "linked list", "stack", "queue", "binary tree",
+        "graph", "sorting", "searching", "hashing", "heap",
+    ],
+}
+
+
+@dataclass
+class SubjectDetectionResult:
+    subject_code: str
+    subject_name: str
+    confidence: float
+    all_scores: Dict[str, float] = field(default_factory=dict)
+    signals_found: List[str] = field(default_factory=list)
+    needs_confirmation: bool = False
+    detected_codes_in_text: List[str] = field(default_factory=list)
+
+    def is_certain(self) -> bool:
+        return self.confidence >= CONFIDENCE_THRESHOLD and not self.needs_confirmation
+
+
+SUBJECT_NAMES: Dict[str, str] = {
+    "BAI401": "Artificial Intelligence",
+    "BAI402": "Machine Learning",
+    "BCS401": "Operating Systems",
+    "BCS402": "Computer Networks",
+    "BCS403": "Database Management Systems",
+    "BCS301": "Data Structures and Algorithms",
+}
+
+
+class SubjectDetector:
+    def __init__(self, known_subjects: Dict[str, str] = None, llm_client=None):
+        self.vocabulary = dict(SUBJECT_VOCABULARY)
+        self.names = dict(SUBJECT_NAMES)
+        if known_subjects:
+            self.names.update(known_subjects)
+        self.llm = llm_client
+
+    def detect(self, text: str, filename: str = "") -> SubjectDetectionResult:
+        text_lower = text[:15000].lower()
+
+        # 1. Explicit subject code in text (highest confidence)
+        code_matches = SUBJECT_CODE_PATTERN.findall(text[:3000])
+        valid_codes = [c for c in code_matches if c in self.names]
+
+        if valid_codes:
+            code = valid_codes[0]
+            return SubjectDetectionResult(
+                subject_code=code,
+                subject_name=self.names.get(code, code),
+                confidence=0.99,
+                signals_found=[f"Subject code '{code}' found in document header"],
+                needs_confirmation=False,
+                detected_codes_in_text=valid_codes,
+            )
+
+        # 2. Keyword scoring
+        scores: Dict[str, float] = {}
+        signals: List[str] = []
+
+        for code, keywords in self.vocabulary.items():
+            matches = [kw for kw in keywords if kw in text_lower]
+            if matches:
+                scores[code] = len(matches) / len(keywords)
+                if matches:
+                    signals.extend(f"Keyword: '{kw}'" for kw in matches[:2])
+
+        if not scores:
+            return self._unknown_result()
+
+        sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        top_code, top_score = sorted_scores[0]
+        second_score = sorted_scores[1][1] if len(sorted_scores) > 1 else 0.0
+
+        # Normalise: max keyword score → confidence band
+        confidence = min(0.98, top_score * 1.5)
+        needs_confirmation = (
+            confidence < CONFIDENCE_THRESHOLD
+            or (top_score - second_score) < 0.10
+        )
+
+        # 3. LLM fallback for low-confidence detection
+        if needs_confirmation and self.llm:
+            llm_code = self._llm_detect(text[:3000])
+            if llm_code and llm_code in self.names:
+                top_code = llm_code
+                confidence = 0.82
+                signals.append(f"LLM suggested: {llm_code}")
+                needs_confirmation = True  # still ask user
+
+        alternatives = [s[0] for s in sorted_scores[1:3]]
+        return SubjectDetectionResult(
+            subject_code=top_code,
+            subject_name=self.names.get(top_code, top_code),
+            confidence=round(confidence, 4),
+            all_scores={c: round(s, 4) for c, s in sorted_scores},
+            signals_found=signals[:6],
+            needs_confirmation=needs_confirmation,
+            detected_codes_in_text=valid_codes,
+        )
+
+    def detect_file(self, file_path: str) -> SubjectDetectionResult:
+        text = self._extract_text(file_path)
+        return self.detect(text, filename=file_path)
+
+    def register_subject(self, code: str, name: str, keywords: List[str]):
+        """Add a new subject to the detector at runtime."""
+        self.names[code] = name
+        self.vocabulary[code] = keywords
+
+    def _llm_detect(self, text_sample: str) -> Optional[str]:
+        prompt = (
+            f"What university subject code does this document belong to?\n"
+            f"Known codes: {', '.join(self.names.keys())}\n\n"
+            f"Document sample:\n{text_sample[:1500]}\n\n"
+            f"Reply with ONLY the subject code (e.g., BAI401) or 'UNKNOWN'."
+        )
+        result = self.llm.generate(prompt, temperature=0.1, max_tokens=10)
+        result = result.strip().upper()
+        return result if result in self.names else None
+
+    def _unknown_result(self) -> SubjectDetectionResult:
+        return SubjectDetectionResult(
+            subject_code="UNKNOWN",
+            subject_name="Unknown",
+            confidence=0.0,
+            needs_confirmation=True,
+        )
+
+    def _extract_text(self, file_path: str) -> str:
+        from pathlib import Path
+        suffix = Path(file_path).suffix.lower()
+        try:
+            if suffix == ".pdf":
+                import fitz
+                doc = fitz.open(file_path)
+                text = "\n".join(doc[i].get_text("text") for i in range(min(25, len(doc))))
+                doc.close()
+                return text
+            elif suffix == ".docx":
+                import docx as python_docx
+                doc = python_docx.Document(file_path)
+                return "\n".join(p.text for p in doc.paragraphs[:250])
+        except Exception as e:
+            logger.warning(f"[SubjectDetector] Extraction failed for {file_path}: {e}")
+        return ""
+```
+
+## Part 3: Module Mapper
+
+```python
+# AION-Trainer/training_studio/classifier/module_mapper.py
+"""
+Module Mapper — determines which book chapters correspond to which
+syllabus modules, without asking the user.
+
+Algorithm:
+    1. Extract TOC from document
+    2. Load syllabus structure
+    3. Match chapter topics to syllabus module topics (Jaccard + sequence)
+    4. Assign module per chapter with confidence
+
+If a chapter's content signals belong to a different module than
+its title suggests, flag it as an ambiguity.
+"""
+
+from __future__ import annotations
+
+import re
+import logging
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple
+
+logger = logging.getLogger("aion.studio.module_mapper")
+
+CONFIDENCE_THRESHOLD = 0.85
+
+
+@dataclass
+class TOCEntry:
+    title: str
+    page: int = 0
+    level: int = 1               # 1 = chapter, 2 = section, 3 = subsection
+
+
+@dataclass
+class ChapterModuleMapping:
+    chapter_title: str
+    chapter_index: int
+    assigned_module: int
+    confidence: float
+    matching_topics: List[str] = field(default_factory=list)
+    is_ambiguous: bool = False
+    ambiguity_reason: str = ""
+    alternative_module: Optional[int] = None
+
+
+@dataclass
+class ModuleMappingResult:
+    mappings: List[ChapterModuleMapping] = field(default_factory=list)
+    module_to_chapters: Dict[int, List[str]] = field(default_factory=dict)
+    overall_confidence: float = 0.0
+    ambiguous_chapters: List[ChapterModuleMapping] = field(default_factory=list)
+
+    def chapters_for_module(self, module_num: int) -> List[str]:
+        return self.module_to_chapters.get(module_num, [])
+
+
+class ModuleMapper:
+    def __init__(self, syllabus=None):
+        self.syllabus = syllabus
+
+    def map(self, toc_entries: List[TOCEntry]) -> ModuleMappingResult:
+        if not self.syllabus or not toc_entries:
+            return ModuleMappingResult()
+
+        chapters = [e for e in toc_entries if e.level == 1]
+        if not chapters:
+            chapters = toc_entries[:20]
+
+        mappings = []
+        for i, chapter in enumerate(chapters):
+            mapping = self._assign_module(chapter, i)
+            mappings.append(mapping)
+
+        # Build module → chapters map
+        mod_to_chapters: Dict[int, List[str]] = {}
+        for m in mappings:
+            mod_to_chapters.setdefault(m.assigned_module, []).append(m.chapter_title)
+
+        confidences = [m.confidence for m in mappings]
+        overall = sum(confidences) / len(confidences) if confidences else 0.0
+
+        ambiguous = [m for m in mappings if m.is_ambiguous]
+
+        result = ModuleMappingResult(
+            mappings=mappings,
+            module_to_chapters=mod_to_chapters,
+            overall_confidence=round(overall, 4),
+            ambiguous_chapters=ambiguous,
+        )
+
+        logger.info(
+            f"[ModuleMapper] Mapped {len(chapters)} chapters → "
+            f"{len(mod_to_chapters)} modules "
+            f"(confidence={overall:.2f}, ambiguous={len(ambiguous)})"
+        )
+        return result
+
+    def extract_toc(self, file_path: str) -> List[TOCEntry]:
+        suffix = file_path.lower().split(".")[-1]
+        if suffix == "pdf":
+            return self._extract_pdf_toc(file_path)
+        elif suffix == "docx":
+            return self._extract_docx_toc(file_path)
+        return []
+
+    def _assign_module(self, chapter: TOCEntry, index: int) -> ChapterModuleMapping:
+        best_module = 0
+        best_score = 0.0
+        best_topics: List[str] = []
+        second_module = 0
+        second_score = 0.0
+
+        chapter_words = set(self._tokenise(chapter.title))
+
+        for mod in self.syllabus.modules:
+            mod_words = set()
+            for topic in mod.topics:
+                mod_words.update(self._tokenise(topic))
+
+            if not mod_words or not chapter_words:
+                continue
+
+            score = len(chapter_words & mod_words) / len(chapter_words | mod_words)
+            matching = [t for t in mod.topics if any(w in self._tokenise(t) for w in chapter_words)]
+
+            if score > best_score:
+                second_score = best_score
+                second_module = best_module
+                best_score = score
+                best_module = mod.module_number
+                best_topics = matching
+            elif score > second_score:
+                second_score = score
+                second_module = mod.module_number
+
+        # If no topic match at all, guess based on sequential position
+        if best_score == 0.0 and self.syllabus.modules:
+            num_modules = len(self.syllabus.modules)
+            num_chapters = max(len(self.syllabus.modules) * 2, 1)
+            guessed_module = min(num_modules, (index * num_modules) // num_chapters + 1)
+            return ChapterModuleMapping(
+                chapter_title=chapter.title,
+                chapter_index=index,
+                assigned_module=guessed_module,
+                confidence=0.40,
+                is_ambiguous=True,
+                ambiguity_reason="No topic overlap with syllabus — position-based guess",
+            )
+
+        is_ambiguous = (
+            best_score < CONFIDENCE_THRESHOLD
+            or (best_score - second_score) < 0.10
+        )
+
+        return ChapterModuleMapping(
+            chapter_title=chapter.title,
+            chapter_index=index,
+            assigned_module=best_module,
+            confidence=round(min(0.99, best_score * 1.4), 4),
+            matching_topics=best_topics,
+            is_ambiguous=is_ambiguous,
+            ambiguity_reason=(
+                f"Close match with Module {second_module} "
+                f"(scores: {best_score:.2f} vs {second_score:.2f})"
+                if is_ambiguous else ""
+            ),
+            alternative_module=second_module if is_ambiguous else None,
+        )
+
+    def _extract_pdf_toc(self, file_path: str) -> List[TOCEntry]:
+        try:
+            import fitz
+            doc = fitz.open(file_path)
+            toc = doc.get_toc()
+            doc.close()
+
+            if toc:
+                return [TOCEntry(title=t[1], page=t[2], level=t[0]) for t in toc]
+
+            # Fallback: scan for heading-like lines in first 10 pages
+            entries = []
+            doc = fitz.open(file_path)
+            for page_num in range(min(10, len(doc))):
+                text = doc[page_num].get_text("text")
+                for line in text.splitlines():
+                    line = line.strip()
+                    if re.match(r"^(chapter|unit)\s+\d+", line, re.IGNORECASE) and len(line) < 80:
+                        entries.append(TOCEntry(title=line, page=page_num + 1, level=1))
+                    elif re.match(r"^\d+\.\d+\s+\w", line) and len(line) < 60:
+                        entries.append(TOCEntry(title=line, page=page_num + 1, level=2))
+            doc.close()
+            return entries
+
+        except Exception as e:
+            logger.warning(f"[ModuleMapper] PDF TOC extraction failed: {e}")
+            return []
+
+    def _extract_docx_toc(self, file_path: str) -> List[TOCEntry]:
+        try:
+            import docx as python_docx
+            doc = python_docx.Document(file_path)
+            entries = []
+            for para in doc.paragraphs:
+                if para.style.name.startswith("Heading 1"):
+                    entries.append(TOCEntry(title=para.text.strip(), level=1))
+                elif para.style.name.startswith("Heading 2"):
+                    entries.append(TOCEntry(title=para.text.strip(), level=2))
+            return entries
+        except Exception as e:
+            logger.warning(f"[ModuleMapper] DOCX TOC extraction failed: {e}")
+            return []
+
+    @staticmethod
+    def _tokenise(text: str) -> List[str]:
+        return [
+            w for w in re.sub(r"[^\w\s]", " ", text.lower()).split()
+            if len(w) > 2
+        ]
+```
+
+## Part 4: Analysis Result Schema
+
+```python
+# AION-Trainer/training_studio/analyser/analysis_result.py
+"""
+Analysis Result — the complete structured output of the Analyse stage.
+This is what the UI reads to render the Course Preview and the
+Ambiguity Review screen.
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+from dataclasses import dataclass, field, asdict
+from datetime import datetime
+from typing import Dict, List, Optional, Any
+
+
+class AmbiguitySeverity:
+    ERROR = "error"             # Must be resolved before training
+    WARNING = "warning"         # Should be reviewed but won't block
+    INFO = "info"               # Informational only
+
+
+@dataclass
+class FileAnalysis:
+    """Analysis result for one uploaded file."""
+    file_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    filename: str = ""
+    file_path: str = ""
+    file_size_bytes: int = 0
+
+    # Classification
+    document_type: str = ""
+    type_confidence: float = 0.0
+    type_needs_confirmation: bool = False
+    type_alternatives: List[str] = field(default_factory=list)
+    type_signals: List[str] = field(default_factory=list)
+
+    # Subject
+    subject_code: str = ""
+    subject_name: str = ""
+    subject_confidence: float = 0.0
+    subject_needs_confirmation: bool = False
+
+    # Modules
+    module_mappings: List[Dict[str, Any]] = field(default_factory=list)
+    ambiguous_chapters: List[Dict[str, Any]] = field(default_factory=list)
+
+    # Concepts found (lightweight preview — full extraction during Train)
+    estimated_concept_count: int = 0
+    sample_concepts: List[str] = field(default_factory=list)
+
+    # Status
+    status: str = "pending"        # pending | analysing | complete | error
+    error_message: str = ""
+    analysis_time_seconds: float = 0.0
+
+    @property
+    def is_ready(self) -> bool:
+        return (
+            self.status == "complete"
+            and not self.type_needs_confirmation
+            and not self.subject_needs_confirmation
+        )
+
+
+@dataclass
+class Ambiguity:
+    """One ambiguity that needs human attention."""
+    ambiguity_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    severity: str = AmbiguitySeverity.WARNING
+    file_id: str = ""
+    filename: str = ""
+    title: str = ""
+    description: str = ""
+    options: List[Dict[str, Any]] = field(default_factory=list)
+    """
+    options: list of choices, e.g.:
+        [
+            {"label": "Yes, move to Module 2", "action": "assign_module", "value": 2},
+            {"label": "Keep as Module 1", "action": "assign_module", "value": 1},
+            {"label": "Skip this chapter", "action": "skip"},
+        ]
+    """
+    resolved: bool = False
+    resolution: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class ModulePreview:
+    """One module's preview data for the Course Preview tree."""
+    module_number: int
+    title: str
+    concept_count: int
+    confidence: float
+    sample_concepts: List[str] = field(default_factory=list)
+    sources: List[str] = field(default_factory=list)         # filenames contributing
+    bloom_coverage: Dict[str, bool] = field(default_factory=dict)
+    has_diagrams: bool = False
+
+
+@dataclass
+class SessionAnalysisResult:
+    """Complete analysis result for a Training Studio session."""
+    session_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+    # Detected academic context
+    subject_code: str = ""
+    subject_name: str = ""
+    department: str = ""
+    semester: int = 0
+
+    # Per-file results
+    file_analyses: List[FileAnalysis] = field(default_factory=list)
+
+    # Aggregated ambiguities
+    ambiguities: List[Ambiguity] = field(default_factory=list)
+
+    # Module previews
+    module_previews: List[ModulePreview] = field(default_factory=list)
+
+    # Counts
+    total_files: int = 0
+    books_detected: int = 0
+    notes_detected: int = 0
+    qb_detected: int = 0
+    pyq_detected: int = 0
+
+    # Readiness
+    analysis_complete: bool = False
+    has_unresolved_errors: bool = False
+    train_enabled: bool = False
+
+    def unresolved_ambiguities(self) -> List[Ambiguity]:
+        return [a for a in self.ambiguities if not a.resolved]
+
+    def unresolved_errors(self) -> List[Ambiguity]:
+        return [
+            a for a in self.ambiguities
+            if not a.resolved and a.severity == AmbiguitySeverity.ERROR
+        ]
+
+    def compute_readiness(self):
+        """Re-evaluate train_enabled after each ambiguity resolution."""
+        self.has_unresolved_errors = len(self.unresolved_errors()) > 0
+        all_files_ready = all(
+            fa.status == "complete" for fa in self.file_analyses
+        )
+        self.train_enabled = (
+            self.analysis_complete
+            and all_files_ready
+            and not self.has_unresolved_errors
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    def to_json(self, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), indent=indent, default=str)
+```
+
+## Part 5: Ambiguity Detector
+
+```python
+# AION-Trainer/training_studio/analyser/ambiguity_detector.py
+"""
+Ambiguity Detector — finds conflicts across all uploaded files.
+
+Detects:
+    Module mismatch: file named Module1 contains Module 2 content
+    Subject conflict: two files classified to different subjects
+    Duplicate content: two files contain the same concepts
+    Low-confidence type: file type classification is uncertain
+    Low-confidence module: chapter belongs to multiple modules equally
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import List
+
+from training_studio.analyser.analysis_result import (
+    FileAnalysis, Ambiguity, AmbiguitySeverity, SessionAnalysisResult,
+)
+from training_studio.classifier.document_classifier import DocumentType
+
+logger = logging.getLogger("aion.studio.ambiguity")
+
+
+class AmbiguityDetector:
+    def detect(self, result: SessionAnalysisResult) -> List[Ambiguity]:
+        ambiguities: List[Ambiguity] = []
+
+        ambiguities.extend(self._detect_type_uncertainty(result.file_analyses))
+        ambiguities.extend(self._detect_subject_conflicts(result.file_analyses))
+        ambiguities.extend(self._detect_module_mismatches(result.file_analyses))
+        ambiguities.extend(self._detect_ambiguous_chapters(result.file_analyses))
+
+        logger.info(
+            f"[AmbiguityDetector] Found {len(ambiguities)} ambiguities "
+            f"({sum(1 for a in ambiguities if a.severity == AmbiguitySeverity.ERROR)} errors)"
+        )
+        return ambiguities
+
+    def _detect_type_uncertainty(self, files: List[FileAnalysis]) -> List[Ambiguity]:
+        ambiguities = []
+        for fa in files:
+            if fa.type_needs_confirmation:
+                alternatives = fa.type_alternatives or []
+                options = [
+                    {"label": f"Yes, it is a {fa.document_type}",
+                     "action": "confirm_type", "value": fa.document_type},
+                ] + [
+                    {"label": f"No, it is a {alt}",
+                     "action": "confirm_type", "value": alt}
+                    for alt in alternatives
+                ]
+                ambiguities.append(Ambiguity(
+                    severity=AmbiguitySeverity.WARNING,
+                    file_id=fa.file_id,
+                    filename=fa.filename,
+                    title=f"Document type uncertain: {fa.filename}",
+                    description=(
+                        f"AION classified this as '{fa.document_type}' "
+                        f"({fa.type_confidence:.0%} confidence). "
+                        f"Please confirm the document type."
+                    ),
+                    options=options,
+                ))
+        return ambiguities
+
+    def _detect_subject_conflicts(self, files: List[FileAnalysis]) -> List[Ambiguity]:
+        """Flag if two files are classified to different subjects."""
+        ambiguities = []
+        subjects = {fa.subject_code for fa in files if fa.subject_code and fa.subject_code != "UNKNOWN"}
+
+        if len(subjects) > 1:
+            subject_list = sorted(subjects)
+            options = [
+                {"label": f"All files belong to {s}",
+                 "action": "set_subject", "value": s}
+                for s in subject_list
+            ]
+            ambiguities.append(Ambiguity(
+                severity=AmbiguitySeverity.ERROR,
+                title="Multiple subjects detected across uploaded files",
+                description=(
+                    f"Files appear to belong to different subjects: "
+                    f"{', '.join(subject_list)}. "
+                    f"AION trains one subject at a time. "
+                    f"Please confirm which subject these files belong to, "
+                    f"or remove files from the wrong subject."
+                ),
+                options=options,
+            ))
+
+        # Subject-unknown files
+        for fa in files:
+            if fa.subject_needs_confirmation or fa.subject_code == "UNKNOWN":
+                ambiguities.append(Ambiguity(
+                    severity=AmbiguitySeverity.WARNING,
+                    file_id=fa.file_id,
+                    filename=fa.filename,
+                    title=f"Subject not detected: {fa.filename}",
+                    description=(
+                        f"AION could not confidently determine which subject "
+                        f"this file belongs to "
+                        f"(confidence: {fa.subject_confidence:.0%}). "
+                        f"Please select the correct subject."
+                    ),
+                    options=[
+                        {"label": "Assign to session subject",
+                         "action": "assign_subject", "value": "session"},
+                        {"label": "Remove from training",
+                         "action": "remove_file", "value": fa.file_id},
+                    ],
+                ))
+        return ambiguities
+
+    def _detect_module_mismatches(self, files: List[FileAnalysis]) -> List[Ambiguity]:
+        """
+        Detect the key scenario described in the spec:
+        a file named 'Module1.pdf' that actually contains Module 2 content.
+        """
+        import re
+        ambiguities = []
+
+        for fa in files:
+            if fa.document_type not in (DocumentType.NOTES,):
+                continue
+
+            # Extract module number from filename
+            filename_module_match = re.search(
+                r"module\s*[-_]?\s*(\d)", fa.filename, re.IGNORECASE
+            )
+            if not filename_module_match:
+                continue
+
+            filename_module = int(filename_module_match.group(1))
+
+            # Check if majority of content maps to a different module
+            if not fa.module_mappings:
+                continue
+
+            assigned_modules = [m["assigned_module"] for m in fa.module_mappings]
+            if not assigned_modules:
+                continue
+
+            majority_module = max(set(assigned_modules), key=assigned_modules.count)
+
+            if majority_module != filename_module:
+                ambiguities.append(Ambiguity(
+                    severity=AmbiguitySeverity.WARNING,
+                    file_id=fa.file_id,
+                    filename=fa.filename,
+                    title=f"Module mismatch: {fa.filename}",
+                    description=(
+                        f"The file is named 'Module {filename_module}' but its content "
+                        f"appears to belong to Module {majority_module} based on the syllabus. "
+                        f"Move automatically?"
+                    ),
+                    options=[
+                        {"label": f"Yes, treat as Module {majority_module}",
+                         "action": "reassign_module", "value": majority_module},
+                        {"label": f"No, keep as Module {filename_module}",
+                         "action": "reassign_module", "value": filename_module},
+                    ],
+                ))
+        return ambiguities
+
+    def _detect_ambiguous_chapters(self, files: List[FileAnalysis]) -> List[Ambiguity]:
+        """Chapters the module mapper couldn't confidently assign."""
+        ambiguities = []
+        for fa in files:
+            for chapter in fa.ambiguous_chapters:
+                ambiguities.append(Ambiguity(
+                    severity=AmbiguitySeverity.INFO,
+                    file_id=fa.file_id,
+                    filename=fa.filename,
+                    title=f"Ambiguous chapter: '{chapter.get('chapter_title', '')}'",
+                    description=(
+                        f"{chapter.get('ambiguity_reason', 'Low confidence assignment')} "
+                        f"(assigned Module {chapter.get('assigned_module')}, "
+                        f"confidence {chapter.get('confidence', 0):.0%})"
+                    ),
+                    options=[
+                        {"label": f"Keep in Module {chapter.get('assigned_module')}",
+                         "action": "confirm_chapter_module",
+                         "value": chapter.get("assigned_module")},
+                        {"label": f"Move to Module {chapter.get('alternative_module')}",
+                         "action": "confirm_chapter_module",
+                         "value": chapter.get("alternative_module")},
+                        {"label": "Skip this chapter",
+                         "action": "skip_chapter", "value": None},
+                    ],
+                ))
+        return ambiguities
+```
+
+## Part 6: Analysis Pipeline
+
+```python
+# AION-Trainer/training_studio/analyser/analysis_pipeline.py
+"""
+Analysis Pipeline — the Analyse stage orchestrator.
+
+No neural training. No Academic Genome construction.
+Just fast, safe classification and preview generation.
+
+Returns a SessionAnalysisResult that the UI renders as:
+    1. File list with status badges
+    2. Ambiguity review screen
+    3. Course Preview tree
+"""
+
+from __future__ import annotations
+
+import time
+import logging
+from pathlib import Path
+from typing import List, Optional, Callable, Dict, Any
+
+from training_studio.analyser.analysis_result import (
+    FileAnalysis, SessionAnalysisResult, AmbiguitySeverity, ModulePreview,
+)
+from training_studio.analyser.ambiguity_detector import AmbiguityDetector
+from training_studio.classifier.document_classifier import DocumentClassifier, DocumentType
+from training_studio.classifier.subject_detector import SubjectDetector
+from training_studio.classifier.module_mapper import ModuleMapper
+
+logger = logging.getLogger("aion.studio.analysis")
+
+
+class AnalysisPipeline:
+    """
+    Runs the full Analyse stage for a set of uploaded files.
+
+    Designed to be fast (< 2 minutes for a typical upload set).
+    Heavy operations (concept extraction, genome building) are deferred
+    to the Train stage.
+
+    progress_callback: optional callable(message, fraction) for live UI updates
+    """
+
+    def __init__(
+        self,
+        syllabus=None,
+        llm_client=None,
+        progress_callback: Optional[Callable] = None,
+    ):
+        self.syllabus = syllabus
+        self.progress_callback = progress_callback
+        self.doc_classifier = DocumentClassifier()
+        self.subject_detector = SubjectDetector(llm_client=llm_client)
+        self.module_mapper = ModuleMapper(syllabus)
+        self.ambiguity_detector = AmbiguityDetector()
+
+    def run(self, file_paths: List[str]) -> SessionAnalysisResult:
+        result = SessionAnalysisResult(total_files=len(file_paths))
+        self._emit("Starting analysis...", 0.0)
+
+        # Phase 1: Classify + detect subject for each file
+        file_analyses = []
+        for i, file_path in enumerate(file_paths):
+            self._emit(f"Analysing {Path(file_path).name}...", i / len(file_paths) * 0.6)
+            fa = self._analyse_file(file_path)
+            file_analyses.append(fa)
+            result.file_analyses.append(fa)
+
+        # Phase 2: Reconcile subject across all files
+        self._emit("Reconciling subject detection...", 0.65)
+        self._reconcile_subject(result)
+
+        # Phase 3: Count file types
+        self._count_file_types(result)
+
+        # Phase 4: Build module previews
+        self._emit("Building module preview...", 0.75)
+        result.module_previews = self._build_module_previews(result)
+
+        # Phase 5: Detect ambiguities
+        self._emit("Detecting ambiguities...", 0.85)
+        result.ambiguities = self.ambiguity_detector.detect(result)
+
+        # Phase 6: Compute readiness
+        result.analysis_complete = True
+        result.compute_readiness()
+
+        self._emit("Analysis complete.", 1.0)
+        return result
+
+    def _analyse_file(self, file_path: str) -> FileAnalysis:
+        start = time.time()
+        filename = Path(file_path).name
+        fa = FileAnalysis(
+            filename=filename,
+            file_path=file_path,
+            file_size_bytes=Path(file_path).stat().st_size if Path(file_path).exists() else 0,
+            status="analysing",
+        )
+
+        try:
+            # Step 1: Document type classification
+            type_result = self.doc_classifier.classify_file(file_path)
+            fa.document_type = type_result.document_type
+            fa.type_confidence = type_result.confidence
+            fa.type_needs_confirmation = type_result.needs_confirmation
+            fa.type_alternatives = type_result.suggested_alternatives
+            fa.type_signals = type_result.signals_found
+
+            # Step 2: Subject detection
+            subject_result = self.subject_detector.detect_file(file_path)
+            fa.subject_code = subject_result.subject_code
+            fa.subject_name = subject_result.subject_name
+            fa.subject_confidence = subject_result.confidence
+            fa.subject_needs_confirmation = subject_result.needs_confirmation
+
+            # Step 3: Module mapping (only for textbooks and notes)
+            if fa.document_type in (DocumentType.TEXTBOOK, DocumentType.NOTES):
+                toc = self.module_mapper.extract_toc(file_path)
+                if toc:
+                    mapping_result = self.module_mapper.map(toc)
+                    fa.module_mappings = [
+                        {
+                            "chapter_title": m.chapter_title,
+                            "assigned_module": m.assigned_module,
+                            "confidence": m.confidence,
+                            "matching_topics": m.matching_topics,
+                        }
+                        for m in mapping_result.mappings
+                    ]
+                    fa.ambiguous_chapters = [
+                        {
+                            "chapter_title": m.chapter_title,
+                            "assigned_module": m.assigned_module,
+                            "confidence": m.confidence,
+                            "ambiguity_reason": m.ambiguity_reason,
+                            "alternative_module": m.alternative_module,
+                        }
+                        for m in mapping_result.ambiguous_chapters
+                    ]
+
+            # Step 4: Quick concept estimation (title-level, not full extraction)
+            fa.estimated_concept_count, fa.sample_concepts = (
+                self._estimate_concepts(file_path, fa.document_type)
+            )
+
+            fa.status = "complete"
+
+        except Exception as e:
+            fa.status = "error"
+            fa.error_message = str(e)
+            logger.error(f"[AnalysisPipeline] Failed to analyse {filename}: {e}")
+
+        fa.analysis_time_seconds = round(time.time() - start, 2)
+        return fa
+
+    def _reconcile_subject(self, result: SessionAnalysisResult):
+        """
+        If all files agree on subject, set session subject.
+        If they disagree, leave resolution to ambiguity review.
+        """
+        completed = [fa for fa in result.file_analyses if fa.status == "complete"]
+        if not completed:
+            return
+
+        subject_votes: Dict[str, int] = {}
+        for fa in completed:
+            if fa.subject_code and fa.subject_code != "UNKNOWN":
+                subject_votes[fa.subject_code] = subject_votes.get(fa.subject_code, 0) + 1
+
+        if not subject_votes:
+            return
+
+        top_subject = max(subject_votes, key=subject_votes.get)
+        top_votes = subject_votes[top_subject]
+
+        if top_votes / len(completed) >= 0.6:
+            result.subject_code = top_subject
+            from training_studio.classifier.subject_detector import SUBJECT_NAMES
+            result.subject_name = SUBJECT_NAMES.get(top_subject, top_subject)
+
+    def _count_file_types(self, result: SessionAnalysisResult):
+        for fa in result.file_analyses:
+            if fa.document_type == DocumentType.TEXTBOOK:
+                result.books_detected += 1
+            elif fa.document_type == DocumentType.NOTES:
+                result.notes_detected += 1
+            elif fa.document_type == DocumentType.QUESTION_BANK:
+                result.qb_detected += 1
+            elif fa.document_type == DocumentType.PREVIOUS_PAPER:
+                result.pyq_detected += 1
+
+    def _build_module_previews(
+        self, result: SessionAnalysisResult
+    ) -> List[ModulePreview]:
+        if not self.syllabus:
+            return []
+
+        previews = []
+        for mod in self.syllabus.modules:
+            contributing_files = []
+            concepts_from_module: List[str] = []
+
+            for fa in result.file_analyses:
+                if fa.document_type in (DocumentType.TEXTBOOK, DocumentType.NOTES):
+                    module_chapters = [
+                        m["chapter_title"] for m in fa.module_mappings
+                        if m["assigned_module"] == mod.module_number
+                    ]
+                    if module_chapters:
+                        contributing_files.append(fa.filename)
+                        concepts_from_module.extend(mod.topics[:3])
+
+            # Use syllabus topics as concept preview
+            sample_concepts = list(dict.fromkeys(
+                concepts_from_module + mod.topics[:5]
+            ))[:8]
+
+            confidence = 0.95 if contributing_files else 0.30
+
+            previews.append(ModulePreview(
+                module_number=mod.module_number,
+                title=mod.title,
+                concept_count=len(mod.topics) if contributing_files else 0,
+                confidence=confidence,
+                sample_concepts=sample_concepts,
+                sources=contributing_files,
+            ))
+
+        return previews
+
+    def _estimate_concepts(
+  
+<truncated 50442 bytes>
+
+NOTE: The output was truncated because it was too long. Use a more targeted query or a smaller range to get the information you need.

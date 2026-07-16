@@ -1,0 +1,28 @@
+{
+  "subject_code": "BAI404",
+  "total_samples": 31,
+  "sample_types": {
+    "knowledge_to_question": 6,
+    "knowledge_to_answer": 1,
+    "knowledge_to_bloom": 6,
+    "knowledge_to_style": 10,
+    "knowledge_to_diagram": 1,
+    "knowledge_to_marks": 3,
+    "definition_to_concept": 3,
+    "concept_to_definition": 1
+  },
+  "bloom_distribution": {
+    "L1": 2,
+    "L2": 21,
+    "L3": 2,
+    "L4": 2,
+    "L5": 2,
+    "L6": 2
+  },
+  "marks_distribution": {
+    "2": 1,
+    "5": 2,
+    "10": 25,
+    "15": 3
+  }
+}

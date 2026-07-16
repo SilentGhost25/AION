@@ -1,0 +1,4 @@
+model:
+  device: cuda
+  name: AION-Academic-v1
+  size: 7B

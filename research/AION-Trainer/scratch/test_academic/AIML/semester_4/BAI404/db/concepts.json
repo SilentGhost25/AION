@@ -1,0 +1,641 @@
+{
+  "c_dfs": {
+    "concept_id": "c_dfs",
+    "name": "DFS",
+    "aliases": [],
+    "canonical_name": "",
+    "module_links": [
+      {
+        "subject_code": "BAI404",
+        "module": 1,
+        "is_primary": true,
+        "section": "",
+        "syllabus_text": ""
+      }
+    ],
+    "scope": "core",
+    "status": "stub",
+    "definition": "Depth first search is a graph traversal algorithm using a stack.",
+    "explanation": "DFS visits nodes as deep as possible before backtracking.",
+    "key_points": [
+      "Uses LIFO stack structure",
+      "Time complexity is O(V+E)"
+    ],
+    "algorithms": [
+      "Push start node to stack",
+      "Pop and visit",
+      "Push unvisited neighbors"
+    ],
+    "applications": [
+      "Cycle detection",
+      "Topological sorting"
+    ],
+    "formulas": [],
+    "examples": [],
+    "common_misconceptions": [],
+    "requires_diagram": true,
+    "diagram_description": "Stack structure and tree graph illustration",
+    "diagram_file": "",
+    "prerequisites": [],
+    "related_concepts": [],
+    "subsumed_by": null,
+    "subsumes": [],
+    "sources": [],
+    "syllabus_mentions": 1,
+    "question_bank_frequency": 0,
+    "previous_paper_frequency": 5,
+    "professor_notes_present": false,
+    "confidence": 0.0,
+    "importance": 0.9,
+    "bloom_progression": {
+      "L1": false,
+      "L2": false,
+      "L3": false,
+      "L4": false,
+      "L5": false,
+      "L6": false
+    },
+    "typical_marks": [],
+    "typical_question_types": [],
+    "expected_answer_outline": "",
+    "past_questions": [],
+    "created_at": "2026-07-16T10:05:33.335993",
+    "updated_at": "2026-07-16T10:05:33.336014",
+    "keywords": []
+  },
+  "c_bfs": {
+    "concept_id": "c_bfs",
+    "name": "BFS",
+    "aliases": [],
+    "canonical_name": "",
+    "module_links": [
+      {
+        "subject_code": "BAI404",
+        "module": 1,
+        "is_primary": true,
+        "section": "",
+        "syllabus_text": ""
+      }
+    ],
+    "scope": "core",
+    "status": "stub",
+    "definition": "Breadth first search is a graph traversal algorithm using a queue.",
+    "explanation": "BFS visits nodes layer by layer using a FIFO queue.",
+    "key_points": [
+      "Uses FIFO queue structure",
+      "Finds shortest path in unweighted graphs"
+    ],
+    "algorithms": [
+      "Enqueue start node",
+      "Dequeue and visit",
+      "Enqueue unvisited neighbors"
+    ],
+    "applications": [
+      "Shortest path detection",
+      "Web crawling"
+    ],
+    "formulas": [],
+    "examples": [],
+    "common_misconceptions": [],
+    "requires_diagram": false,
+    "diagram_description": "",
+    "diagram_file": "",
+    "prerequisites": [],
+    "related_concepts": [],
+    "subsumed_by": null,
+    "subsumes": [],
+    "sources": [],
+    "syllabus_mentions": 1,
+    "question_bank_frequency": 0,
+    "previous_paper_frequency": 3,
+    "professor_notes_present": false,
+    "confidence": 0.0,
+    "importance": 0.8,
+    "bloom_progression": {
+      "L1": false,
+      "L2": false,
+      "L3": false,
+      "L4": false,
+      "L5": false,
+      "L6": false
+    },
+    "typical_marks": [],
+    "typical_question_types": [],
+    "expected_answer_outline": "",
+    "past_questions": [],
+    "created_at": "2026-07-16T10:05:33.336039",
+    "updated_at": "2026-07-16T10:05:33.336045",
+    "keywords": []
+  },
+  "c_astar": {
+    "concept_id": "c_astar",
+    "name": "A* Search",
+    "aliases": [],
+    "canonical_name": "",
+    "module_links": [
+      {
+        "subject_code": "BAI404",
+        "module": 2,
+        "is_primary": true,
+        "section": "",
+        "syllabus_text": ""
+      }
+    ],
+    "scope": "core",
+    "status": "stub",
+    "definition": "A* is an informed search algorithm using heuristics.",
+    "explanation": "A* minimizes f(n) = g(n) + h(n).",
+    "key_points": [
+      "Uses admissible heuristics",
+      "Guarantees optimal path if heuristic is consistent"
+    ],
+    "algorithms": [
+      "Maintain open and closed lists",
+      "Choose node with lowest f(n)",
+      "Expand"
+    ],
+    "applications": [
+      "Map navigation",
+      "Pathfinding in games"
+    ],
+    "formulas": [
+      "f(n) = g(n) + h(n)"
+    ],
+    "examples": [],
+    "common_misconceptions": [],
+    "requires_diagram": true,
+    "diagram_description": "Open list and closed list tracing",
+    "diagram_file": "",
+    "prerequisites": [],
+    "related_concepts": [],
+    "subsumed_by": null,
+    "subsumes": [],
+    "sources": [],
+    "syllabus_mentions": 2,
+    "question_bank_frequency": 0,
+    "previous_paper_frequency": 12,
+    "professor_notes_present": false,
+    "confidence": 0.0,
+    "importance": 0.95,
+    "bloom_progression": {
+      "L1": false,
+      "L2": false,
+      "L3": false,
+      "L4": false,
+      "L5": false,
+      "L6": false
+    },
+    "typical_marks": [],
+    "typical_question_types": [],
+    "expected_answer_outline": "",
+    "past_questions": [],
+    "created_at": "2026-07-16T10:05:33.336062",
+    "updated_at": "2026-07-16T10:05:33.336067",
+    "keywords": []
+  },
+  "c_minimax": {
+    "concept_id": "c_minimax",
+    "name": "Minimax",
+    "aliases": [],
+    "canonical_name": "",
+    "module_links": [
+      {
+        "subject_code": "BAI404",
+        "module": 2,
+        "is_primary": true,
+        "section": "",
+        "syllabus_text": ""
+      }
+    ],
+    "scope": "core",
+    "status": "stub",
+    "definition": "Minimax is a decision rule used in two-player games.",
+    "explanation": "It minimizes the possible loss for a maximum loss scenario.",
+    "key_points": [
+      "Backtracks values from leaf nodes",
+      "Assumes optimal play from opponent"
+    ],
+    "algorithms": [
+      "Traverse game tree",
+      "Maximize at agent turn",
+      "Minimize at opponent turn"
+    ],
+    "applications": [
+      "Chess",
+      "Tic-Tac-Toe"
+    ],
+    "formulas": [],
+    "examples": [],
+    "common_misconceptions": [],
+    "requires_diagram": true,
+    "diagram_description": "Game search tree with minimax levels",
+    "diagram_file": "",
+    "prerequisites": [],
+    "related_concepts": [],
+    "subsumed_by": null,
+    "subsumes": [],
+    "sources": [],
+    "syllabus_mentions": 1,
+    "question_bank_frequency": 0,
+    "previous_paper_frequency": 2,
+    "professor_notes_present": false,
+    "confidence": 0.0,
+    "importance": 0.75,
+    "bloom_progression": {
+      "L1": false,
+      "L2": false,
+      "L3": false,
+      "L4": false,
+      "L5": false,
+      "L6": false
+    },
+    "typical_marks": [],
+    "typical_question_types": [],
+    "expected_answer_outline": "",
+    "past_questions": [],
+    "created_at": "2026-07-16T10:05:33.336083",
+    "updated_at": "2026-07-16T10:05:33.336088",
+    "keywords": []
+  },
+  "c_alpha_beta": {
+    "concept_id": "c_alpha_beta",
+    "name": "Alpha-Beta Pruning",
+    "aliases": [],
+    "canonical_name": "",
+    "module_links": [
+      {
+        "subject_code": "BAI404",
+        "module": 3,
+        "is_primary": true,
+        "section": "",
+        "syllabus_text": ""
+      }
+    ],
+    "scope": "core",
+    "status": "stub",
+    "definition": "Alpha-beta pruning is an optimization technique for minimax.",
+    "explanation": "It prunes branches that cannot influence the final decision.",
+    "key_points": [
+      "Maintains alpha and beta thresholds",
+      "Prunes when alpha >= beta"
+    ],
+    "algorithms": [
+      "Calculate minimax with alpha-beta cuts",
+      "Prune search tree branches"
+    ],
+    "applications": [
+      "Game playing optimizations"
+    ],
+    "formulas": [
+      "alpha >= beta"
+    ],
+    "examples": [],
+    "common_misconceptions": [],
+    "requires_diagram": true,
+    "diagram_description": "Pruned branches shown with cuts",
+    "diagram_file": "",
+    "prerequisites": [],
+    "related_concepts": [],
+    "subsumed_by": null,
+    "subsumes": [],
+    "sources": [],
+    "syllabus_mentions": 1,
+    "question_bank_frequency": 0,
+    "previous_paper_frequency": 8,
+    "professor_notes_present": false,
+    "confidence": 0.0,
+    "importance": 0.85,
+    "bloom_progression": {
+      "L1": false,
+      "L2": false,
+      "L3": false,
+      "L4": false,
+      "L5": false,
+      "L6": false
+    },
+    "typical_marks": [],
+    "typical_question_types": [],
+    "expected_answer_outline": "",
+    "past_questions": [],
+    "created_at": "2026-07-16T10:05:33.336104",
+    "updated_at": "2026-07-16T10:05:33.336110",
+    "keywords": []
+  },
+  "c_csp": {
+    "concept_id": "c_csp",
+    "name": "Constraint Satisfaction Problems",
+    "aliases": [],
+    "canonical_name": "",
+    "module_links": [
+      {
+        "subject_code": "BAI404",
+        "module": 3,
+        "is_primary": true,
+        "section": "",
+        "syllabus_text": ""
+      }
+    ],
+    "scope": "core",
+    "status": "stub",
+    "definition": "CSP are mathematical problems defined by constraints.",
+    "explanation": "Variables must be assigned values satisfying all constraints.",
+    "key_points": [
+      "Consists of Variables, Domains, Constraints",
+      "Backtracking search with MRV heuristic"
+    ],
+    "algorithms": [
+      "Backtracking search",
+      "Forward checking",
+      "Arc consistency AC-3"
+    ],
+    "applications": [
+      "Sudoku solving",
+      "Map coloring"
+    ],
+    "formulas": [],
+    "examples": [],
+    "common_misconceptions": [],
+    "requires_diagram": false,
+    "diagram_description": "",
+    "diagram_file": "",
+    "prerequisites": [],
+    "related_concepts": [],
+    "subsumed_by": null,
+    "subsumes": [],
+    "sources": [],
+    "syllabus_mentions": 1,
+    "question_bank_frequency": 0,
+    "previous_paper_frequency": 4,
+    "professor_notes_present": false,
+    "confidence": 0.0,
+    "importance": 0.7,
+    "bloom_progression": {
+      "L1": false,
+      "L2": false,
+      "L3": false,
+      "L4": false,
+      "L5": false,
+      "L6": false
+    },
+    "typical_marks": [],
+    "typical_question_types": [],
+    "expected_answer_outline": "",
+    "past_questions": [],
+    "created_at": "2026-07-16T10:05:33.336123",
+    "updated_at": "2026-07-16T10:05:33.336127",
+    "keywords": []
+  },
+  "c_expert_systems": {
+    "concept_id": "c_expert_systems",
+    "name": "Expert Systems",
+    "aliases": [],
+    "canonical_name": "",
+    "module_links": [
+      {
+        "subject_code": "BAI404",
+        "module": 4,
+        "is_primary": true,
+        "section": "",
+        "syllabus_text": ""
+      }
+    ],
+    "scope": "core",
+    "status": "stub",
+    "definition": "Expert systems mimic human decision-making processes.",
+    "explanation": "Consists of an inference engine and rule database.",
+    "key_points": [
+      "Forward chaining starts with facts",
+      "Backward chaining starts with goals"
+    ],
+    "algorithms": [
+      "Inference loop matching rules",
+      "Forward chaining algorithm",
+      "Backward chaining algorithm"
+    ],
+    "applications": [
+      "Medical diagnosis",
+      "Financial credit scoring"
+    ],
+    "formulas": [],
+    "examples": [],
+    "common_misconceptions": [],
+    "requires_diagram": true,
+    "diagram_description": "Knowledge base, working memory and inference engine block diagram",
+    "diagram_file": "",
+    "prerequisites": [],
+    "related_concepts": [],
+    "subsumed_by": null,
+    "subsumes": [],
+    "sources": [],
+    "syllabus_mentions": 1,
+    "question_bank_frequency": 0,
+    "previous_paper_frequency": 1,
+    "professor_notes_present": false,
+    "confidence": 0.0,
+    "importance": 0.65,
+    "bloom_progression": {
+      "L1": false,
+      "L2": false,
+      "L3": false,
+      "L4": false,
+      "L5": false,
+      "L6": false
+    },
+    "typical_marks": [],
+    "typical_question_types": [],
+    "expected_answer_outline": "",
+    "past_questions": [],
+    "created_at": "2026-07-16T10:05:33.336142",
+    "updated_at": "2026-07-16T10:05:33.336147",
+    "keywords": []
+  },
+  "c_nlp": {
+    "concept_id": "c_nlp",
+    "name": "Natural Language Processing",
+    "aliases": [],
+    "canonical_name": "",
+    "module_links": [
+      {
+        "subject_code": "BAI404",
+        "module": 4,
+        "is_primary": true,
+        "section": "",
+        "syllabus_text": ""
+      }
+    ],
+    "scope": "core",
+    "status": "stub",
+    "definition": "NLP processes natural human language.",
+    "explanation": "Covers parsing, syntax analysis, and semantics.",
+    "key_points": [
+      "Tokenisation and POS tagging",
+      "Syntactic parsing using context-free grammars"
+    ],
+    "algorithms": [],
+    "applications": [
+      "Machine translation",
+      "Sentiment analysis"
+    ],
+    "formulas": [],
+    "examples": [],
+    "common_misconceptions": [],
+    "requires_diagram": false,
+    "diagram_description": "",
+    "diagram_file": "",
+    "prerequisites": [],
+    "related_concepts": [],
+    "subsumed_by": null,
+    "subsumes": [],
+    "sources": [],
+    "syllabus_mentions": 1,
+    "question_bank_frequency": 0,
+    "previous_paper_frequency": 6,
+    "professor_notes_present": false,
+    "confidence": 0.0,
+    "importance": 0.8,
+    "bloom_progression": {
+      "L1": false,
+      "L2": false,
+      "L3": false,
+      "L4": false,
+      "L5": false,
+      "L6": false
+    },
+    "typical_marks": [],
+    "typical_question_types": [],
+    "expected_answer_outline": "",
+    "past_questions": [],
+    "created_at": "2026-07-16T10:05:33.336161",
+    "updated_at": "2026-07-16T10:05:33.336167",
+    "keywords": []
+  },
+  "c_ann": {
+    "concept_id": "c_ann",
+    "name": "Artificial Neural Networks",
+    "aliases": [],
+    "canonical_name": "",
+    "module_links": [
+      {
+        "subject_code": "BAI404",
+        "module": 5,
+        "is_primary": true,
+        "section": "",
+        "syllabus_text": ""
+      }
+    ],
+    "scope": "core",
+    "status": "stub",
+    "definition": "ANN are models inspired by biological neural structures.",
+    "explanation": "Consists of input, hidden, and output layers.",
+    "key_points": [
+      "Backpropagation adjusts connection weights",
+      "Activation functions introduce non-linearity"
+    ],
+    "algorithms": [
+      "Feedforward pass",
+      "Calculate error loss",
+      "Backpropagate errors via gradient descent"
+    ],
+    "applications": [
+      "Image recognition",
+      "Time-series forecasting"
+    ],
+    "formulas": [
+      "y = f(w.x + b)"
+    ],
+    "examples": [],
+    "common_misconceptions": [],
+    "requires_diagram": true,
+    "diagram_description": "Multilayer perceptron architecture diagram",
+    "diagram_file": "",
+    "prerequisites": [],
+    "related_concepts": [],
+    "subsumed_by": null,
+    "subsumes": [],
+    "sources": [],
+    "syllabus_mentions": 2,
+    "question_bank_frequency": 0,
+    "previous_paper_frequency": 15,
+    "professor_notes_present": false,
+    "confidence": 0.0,
+    "importance": 0.95,
+    "bloom_progression": {
+      "L1": false,
+      "L2": false,
+      "L3": false,
+      "L4": false,
+      "L5": false,
+      "L6": false
+    },
+    "typical_marks": [],
+    "typical_question_types": [],
+    "expected_answer_outline": "",
+    "past_questions": [],
+    "created_at": "2026-07-16T10:05:33.336179",
+    "updated_at": "2026-07-16T10:05:33.336184",
+    "keywords": []
+  },
+  "c_clustering": {
+    "concept_id": "c_clustering",
+    "name": "Clustering",
+    "aliases": [],
+    "canonical_name": "",
+    "module_links": [
+      {
+        "subject_code": "BAI404",
+        "module": 5,
+        "is_primary": true,
+        "section": "",
+        "syllabus_text": ""
+      }
+    ],
+    "scope": "core",
+    "status": "stub",
+    "definition": "Clustering groups similar data objects together.",
+    "explanation": "Unsupervised learning method.",
+    "key_points": [
+      "K-means algorithm partitions into K groups",
+      "Hierarchical clustering builds trees"
+    ],
+    "algorithms": [
+      "K-means centroid assignment",
+      "Centroid update loop"
+    ],
+    "applications": [
+      "Customer segmentation",
+      "Anomaly detection"
+    ],
+    "formulas": [],
+    "examples": [],
+    "common_misconceptions": [],
+    "requires_diagram": false,
+    "diagram_description": "",
+    "diagram_file": "",
+    "prerequisites": [],
+    "related_concepts": [],
+    "subsumed_by": null,
+    "subsumes": [],
+    "sources": [],
+    "syllabus_mentions": 1,
+    "question_bank_frequency": 0,
+    "previous_paper_frequency": 3,
+    "professor_notes_present": false,
+    "confidence": 0.0,
+    "importance": 0.75,
+    "bloom_progression": {
+      "L1": false,
+      "L2": false,
+      "L3": false,
+      "L4": false,
+      "L5": false,
+      "L6": false
+    },
+    "typical_marks": [],
+    "typical_question_types": [],
+    "expected_answer_outline": "",
+    "past_questions": [],
+    "created_at": "2026-07-16T10:05:33.336196",
+    "updated_at": "2026-07-16T10:05:33.336201",
+    "keywords": []
+  }
+}

@@ -1,0 +1,10 @@
+generation:
+  bloom_distribution:
+    L1: 0.2
+    L2: 0.3
+    L3: 0.3
+    L4: 0.1
+    L5: 0.05
+    L6: 0.05
+  default_marks: 10
+  max_questions: 12

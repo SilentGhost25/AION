@@ -1,0 +1,10 @@
+{
+    "university": "Autonomous Institution Template",
+    "code": "AUTO",
+    "schemes": [
+        2022,
+        2025,
+        2026
+    ],
+    "default_scheme": 2026
+}

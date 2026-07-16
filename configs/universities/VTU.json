@@ -1,0 +1,11 @@
+{
+    "university": "Visvesvaraya Technological University",
+    "code": "VTU",
+    "schemes": [
+        2018,
+        2021,
+        2022,
+        2026
+    ],
+    "default_scheme": 2022
+}

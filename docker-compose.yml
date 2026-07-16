@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: aion_postgres
+    environment:
+      POSTGRES_DB: aion_db
+      POSTGRES_USER: aion_user
+      POSTGRES_PASSWORD: aion_password
+    ports:
+      - "5435:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: aion_vector_db
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  redis:
+    image: redis:7-alpine
+    container_name: aion_cache
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:
+  qdrant_data:

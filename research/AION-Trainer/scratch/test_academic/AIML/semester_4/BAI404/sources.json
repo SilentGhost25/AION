@@ -1,0 +1,19 @@
+{
+  "03b93d2e-d5d3-48aa-9d38-34275c697353": {
+    "source_id": "03b93d2e-d5d3-48aa-9d38-34275c697353",
+    "file_path": "scratch\\test_academic\\AIML\\semester_4\\BAI404\\notes\\notes_dfs.txt",
+    "file_name": "notes_dfs.txt",
+    "source_type": "notes",
+    "subject_code": "BAI404",
+    "academic_depth": 0.8,
+    "coverage": 0.8,
+    "grammar_quality": 0.9,
+    "diagram_quality": 0.8,
+    "professor_rating": 0.0,
+    "reliability": 0.685,
+    "total_pages": 0,
+    "concepts_extracted": 0,
+    "uploaded_at": "2026-07-16T09:34:54.593907",
+    "hash": "dc466e1aa7e57ea6"
+  }
+}

@@ -1,0 +1,106 @@
+# AION Trainer Configuration
+
+# Dataset
+dataset:
+  path: "dataset/"
+  version: "latest"           # "latest" or specific version string
+  train_split: 0.9
+  val_split: 0.1
+  shuffle: true
+  seed: 42
+
+# Model
+model:
+  base_model: "google/flan-t5-base"  # or "google/flan-t5-small" for testing
+  max_input_length: 512
+  max_output_length: 256
+  dropout: 0.1
+
+# Training
+training:
+  epochs: 10
+  batch_size: 8
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-4
+  weight_decay: 0.01
+  warmup_steps: 500
+  max_grad_norm: 1.0
+  fp16: true                  # Mixed precision
+  dataloader_num_workers: 4
+  save_steps: 500
+  eval_steps: 500
+  logging_steps: 100
+
+# Curriculum Learning
+curriculum:
+  enabled: true
+  stages:
+    - name: "Definitions & Basic Recall"
+      difficulty: "easy"
+      bloom_levels: ["L1", "L2"]
+      sample_types: ["knowledge_to_question", "definition_to_concept"]
+      epochs: 2
+    - name: "Explanation & Application"
+      difficulty: "medium"
+      bloom_levels: ["L2", "L3"]
+      sample_types: ["knowledge_to_question", "knowledge_to_answer"]
+      epochs: 3
+    - name: "Analysis & Comparison"
+      difficulty: "hard"
+      bloom_levels: ["L4", "L5"]
+      sample_types: ["comparison_generation", "question_improvement"]
+      epochs: 3
+    - name: "Design & Evaluation"
+      difficulty: "advanced"
+      bloom_levels: ["L5", "L6"]
+      sample_types: ["knowledge_to_question", "multi_concept_question"]
+      epochs: 2
+
+# Continual Learning
+continual:
+  enabled: true
+  replay_buffer_size: 10000
+  replay_ratio: 0.3           # 30% replay samples in each batch
+  ewc_lambda: 1000            # Elastic Weight Consolidation strength
+  max_incremental_epochs: 3
+
+# Checkpoints
+checkpoints:
+  dir: "checkpoints/"
+  keep_last_n: 5
+  save_best: true
+  metric_for_best: "overall_score"
+
+# Benchmark
+benchmark:
+  metrics:
+    - grammar
+    - academic_quality
+    - bloom_accuracy
+    - vtu_similarity
+    - question_diversity
+    - module_accuracy
+    - expected_answer_quality
+    - diagram_prediction
+  thresholds:
+    grammar: 0.90
+    academic_quality: 0.85
+    bloom_accuracy: 0.85
+    vtu_similarity: 0.80
+    question_diversity: 0.80
+    module_accuracy: 0.90
+    expected_answer_quality: 0.85
+    diagram_prediction: 0.80
+
+# Logging
+logging:
+  dir: "logs/"
+  use_wandb: false
+  wandb_project: "aion-trainer"
+  wandb_entity: ""
+
+# Distributed
+distributed:
+  enabled: false
+  backend: "nccl"
+  num_gpus: 1

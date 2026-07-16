@@ -1,0 +1,4 @@
+runtime:
+  debug: true
+  env: development
+  log_level: DEBUG

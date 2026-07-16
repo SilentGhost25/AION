@@ -1,0 +1,66 @@
+{
+  "c6bf0fb2-07b8-4ff8-b8c1-7f4204fc883e": {
+    "concept_id": "c6bf0fb2-07b8-4ff8-b8c1-7f4204fc883e",
+    "name": "DFS TOPIC",
+    "aliases": [],
+    "canonical_name": "DFS TOPIC",
+    "module_links": [
+      {
+        "subject_code": "BAI404",
+        "module": 1,
+        "is_primary": false,
+        "section": "",
+        "syllabus_text": ""
+      }
+    ],
+    "scope": "core",
+    "status": "needs_verification",
+    "definition": "DFS topic is defined as depth first search. It uses a stack.",
+    "explanation": "",
+    "key_points": [],
+    "algorithms": [],
+    "applications": [],
+    "formulas": [],
+    "examples": [],
+    "common_misconceptions": [],
+    "requires_diagram": false,
+    "diagram_description": "",
+    "diagram_file": "",
+    "prerequisites": [],
+    "related_concepts": [],
+    "subsumed_by": null,
+    "subsumes": [],
+    "sources": [
+      {
+        "source_id": "03b93d2e-d5d3-48aa-9d38-34275c697353",
+        "source_type": "notes",
+        "location": "end",
+        "excerpt": "DFS topic is defined as depth first search. It uses a stack.",
+        "reliability": 0.685
+      }
+    ],
+    "syllabus_mentions": 0,
+    "question_bank_frequency": 0,
+    "previous_paper_frequency": 0,
+    "professor_notes_present": false,
+    "confidence": 0.45,
+    "importance": 0.274,
+    "bloom_progression": {
+      "L1": false,
+      "L2": false,
+      "L3": false,
+      "L4": false,
+      "L5": false,
+      "L6": false
+    },
+    "typical_marks": [],
+    "typical_question_types": [],
+    "expected_answer_outline": "",
+    "past_questions": [],
+    "created_at": "2026-07-16T09:34:54.595334",
+    "updated_at": "2026-07-16T09:34:54.595344",
+    "keywords": [
+      "topic"
+    ]
+  }
+}

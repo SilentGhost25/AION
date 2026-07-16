@@ -1,0 +1,30 @@
+{
+    "code": "BAI401",
+    "name": "Artificial Intelligence & Design Thinking",
+    "credits": 4,
+    "department": "AIML",
+    "semester": 4,
+    "scheme": 2022,
+    "modules": [
+        {
+            "number": 1,
+            "title": "Introduction to AI & State Space Search"
+        },
+        {
+            "number": 2,
+            "title": "Knowledge Representation & Logic"
+        },
+        {
+            "number": 3,
+            "title": "Machine Learning Foundations"
+        },
+        {
+            "number": 4,
+            "title": "Design Thinking Phase 1 & 2"
+        },
+        {
+            "number": 5,
+            "title": "AI System Evaluation & Design Synthesis"
+        }
+    ]
+}
