@@ -1,126 +1,253 @@
 import { useState } from "react";
-import { Eye, Download, Trash2, Calendar, FileText } from "lucide-react";
+import { Download, Trash2, Calendar, FileText, ShieldCheck, BookOpen, Clock, ChevronRight, Search, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { historyData } from "@/lib/mock-data";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { historyData, MODULE_CO_BLOOM } from "@/lib/mock-data";
 import { toast } from "sonner";
 import { PaperPreview } from "@/components/paper-preview";
-
-const MOCK_PREVIEW_QUESTIONS = [
-  { id: "q1", text: "Define Machine Learning. Explain the different types with examples.", marks: 10, co: "CO1", bloomLevel: "L1", module: 1 },
-  { id: "q2", text: "What is Bias-Variance Tradeoff? Explain with diagrams.", marks: 10, co: "CO1", bloomLevel: "L2", module: 1 },
-  { id: "q3", text: "Apply Gradient Descent to optimize Linear Regression parameters.", marks: 10, co: "CO2", bloomLevel: "L3", module: 2 },
-  { id: "q4", text: "Using SVM, apply the kernel trick to classify a non-linearly separable dataset.", marks: 10, co: "CO2", bloomLevel: "L3", module: 2 },
-  { id: "q5", text: "Analyze K-Means clustering. Explain the Elbow method for choosing K.", marks: 10, co: "CO3", bloomLevel: "L4", module: 3 },
-  { id: "q6", text: "Analyze PCA and demonstrate dimensionality reduction while preserving variance.", marks: 10, co: "CO3", bloomLevel: "L4", module: 3 },
-  { id: "q7", text: "Analyze the Backpropagation algorithm and demonstrate weight updates for a 3-layer network.", marks: 10, co: "CO3", bloomLevel: "L4", module: 4 },
-  { id: "q8", text: "Compare and analyze ReLU, Sigmoid, and Softmax activation functions.", marks: 10, co: "CO3", bloomLevel: "L4", module: 4 },
-  { id: "q9", text: "Apply cross-validation techniques to evaluate and compare ML models.", marks: 10, co: "CO2", bloomLevel: "L3", module: 5 },
-  { id: "q10", text: "Apply AdaBoost and compare results with a single Decision Tree classifier.", marks: 10, co: "CO2", bloomLevel: "L3", module: 5 },
-];
+import { motion, AnimatePresence } from "framer-motion";
 
 export default function History() {
-  const [selectedPaper, setSelectedPaper] = useState<any>(null);
+  const [selectedId, setSelectedId] = useState<string>(historyData[0]?.id ?? "");
+  const [search, setSearch] = useState("");
+  const [papers, setPapers] = useState(historyData);
 
-  const handleDelete = (id: string) => {
-    toast.success(`Paper ${id} deleted permanently`);
-  };
+  const filtered = papers.filter(p =>
+    p.subject.toLowerCase().includes(search.toLowerCase()) ||
+    p.examType.toLowerCase().includes(search.toLowerCase()) ||
+    p.id.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const selectedPaper = papers.find(p => p.id === selectedId);
 
   const handleDownload = (id: string) => {
-    toast.success(`Downloading paper ${id}.docx...`);
+    toast.success(`Paper ${id}.docx downloaded successfully`);
+  };
+
+  const handleDelete = (id: string) => {
+    setPapers(prev => prev.filter(p => p.id !== id));
+    if (selectedId === id) {
+      const remaining = papers.filter(p => p.id !== id);
+      setSelectedId(remaining[0]?.id ?? "");
+    }
+    toast.success(`Paper ${id} deleted`);
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-foreground font-serif tracking-tight">Generated Papers</h1>
-        <p className="text-muted-foreground">View and manage previously generated question papers.</p>
-      </div>
-
-      <div className="bg-card border rounded-lg shadow-sm overflow-hidden">
-        <Table>
-          <TableHeader className="bg-muted/50">
-            <TableRow>
-              <TableHead>Paper ID</TableHead>
-              <TableHead>Subject</TableHead>
-              <TableHead>Exam Type</TableHead>
-              <TableHead>Semester</TableHead>
-              <TableHead>Generated On</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {historyData.map((paper) => (
-              <TableRow key={paper.id}>
-                <TableCell className="font-medium font-mono text-xs">{paper.id}</TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-primary opacity-70" />
-                    {paper.subject}
-                  </div>
-                </TableCell>
-                <TableCell>{paper.examType}</TableCell>
-                <TableCell>{paper.semester}</TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                    <Calendar className="h-3 w-3" />
-                    {paper.generatedOn}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge variant={paper.status === 'Downloaded' ? 'default' : 'secondary'} className="font-normal">
-                    {paper.status}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-2">
-                    <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary" onClick={() => setSelectedPaper(paper)}>
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary" onClick={() => handleDownload(paper.id)}>
-                      <Download className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(paper.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-
-      <Dialog open={!!selectedPaper} onOpenChange={(open) => !open && setSelectedPaper(null)}>
-        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0">
-          <DialogHeader className="p-6 border-b pb-4">
-            <div className="flex items-center justify-between pr-8">
-              <div>
-                <DialogTitle className="text-xl">{selectedPaper?.id}</DialogTitle>
-                <p className="text-sm text-muted-foreground mt-1">Generated on {selectedPaper?.generatedOn}</p>
-              </div>
-              <Button size="sm" onClick={() => selectedPaper && handleDownload(selectedPaper.id)}>
-                <Download className="mr-2 h-4 w-4" /> Download .docx
-              </Button>
-            </div>
-          </DialogHeader>
-          <div className="flex-1 overflow-y-auto p-6 bg-muted/30">
-            <div className="bg-white p-8 shadow-sm border max-w-3xl mx-auto">
-              <PaperPreview 
-                formData={{
-                  subjectName: selectedPaper?.subject,
-                  examType: selectedPaper?.examType,
-                  semester: selectedPaper?.semester
-                }} 
-                questions={MOCK_PREVIEW_QUESTIONS} 
-              />
-            </div>
+    <div className="space-y-4 h-full flex flex-col">
+      {/* Header */}
+      <div className="flex items-start justify-between flex-shrink-0">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground font-serif tracking-tight">Paper Review</h1>
+          <p className="text-muted-foreground">Browse and review all previously generated question papers.</p>
+        </div>
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <div className="flex items-center gap-1.5 bg-card border rounded-md px-3 py-1.5">
+            <FileText className="h-4 w-4 text-primary" />
+            <span className="font-medium text-foreground">{papers.length}</span>
+            <span>papers</span>
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </div>
+
+      {/* Split Panel */}
+      <div className="flex gap-4 flex-1 min-h-0" style={{ height: "calc(100vh - 220px)" }}>
+
+        {/* ── Left Panel: Paper List ── */}
+        <div className="w-80 flex-shrink-0 flex flex-col gap-3">
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search papers..."
+              className="pl-9"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+
+          {/* List */}
+          <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+            {filtered.length === 0 && (
+              <div className="text-center py-12 text-muted-foreground text-sm">No papers found.</div>
+            )}
+            {filtered.map(paper => {
+              const isSelected = paper.id === selectedId;
+              return (
+                <button
+                  key={paper.id}
+                  onClick={() => setSelectedId(paper.id)}
+                  className={`w-full text-left rounded-lg border p-4 transition-all duration-150 group ${
+                    isSelected
+                      ? "border-primary bg-primary/5 shadow-sm"
+                      : "border-muted bg-card hover:border-primary/40 hover:bg-muted/30"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${isSelected ? "bg-primary" : "bg-muted"}`}>
+                        <FileText className={`h-4 w-4 ${isSelected ? "text-primary-foreground" : "text-muted-foreground"}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm leading-tight truncate">{paper.subject}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{paper.subjectCode}</p>
+                      </div>
+                    </div>
+                    <Badge
+                      variant={paper.status === "Downloaded" ? "default" : "secondary"}
+                      className="text-[10px] shrink-0"
+                    >
+                      {paper.status}
+                    </Badge>
+                  </div>
+
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <BookOpen className="h-3 w-3" />
+                      {paper.examType}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Calendar className="h-3 w-3" />
+                      {paper.generatedOn}
+                    </span>
+                  </div>
+
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {paper.modulesIncluded.map(mod => (
+                      <span key={mod} className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                        isSelected ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+                      }`}>
+                        M{mod}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground font-mono">{paper.id}</span>
+                    <ChevronRight className={`h-3.5 w-3.5 transition-colors ${isSelected ? "text-primary" : "text-muted-foreground/50"}`} />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Right Panel: Paper Review ── */}
+        <div className="flex-1 min-w-0 flex flex-col rounded-lg border bg-card overflow-hidden">
+          <AnimatePresence mode="wait">
+            {!selectedPaper ? (
+              <motion.div
+                key="empty"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex-1 flex items-center justify-center text-center p-12"
+              >
+                <div className="space-y-3">
+                  <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto">
+                    <FileText className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <p className="font-medium text-foreground">Select a paper to review</p>
+                  <p className="text-sm text-muted-foreground">Click any paper from the list on the left to view its full content.</p>
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key={selectedPaper.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="flex flex-col h-full"
+              >
+                {/* Review Header */}
+                <div className="px-6 py-4 border-b flex items-start justify-between gap-4 flex-shrink-0">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h2 className="font-bold text-lg">{selectedPaper.subject}</h2>
+                      <Badge variant="outline" className="font-mono text-xs">{selectedPaper.subjectCode}</Badge>
+                    </div>
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      <span className="flex items-center gap-1.5"><BookOpen className="h-3.5 w-3.5" />{selectedPaper.examType} · Sem {selectedPaper.semester}</span>
+                      <span className="flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5" />Generated {selectedPaper.generatedOn}</span>
+                      <span className="flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" />{selectedPaper.duration}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-destructive hover:text-destructive border-destructive/30 hover:border-destructive/60"
+                      onClick={() => handleDelete(selectedPaper.id)}
+                    >
+                      <Trash2 className="mr-2 h-3.5 w-3.5" />
+                      Delete
+                    </Button>
+                    <Button size="sm" onClick={() => handleDownload(selectedPaper.id)}>
+                      <Download className="mr-2 h-3.5 w-3.5" />
+                      Download .docx
+                    </Button>
+                  </div>
+                </div>
+
+                {/* CO Compliance Summary */}
+                <div className="px-6 py-3 border-b bg-muted/20 flex-shrink-0">
+                  <div className="flex items-center gap-4 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                      <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                        {selectedPaper.questions.length} questions · 100% CO-Bloom compliant
+                      </span>
+                    </div>
+                    <Separator orientation="vertical" className="h-4" />
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="font-medium">Coverage:</span>
+                      <span className="italic">{selectedPaper.coverageScope}</span>
+                    </div>
+                    <Separator orientation="vertical" className="h-4" />
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground font-medium">Modules included:</span>
+                      {selectedPaper.modulesIncluded.map(mod => {
+                        const mapping = MODULE_CO_BLOOM[mod];
+                        return (
+                          <span key={mod} className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded font-semibold">
+                            M{mod} · {mapping.co} · {mapping.bloom}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Paper Content */}
+                <div className="flex-1 overflow-y-auto bg-slate-100 dark:bg-slate-900 p-6">
+                  <div className="max-w-3xl mx-auto bg-white shadow-md border rounded-sm">
+                    <div className="p-8">
+                      <PaperPreview
+                        formData={{
+                          examType: selectedPaper.examType,
+                          department: selectedPaper.department,
+                          subjectName: selectedPaper.subject,
+                          subjectCode: selectedPaper.subjectCode,
+                          semester: selectedPaper.semester,
+                          maxMarks: selectedPaper.maxMarks,
+                          batch: selectedPaper.batch,
+                          duration: selectedPaper.duration,
+                          dateOfIat: selectedPaper.dateOfIat,
+                          teachingDept: selectedPaper.teachingDept,
+                        }}
+                        questions={selectedPaper.questions}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
     </div>
   );
 }
