@@ -22,13 +22,15 @@ import { motion, AnimatePresence } from "framer-motion";
 // ────────────────────────────────────────────────────────────
 interface TemplateBlock {
   id: string;
-  label: string;           // "Part A", "Section 1", etc.
-  instruction: string;     // "Answer ALL questions", "Answer any 5 of 7", etc.
-  questions: number;       // total questions in this block
-  attemptAll: boolean;     // true = answer all, false = answer some
-  attemptCount: number;    // how many to attempt (if not all)
+  label: string;
+  instruction: string;
+  questions: number;
+  attemptAll: boolean;
+  attemptCount: number;
   marksPerQuestion: number;
-  hasOrPattern: boolean;   // IAT style: Q1 OR Q2
+  marksMin: number;        // lower bound when randomization is on
+  marksMax: number;        // upper bound when randomization is on
+  hasOrPattern: boolean;
 }
 
 interface ExamTemplate {
@@ -38,6 +40,7 @@ interface ExamTemplate {
   blocks: TemplateBlock[];
   referenceFile: File | null;
   referenceFileName: string;
+  randomizationEnabled: boolean; // use learned distributions instead of fixed marks
 }
 
 interface TrainingFile {
@@ -54,7 +57,7 @@ interface TrainingFile {
 // ────────────────────────────────────────────────────────────
 //  Constants
 // ────────────────────────────────────────────────────────────
-const EXAM_TYPES = ["IAT-1", "IAT-2", "IAT-3", "SEE"];
+const EXAM_TYPES = ["IAT-1", "IAT-2", "SEE"];
 
 const LEARN_TYPE_CONFIG: Record<TrainingFile["learnType"], { label: string; color: string; icon: typeof Brain }> = {
   framing:    { label: "Question Framing",   color: "bg-blue-100 text-blue-700 border-blue-200",   icon: Brain },
@@ -66,35 +69,27 @@ const LEARN_TYPE_CONFIG: Record<TrainingFile["learnType"], { label: string; colo
 const DEFAULT_TEMPLATES: Record<string, ExamTemplate> = {
   "IAT-1": {
     examType: "IAT-1", totalMarks: 50, duration: "1.5 hrs",
-    referenceFile: null, referenceFileName: "",
+    referenceFile: null, referenceFileName: "", randomizationEnabled: false,
     blocks: [
-      { id: "b1", label: "Part A", instruction: "Answer ALL questions", questions: 5, attemptAll: true, attemptCount: 5, marksPerQuestion: 2, hasOrPattern: false },
-      { id: "b2", label: "Part B", instruction: "Answer any FOUR of FIVE questions (with OR)", questions: 5, attemptAll: false, attemptCount: 4, marksPerQuestion: 10, hasOrPattern: true },
+      { id: "b1", label: "Part A", instruction: "Answer ALL questions", questions: 5, attemptAll: true, attemptCount: 5, marksPerQuestion: 2, marksMin: 1, marksMax: 3, hasOrPattern: false },
+      { id: "b2", label: "Part B", instruction: "Answer any FOUR of FIVE questions (with OR)", questions: 5, attemptAll: false, attemptCount: 4, marksPerQuestion: 10, marksMin: 8, marksMax: 12, hasOrPattern: true },
     ],
   },
   "IAT-2": {
     examType: "IAT-2", totalMarks: 50, duration: "1.5 hrs",
-    referenceFile: null, referenceFileName: "",
+    referenceFile: null, referenceFileName: "", randomizationEnabled: false,
     blocks: [
-      { id: "b1", label: "Part A", instruction: "Answer ALL questions", questions: 5, attemptAll: true, attemptCount: 5, marksPerQuestion: 2, hasOrPattern: false },
-      { id: "b2", label: "Part B", instruction: "Answer any FOUR of FIVE questions (with OR)", questions: 5, attemptAll: false, attemptCount: 4, marksPerQuestion: 10, hasOrPattern: true },
-    ],
-  },
-  "IAT-3": {
-    examType: "IAT-3", totalMarks: 50, duration: "1.5 hrs",
-    referenceFile: null, referenceFileName: "",
-    blocks: [
-      { id: "b1", label: "Part A", instruction: "Answer ALL questions", questions: 5, attemptAll: true, attemptCount: 5, marksPerQuestion: 2, hasOrPattern: false },
-      { id: "b2", label: "Part B", instruction: "Answer any FOUR of FIVE questions (with OR)", questions: 5, attemptAll: false, attemptCount: 4, marksPerQuestion: 10, hasOrPattern: true },
+      { id: "b1", label: "Part A", instruction: "Answer ALL questions", questions: 5, attemptAll: true, attemptCount: 5, marksPerQuestion: 2, marksMin: 1, marksMax: 3, hasOrPattern: false },
+      { id: "b2", label: "Part B", instruction: "Answer any FOUR of FIVE questions (with OR)", questions: 5, attemptAll: false, attemptCount: 4, marksPerQuestion: 10, marksMin: 8, marksMax: 12, hasOrPattern: true },
     ],
   },
   "SEE": {
     examType: "SEE", totalMarks: 100, duration: "3 hrs",
-    referenceFile: null, referenceFileName: "",
+    referenceFile: null, referenceFileName: "", randomizationEnabled: false,
     blocks: [
-      { id: "b1", label: "Part A",  instruction: "Answer TEN questions (2 marks each)", questions: 10, attemptAll: true, attemptCount: 10, marksPerQuestion: 2, hasOrPattern: false },
-      { id: "b2", label: "Part B",  instruction: "Answer ONE full question from each unit (10 marks each × 5 units)", questions: 10, attemptAll: false, attemptCount: 5, marksPerQuestion: 10, hasOrPattern: true },
-      { id: "b3", label: "Part C",  instruction: "Answer ONE full question from each unit (10 marks each × 5 units)", questions: 10, attemptAll: false, attemptCount: 5, marksPerQuestion: 10, hasOrPattern: true },
+      { id: "b1", label: "Part A", instruction: "Answer TEN questions (2 marks each)", questions: 10, attemptAll: true, attemptCount: 10, marksPerQuestion: 2, marksMin: 1, marksMax: 3, hasOrPattern: false },
+      { id: "b2", label: "Part B", instruction: "Answer ONE full question from each unit (10 marks × 5 units)", questions: 10, attemptAll: false, attemptCount: 5, marksPerQuestion: 10, marksMin: 8, marksMax: 12, hasOrPattern: true },
+      { id: "b3", label: "Part C", instruction: "Answer ONE full question from each unit (10 marks × 5 units)", questions: 10, attemptAll: false, attemptCount: 5, marksPerQuestion: 10, marksMin: 8, marksMax: 12, hasOrPattern: true },
     ],
   },
 };
@@ -149,6 +144,16 @@ export default function Settings() {
     }));
   };
 
+  const toggleRandomization = (enabled: boolean) => {
+    setTemplates(prev => ({
+      ...prev,
+      [activeExamTab]: { ...prev[activeExamTab], randomizationEnabled: enabled },
+    }));
+    if (enabled) {
+      toast.info("Randomization on — AI will draw from training data to vary mark distributions each generation.");
+    }
+  };
+
   const addBlock = () => {
     const newId = `b${Date.now()}`;
     setTemplates(prev => ({
@@ -159,7 +164,8 @@ export default function Settings() {
           id: newId,
           label: `Part ${String.fromCharCode(65 + prev[activeExamTab].blocks.length)}`,
           instruction: "Answer all questions",
-          questions: 5, attemptAll: true, attemptCount: 5, marksPerQuestion: 10, hasOrPattern: false,
+          questions: 5, attemptAll: true, attemptCount: 5,
+          marksPerQuestion: 10, marksMin: 8, marksMax: 12, hasOrPattern: false,
         }],
       },
     }));
@@ -384,6 +390,52 @@ export default function Settings() {
             )}
           </div>
 
+          {/* Randomization Mode toggle */}
+          <div className={`rounded-xl border-2 p-4 transition-all ${tpl.randomizationEnabled ? "border-primary/40 bg-primary/5" : "border-muted"}`}>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${tpl.randomizationEnabled ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                  <Sparkles className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">AI Randomization Mode</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {tpl.randomizationEnabled
+                      ? "Active — AI will learn from your uploaded training papers and vary mark distributions, question depth, and difficulty each time. No two generated papers will be identical."
+                      : "Off — AI follows the fixed marks-per-block you set below. Turn on to let training data drive variation."}
+                  </p>
+                  {tpl.randomizationEnabled && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {[
+                        "Marks drawn from learned range per block",
+                        "Question depth varied by CO level",
+                        "Diagram assignment from training patterns",
+                        "Different every generation",
+                      ].map(tag => (
+                        <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium">{tag}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <Switch checked={tpl.randomizationEnabled} onCheckedChange={toggleRandomization} className="shrink-0 mt-0.5" />
+            </div>
+            {tpl.randomizationEnabled && trainingFiles.filter(f => f.status === "trained" && f.examType === activeExamTab).length === 0 && (
+              <div className="mt-3 flex items-center gap-2 p-2.5 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-700">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <span>No training files for <strong>{activeExamTab}</strong> yet. Upload past papers in the AI Training Data section below to power randomization.</span>
+              </div>
+            )}
+            {tpl.randomizationEnabled && trainingFiles.filter(f => f.status === "trained" && f.examType === activeExamTab).length > 0 && (
+              <div className="mt-3 flex items-center gap-2 p-2.5 rounded-md bg-emerald-50 border border-emerald-200 text-xs text-emerald-700">
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                <span>
+                  <strong>{trainingFiles.filter(f => f.status === "trained" && f.examType === activeExamTab).length}</strong> trained {activeExamTab} file{trainingFiles.filter(f => f.status === "trained" && f.examType === activeExamTab).length > 1 ? "s" : ""} active — AI will randomize within learned boundaries.
+                </span>
+              </div>
+            )}
+          </div>
+
           <Separator />
 
           {/* Block Editor */}
@@ -391,7 +443,11 @@ export default function Settings() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-semibold text-sm">Question Blocks / Parts</p>
-                <p className="text-xs text-muted-foreground">Define each part of the {activeExamTab} paper. AI strictly follows this structure.</p>
+                <p className="text-xs text-muted-foreground">
+                  {tpl.randomizationEnabled
+                    ? `Define mark ranges per block — AI will pick values within these bounds using learned patterns.`
+                    : `Define each part of the ${activeExamTab} paper. AI strictly follows fixed marks.`}
+                </p>
               </div>
               <Button variant="outline" size="sm" onClick={addBlock} className="gap-1.5 h-8">
                 <Plus className="h-3.5 w-3.5" /> Add Block
@@ -457,13 +513,28 @@ export default function Settings() {
                                 <Input type="number" min={1} value={block.questions} onChange={e => updateBlock(block.id, "questions", Number(e.target.value))} className="h-8 text-sm" />
                               </div>
                               <div className="space-y-1.5">
-                                <Label className="text-xs">Marks per Question</Label>
-                                <Input type="number" min={1} value={block.marksPerQuestion} onChange={e => updateBlock(block.id, "marksPerQuestion", Number(e.target.value))} className="h-8 text-sm" />
-                              </div>
-                              <div className="space-y-1.5">
                                 <Label className="text-xs">Questions to Attempt</Label>
                                 <Input type="number" min={1} max={block.questions} value={block.attemptCount} onChange={e => updateBlock(block.id, "attemptCount", Number(e.target.value))} className="h-8 text-sm" disabled={block.attemptAll} />
                               </div>
+
+                              {/* Fixed vs Range marks based on randomization mode */}
+                              {!tpl.randomizationEnabled ? (
+                                <div className="space-y-1.5">
+                                  <Label className="text-xs">Marks per Question (fixed)</Label>
+                                  <Input type="number" min={1} value={block.marksPerQuestion} onChange={e => updateBlock(block.id, "marksPerQuestion", Number(e.target.value))} className="h-8 text-sm" />
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs text-primary">Min Marks / Question</Label>
+                                    <Input type="number" min={1} max={block.marksMax - 1} value={block.marksMin} onChange={e => updateBlock(block.id, "marksMin", Number(e.target.value))} className="h-8 text-sm border-primary/40" />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs text-primary">Max Marks / Question</Label>
+                                    <Input type="number" min={block.marksMin + 1} value={block.marksMax} onChange={e => updateBlock(block.id, "marksMax", Number(e.target.value))} className="h-8 text-sm border-primary/40" />
+                                  </div>
+                                </>
+                              )}
                             </div>
                             <div className="flex items-center gap-6">
                               <div className="flex items-center gap-2">
@@ -476,13 +547,19 @@ export default function Settings() {
                               </div>
                             </div>
                             {/* Preview pill */}
-                            <div className="flex items-center gap-2 p-2.5 rounded-md bg-primary/5 border border-primary/20 text-xs text-primary">
+                            <div className={`flex items-center gap-2 p-2.5 rounded-md border text-xs ${tpl.randomizationEnabled ? "bg-primary/5 border-primary/20 text-primary" : "bg-muted/40 border-muted text-muted-foreground"}`}>
                               <Info className="h-3.5 w-3.5 shrink-0" />
-                              <span>
-                                AI will generate <strong>{block.hasOrPattern ? block.attemptCount * 2 : block.questions} questions</strong> for this block
-                                {block.hasOrPattern ? ` (${block.attemptCount} pairs with OR alternative)` : ""},
-                                each worth <strong>{block.marksPerQuestion} marks</strong> → block total: <strong>{blockMarks} marks</strong>
-                              </span>
+                              {tpl.randomizationEnabled ? (
+                                <span>
+                                  AI generates <strong>{block.hasOrPattern ? block.attemptCount * 2 : block.questions} questions</strong>
+                                  {block.hasOrPattern ? ` (${block.attemptCount} OR pairs)` : ""}, marks will be <strong>randomized {block.marksMin}–{block.marksMax} each</strong> using training data patterns → total varies per generation
+                                </span>
+                              ) : (
+                                <span>
+                                  AI generates <strong>{block.hasOrPattern ? block.attemptCount * 2 : block.questions} questions</strong>
+                                  {block.hasOrPattern ? ` (${block.attemptCount} OR pairs)` : ""}, each fixed at <strong>{block.marksPerQuestion} marks</strong> → block total: <strong>{blockMarks} marks</strong>
+                                </span>
+                              )}
                             </div>
                           </div>
                         </motion.div>
