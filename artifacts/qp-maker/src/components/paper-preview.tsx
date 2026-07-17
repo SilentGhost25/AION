@@ -148,20 +148,10 @@ export function PaperPreview({
       <table className="w-full mb-0" style={{ borderCollapse: "collapse" }}>
         <tbody>
           <tr>
-            {/* Left logo placeholder */}
+            {/* Left logo — DSATM circular badge */}
             <td style={{ width: 72, verticalAlign: "middle", padding: "4px 8px 4px 4px" }}>
-              <div style={{
-                width: 64, height: 64, borderRadius: "50%",
-                border: "2px solid #1a3a6b",
-                display: "flex", flexDirection: "column",
-                alignItems: "center", justifyContent: "center",
-                background: "linear-gradient(135deg,#1a3a6b,#2d5f9e)",
-                color: "white", fontSize: 7, fontWeight: "bold",
-                textAlign: "center", lineHeight: 1.2,
-              }}>
-                <span style={{ fontSize: 9, fontWeight: 900 }}>DS</span>
-                <span style={{ fontSize: 6 }}>ATM</span>
-              </div>
+              <img src="/logo-dsatm.png" alt="DSATM Logo"
+                   style={{ width: 64, height: 64, objectFit: "contain", display: "block" }} />
             </td>
 
             {/* Institution name */}
@@ -185,19 +175,10 @@ export function PaperPreview({
               <div>(CSE, ISE, ECE, EEE, MECH, CV)</div>
             </td>
 
-            {/* IQAC logo placeholder */}
+            {/* IQAC logo */}
             <td style={{ width: 70, verticalAlign: "middle", padding: "4px 4px 4px 8px", textAlign: "center" }}>
-              <div style={{
-                width: 60, height: 60,
-                border: "2px solid #1a3a6b",
-                display: "flex", flexDirection: "column",
-                alignItems: "center", justifyContent: "center",
-                background: "#f0f4ff", color: "#1a3a6b",
-                fontSize: 6.5, fontWeight: "bold", textAlign: "center", lineHeight: 1.3,
-              }}>
-                <span style={{ fontSize: 8, fontWeight: 900 }}>IQAC</span>
-                <span>DSATM</span>
-              </div>
+              <img src="/logo-iqac.png" alt="IQAC Logo"
+                   style={{ width: 60, height: 60, objectFit: "contain", display: "block", margin: "0 auto" }} />
             </td>
           </tr>
         </tbody>
