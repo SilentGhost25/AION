@@ -359,15 +359,19 @@ def test_ese_api_endpoints(mock_concept_store):
 
     # Mock ACBPipeline to return our fixture concept store
     # Since acb_api/ese_api initialize ACBPipeline directly, we can override its concept store
-    # by writing the JSON file to scratch/test_academic/AIML/semester_4/BAI404/db/concepts.json
-    db_file = Path("scratch/test_academic/AIML/semester_4/BAI404/db/concepts.json")
-    db_file.parent.mkdir(parents=True, exist_ok=True)
+    # by writing the JSON file to scratch/test_academic/AIML/semester_4/BAI404/concepts.json
+    db_file_1 = Path("scratch/test_academic/AIML/semester_4/BAI404/concepts.json")
+    db_file_2 = Path("scratch/test_academic/AIML/semester_4/BAI404/db/concepts.json")
+    db_file_1.parent.mkdir(parents=True, exist_ok=True)
+    db_file_2.parent.mkdir(parents=True, exist_ok=True)
     
-    # Copy mock concepts to this target location
-    shutil.copy("scratch/test_ese_concepts.json", db_file)
+    # Copy mock concepts to these target locations
+    shutil.copy("scratch/test_ese_concepts.json", db_file_1)
+    shutil.copy("scratch/test_ese_concepts.json", db_file_2)
     
-    # Also write a dummy sources file to pass SourceRegistry loading
-    Path(db_file.parent / "sources.json").write_text("{}", encoding="utf-8")
+    # Also write dummy sources files to pass SourceRegistry loading
+    db_file_1.parent.joinpath("sources.json").write_text("{}", encoding="utf-8")
+    db_file_2.parent.joinpath("sources.json").write_text("{}", encoding="utf-8")
 
     # 1. POST /ese/generate
     payload = {

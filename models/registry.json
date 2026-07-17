@@ -1,0 +1,23 @@
+[
+  {
+    "version": "0.1",
+    "subject": "BAI401",
+    "weights_path": "checkpoints\\aion_model_latest.pt",
+    "dataset_version": "v1",
+    "knowledge_version": "0.1",
+    "benchmark_scores": {
+      "grammar": 0.962,
+      "academic_quality": 0.915,
+      "bloom_accuracy": 0.88,
+      "vtu_similarity": 0.932,
+      "question_diversity": 0.91,
+      "module_accuracy": 0.945,
+      "expected_answer_quality": 0.892,
+      "diagram_prediction": 0.824,
+      "examiner_similarity_score": 0.0
+    },
+    "job_id": "JOB-DCBFFE7D",
+    "registered_at": "2026-07-17T05:50:20.548693",
+    "is_production": false
+  }
+]

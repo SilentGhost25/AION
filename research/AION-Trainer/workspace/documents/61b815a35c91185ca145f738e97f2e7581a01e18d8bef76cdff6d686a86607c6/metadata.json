@@ -1,0 +1,27 @@
+{
+  "metadata": {
+    "title": "notes_dfs",
+    "provider": "OpenDataLoader"
+  },
+  "json_structure": {},
+  "sections": [
+    {
+      "title": "DFS topic",
+      "content": "DFS topic is defined as depth first search. It uses a stack.",
+      "layout_type": "BodyText",
+      "page_range": null
+    }
+  ],
+  "tables": [],
+  "figures": [],
+  "formulas": [],
+  "toc": [
+    {
+      "level": 1,
+      "title": "DFS topic",
+      "page": 1
+    }
+  ],
+  "reading_order": [],
+  "page_map": {}
+}

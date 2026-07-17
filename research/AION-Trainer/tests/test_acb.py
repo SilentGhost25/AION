@@ -78,12 +78,17 @@ def test_concept_merger_and_discoverer():
     discoverer = ConceptDiscoverer()
     merger = ConceptMerger(store, registry, similarity_threshold=0.5)
 
-    blocks = [
-        {"text": "A* Search", "kind": "heading", "location": "p1"},
-        {"text": "A* Search is defined as a heuristic search algorithm. It is used to find shortest paths. Applications include pathfinding in games.", "kind": "text", "location": "p1"}
+    from document_intelligence.document_model import AcademicDocument, Section
+    doc = AcademicDocument(source_path="src-1")
+    doc.sections = [
+        Section(
+            title="A* Search",
+            content="A* Search is defined as a heuristic search algorithm. It is used to find shortest paths. Applications include pathfinding in games.",
+            page_range=(1,1)
+        )
     ]
 
-    cands = discoverer.discover_from_blocks(blocks, "src-1", SourceType.TEXTBOOK)
+    cands = discoverer.discover_from_document(doc, "src-1", SourceType.TEXTBOOK)
     assert len(cands) == 1
     assert cands[0].name == "A* Search"
     assert "heuristic search algorithm" in cands[0].definition
@@ -189,7 +194,7 @@ def test_acb_pipeline(academic_root):
     # Write mock notes files
     write_fake_file(
         subject_dir / "notes" / "notes_dfs.txt",
-        "DFS TOPIC\nDFS topic is defined as depth first search. It uses a stack.\n"
+        "DFS topic\nDFS topic is defined as depth first search. It uses a stack.\n"
     )
 
     pipeline = ACBPipeline(

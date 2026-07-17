@@ -18,7 +18,9 @@ from __future__ import annotations
 import re
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
+
+from document_intelligence.document_model import AcademicDocument
 
 logger = logging.getLogger("aion.studio.module_mapper")
 
@@ -59,11 +61,12 @@ class ModuleMapper:
     def __init__(self, syllabus=None):
         self.syllabus = syllabus
 
-    def map(self, toc_entries: List[TOCEntry]) -> ModuleMappingResult:
+    def map_document(self, document: AcademicDocument) -> ModuleMappingResult:
+        toc_entries = document.toc
         if not self.syllabus or not toc_entries:
             return ModuleMappingResult()
 
-        chapters = [e for e in toc_entries if e.level == 1]
+        chapters = [e for e in toc_entries if e.get("level", 1) == 1]
         if not chapters:
             chapters = toc_entries[:20]
 
@@ -96,22 +99,15 @@ class ModuleMapper:
         )
         return result
 
-    def extract_toc(self, file_path: str) -> List[TOCEntry]:
-        suffix = file_path.lower().split(".")[-1]
-        if suffix == "pdf":
-            return self._extract_pdf_toc(file_path)
-        elif suffix == "docx":
-            return self._extract_docx_toc(file_path)
-        return []
-
-    def _assign_module(self, chapter: TOCEntry, index: int) -> ChapterModuleMapping:
+    def _assign_module(self, chapter: Dict[str, Any], index: int) -> ChapterModuleMapping:
         best_module = 0
         best_score = 0.0
         best_topics: List[str] = []
         second_module = 0
         second_score = 0.0
 
-        chapter_words = set(self._tokenise(chapter.title))
+        chapter_title = chapter.get("title", "")
+        chapter_words = set(self._tokenise(chapter_title))
 
         for mod in self.syllabus.modules:
             mod_words = set()
@@ -140,7 +136,7 @@ class ModuleMapper:
             num_chapters = max(len(self.syllabus.modules) * 2, 1)
             guessed_module = min(num_modules, (index * num_modules) // num_chapters + 1)
             return ChapterModuleMapping(
-                chapter_title=chapter.title,
+                chapter_title=chapter_title,
                 chapter_index=index,
                 assigned_module=guessed_module,
                 confidence=0.40,
@@ -154,7 +150,7 @@ class ModuleMapper:
         )
 
         return ChapterModuleMapping(
-            chapter_title=chapter.title,
+            chapter_title=chapter_title,
             chapter_index=index,
             assigned_module=best_module,
             confidence=round(min(0.99, best_score * 1.4), 4),
@@ -167,49 +163,6 @@ class ModuleMapper:
             ),
             alternative_module=second_module if is_ambiguous else None,
         )
-
-    def _extract_pdf_toc(self, file_path: str) -> List[TOCEntry]:
-        try:
-            import fitz
-            doc = fitz.open(file_path)
-            toc = doc.get_toc()
-            doc.close()
-
-            if toc:
-                return [TOCEntry(title=t[1], page=t[2], level=t[0]) for t in toc]
-
-            # Fallback: scan for heading-like lines in first 10 pages
-            entries = []
-            doc = fitz.open(file_path)
-            for page_num in range(min(10, len(doc))):
-                text = doc[page_num].get_text("text")
-                for line in text.splitlines():
-                    line = line.strip()
-                    if re.match(r"^(chapter|unit)\s+\d+", line, re.IGNORECASE) and len(line) < 80:
-                        entries.append(TOCEntry(title=line, page=page_num + 1, level=1))
-                    elif re.match(r"^\d+\.\d+\s+\w", line) and len(line) < 60:
-                        entries.append(TOCEntry(title=line, page=page_num + 1, level=2))
-            doc.close()
-            return entries
-
-        except Exception as e:
-            logger.warning(f"[ModuleMapper] PDF TOC extraction failed: {e}")
-            return []
-
-    def _extract_docx_toc(self, file_path: str) -> List[TOCEntry]:
-        try:
-            import docx as python_docx
-            doc = python_docx.Document(file_path)
-            entries = []
-            for para in doc.paragraphs:
-                if para.style.name.startswith("Heading 1"):
-                    entries.append(TOCEntry(title=para.text.strip(), level=1))
-                elif para.style.name.startswith("Heading 2"):
-                    entries.append(TOCEntry(title=para.text.strip(), level=2))
-            return entries
-        except Exception as e:
-            logger.warning(f"[ModuleMapper] DOCX TOC extraction failed: {e}")
-            return []
 
     @staticmethod
     def _tokenise(text: str) -> List[str]:

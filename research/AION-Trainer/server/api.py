@@ -14,6 +14,7 @@ from server.pipeline_runner import PipelineRunner
 from acb.acb_api import router as acb_router
 from ese.ese_api import router as ese_router
 from training_studio.studio_api import router as studio_router
+from learning_engine.learning_api import router as learning_router
 
 app = FastAPI(title="AION Trainer API Server")
 
@@ -36,6 +37,7 @@ def verify_token(x_aion_token: Optional[str] = Header(None)):
 app.include_router(acb_router, dependencies=[Depends(verify_token)])
 app.include_router(ese_router, dependencies=[Depends(verify_token)])
 app.include_router(studio_router, dependencies=[Depends(verify_token)])
+app.include_router(learning_router, dependencies=[Depends(verify_token)])
 
 # Load master config
 CONFIG_PATH = os.getenv("AION_CONFIG", "configs/server.yaml")

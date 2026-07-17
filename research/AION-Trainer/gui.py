@@ -30,8 +30,8 @@ class AIONTrainerApp:
         self.root.configure(bg=AION_BG_DARK)
         
         # Connection parameters
-        self.server_url = tk.StringVar(value="http://127.0.0.1:8000")
-        self.server_token = tk.StringVar(value="test-token-0000")
+        self.server_url = tk.StringVar(value=os.getenv("AION_SERVER_URL", "http://127.0.0.1:8000"))
+        self.server_token = tk.StringVar(value=os.getenv("AION_SERVER_TOKEN", "test-token-0000"))
         self.connected = False
         self.gpu_info = "NVIDIA A100-SXM4-40GB"
         self.cuda_available = True
@@ -45,6 +45,12 @@ class AIONTrainerApp:
         self.polling = False
         self.chart_points = []
         self.local_server_process = None
+        
+        # Strict mode / lock parameters
+        self.demo_mode = True
+        self.allow_mock_data = True
+        self.allow_fallback = True
+        self.training_mode = "demo" # "demo" | "analysis" | "training"
         
         # Apply TTK styles
         self._setup_styles()
@@ -170,7 +176,7 @@ class AIONTrainerApp:
         # Subject
         lbl_sub = ttk.Label(selectors_frame, text="Subject Code", font=("Segoe UI", 9), foreground=AION_FG_MUTED, background=AION_CARD_BG)
         lbl_sub.grid(row=0, column=2, sticky="w", padx=5, pady=2)
-        cb_sub = ttk.Combobox(selectors_frame, textvariable=self.subject, values=["BAI401", "BCS401", "BCS402"], width=12, state="readonly")
+        cb_sub = ttk.Combobox(selectors_frame, textvariable=self.subject, values=["BAI401", "BAI404", "BCS401", "BCS402"], width=12, state="readonly")
         cb_sub.grid(row=1, column=2, padx=5, pady=(2, 10))
         
         # Handle selection change
@@ -414,6 +420,19 @@ class AIONTrainerApp:
         self.chart_canvas.delete("current_node")
         self.chart_canvas.create_oval(x-4, y-4, x+4, y+4, fill=AION_BLUE, outline=AION_FG_WHITE, tags="current_node")
 
+    def _update_mode_state(self):
+        if self.selected_files:
+            self.demo_mode = False
+            self.allow_mock_data = False
+            self.allow_fallback = False
+            if self.training_mode == "demo":
+                self.training_mode = "analysis"
+        else:
+            self.demo_mode = True
+            self.allow_mock_data = True
+            self.allow_fallback = True
+            self.training_mode = "demo"
+
     # ------------------------------------------------------------------
     # EVENT HANDLERS
     # ------------------------------------------------------------------
@@ -455,6 +474,7 @@ class AIONTrainerApp:
             self.selected_files.append(file_record)
             
         self._update_files_list()
+        self._update_mode_state()
 
     def _update_files_list(self):
         # Clear list first
@@ -480,10 +500,12 @@ class AIONTrainerApp:
             idx = int(s)
             self.selected_files.pop(idx)
         self._update_files_list()
+        self._update_mode_state()
 
     def _clear_files(self):
         self.selected_files = []
         self._update_files_list()
+        self._update_mode_state()
 
     # ------------------------------------------------------------------
     # HTTP ASYNC ACTIONS
@@ -541,7 +563,7 @@ class AIONTrainerApp:
                                 "size": "-",
                                 "synced": True
                             })
-                    self.root.after(0, self._update_files_list)
+                    self.root.after(0, lambda: [self._update_files_list(), self._update_mode_state()])
         except requests.RequestException:
             pass
 
@@ -551,6 +573,9 @@ class AIONTrainerApp:
             return
             
         if not self.connected:
+            if not self.allow_fallback:
+                messagebox.showerror("Connection Error", "Cannot sync: Server is offline and fallback is disabled in Production mode.")
+                return
             # Simulate sync in Offline mode
             for f in self.selected_files:
                 f["synced"] = True
@@ -600,6 +625,9 @@ class AIONTrainerApp:
 
     def _start_training(self):
         if not self.connected:
+            if not self.allow_fallback:
+                messagebox.showerror("Connection Error", "Cannot train: Server is offline and fallback is disabled in Production mode.")
+                return
             # Simulate training loop in Offline mode
             threading.Thread(target=self._simulate_training, daemon=True).start()
             return
@@ -777,6 +805,9 @@ class AIONTrainerApp:
             return
             
         if not self.connected:
+            if not self.allow_fallback:
+                messagebox.showerror("Connection Error", "Cannot deploy: Server is offline and fallback is disabled in Production mode.")
+                return
             messagebox.showinfo("Deploy", f"[Simulated] Deployed candidate model version {version} to production.")
             self.promotion_badge.configure(text="DEPLOYED TO PRODUCTION", foreground=AION_GREEN)
             self.btn_deploy.configure(state="disabled")
@@ -813,6 +844,10 @@ class AIONTrainerApp:
     # ------------------------------------------------------------------
     
     def _simulate_training(self):
+        if not self.allow_mock_data:
+            raise RuntimeError(
+                "Mock data requested while production mode is active."
+            )
         self.btn_train.configure(state="disabled")
         self._clear_chart()
         self._clear_logs()

@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from document_intelligence.document_model import AcademicDocument
+
 logger = logging.getLogger("aion.studio.classifier")
 
 CONFIDENCE_THRESHOLD = 0.90
@@ -111,10 +113,12 @@ FILENAME_HINTS: Dict[str, List[str]] = {
 class DocumentClassifier:
     """
     Classifies a document by type using structural, content, and
-    filename signals. Returns probability scores for all types.
+    filename signals from the AcademicDocument. Returns probability scores for all types.
     """
 
-    def classify_text(self, text: str, filename: str = "") -> ClassificationResult:
+    def classify_document(self, document: AcademicDocument) -> ClassificationResult:
+        text = document.markdown
+        filename = document.metadata.get("title", "")
         scores = self._compute_scores(text, filename)
         sorted_types = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         top_type, top_score = sorted_types[0]
@@ -142,20 +146,6 @@ class DocumentClassifier:
             f"{'⚠ needs confirmation' if needs_confirmation else '✓'}"
         )
         return result
-
-    def classify_file(self, file_path: str) -> ClassificationResult:
-        path = Path(file_path)
-        suffix = path.suffix.lower()
-
-        if suffix in (".png", ".jpg", ".jpeg", ".tiff", ".gif", ".bmp"):
-            return ClassificationResult(
-                document_type=DocumentType.IMAGES,
-                confidence=1.0,
-                signals_found=["Image file extension"],
-            )
-
-        text = self._extract_text(file_path)
-        return self.classify_text(text, filename=path.name)
 
     def _compute_scores(self, text: str, filename: str) -> Dict[str, float]:
         scores: Dict[str, float] = {}
@@ -194,22 +184,3 @@ class DocumentClassifier:
         exps = {k: math.exp(v - max_val) for k, v in scores.items()}
         total = sum(exps.values())
         return {k: v / total for k, v in exps.items()} if total > 0 else scores
-
-    def _extract_text(self, file_path: str) -> str:
-        suffix = Path(file_path).suffix.lower()
-        try:
-            if suffix == ".pdf":
-                import fitz
-                doc = fitz.open(file_path)
-                # Read first 20 pages for classification — no need for full doc
-                pages = min(20, len(doc))
-                text = "\n".join(doc[i].get_text("text") for i in range(pages))
-                doc.close()
-                return text
-            elif suffix == ".docx":
-                import docx as python_docx
-                doc = python_docx.Document(file_path)
-                return "\n".join(p.text for p in doc.paragraphs[:200])
-        except Exception as e:
-            logger.warning(f"[Classifier] Text extraction failed for {file_path}: {e}")
-        return ""

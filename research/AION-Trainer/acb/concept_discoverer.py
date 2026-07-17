@@ -11,7 +11,10 @@ merges into an existing concept or becomes a new one.
 import re
 import logging
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from document_intelligence.document_model import AcademicDocument, Section
 
 from acb.concept import Concept, ConceptSource, BloomProgression, ConceptScope
 
@@ -73,37 +76,23 @@ class ConceptDiscoverer:
     def __init__(self, min_concept_name_length: int = 3):
         self.min_length = min_concept_name_length
 
-    def discover_from_blocks(
+    def discover_from_document(
         self,
-        blocks: List[Dict[str, Any]],
+        document: "AcademicDocument",
         source_id: str,
         source_type: str,
     ) -> List[ConceptCandidate]:
         """
-        blocks: list of dicts with keys: text, kind, page, location
-        kind in: heading | text | algorithm | equation | table | image
+        Discovers concepts from an AcademicDocument's sections.
         """
         candidates: List[ConceptCandidate] = []
-        current_heading: str = ""
-        buffer: List[Dict] = []
+        
+        if not document.sections:
+            return candidates
 
-        for block in blocks:
-            if block.get("kind") == "heading":
-                if current_heading and buffer:
-                    cand = self._build_candidate(
-                        current_heading, buffer, source_id, source_type,
-                        location=block.get("location", ""),
-                    )
-                    if cand:
-                        candidates.append(cand)
-                current_heading = block.get("text", "").strip()
-                buffer = []
-            else:
-                buffer.append(block)
-
-        if current_heading and buffer:
-            cand = self._build_candidate(
-                current_heading, buffer, source_id, source_type, location="end"
+        for section in document.sections:
+            cand = self._build_candidate_from_section(
+                section, source_id, source_type
             )
             if cand:
                 candidates.append(cand)
@@ -137,18 +126,18 @@ class ConceptDiscoverer:
                 ))
         return candidates
 
-    def _build_candidate(
+    def _build_candidate_from_section(
         self,
-        heading: str,
-        blocks: List[Dict],
+        section: "Section",
         source_id: str,
         source_type: str,
-        location: str = "",
     ) -> Optional[ConceptCandidate]:
-        if len(heading) < self.min_length or len(heading) > 120:
+        heading = section.title
+        if not heading or len(heading) < self.min_length or len(heading) > 120:
             return None
 
-        all_text = " ".join(b.get("text", "") for b in blocks)
+        all_text = section.content
+        location = f"pages {section.page_range[0]}-{section.page_range[1]}" if section.page_range else ""
         candidate = ConceptCandidate(
             name=heading,
             source_id=source_id,

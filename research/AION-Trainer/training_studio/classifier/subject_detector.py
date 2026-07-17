@@ -17,6 +17,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+from document_intelligence.document_model import AcademicDocument
+
 logger = logging.getLogger("aion.studio.subject_detector")
 
 CONFIDENCE_THRESHOLD = 0.90
@@ -89,8 +91,13 @@ class SubjectDetector:
             self.names.update(known_subjects)
         self.llm = llm_client
 
-    def detect(self, text: str, filename: str = "") -> SubjectDetectionResult:
+    def detect_document(self, document: AcademicDocument) -> SubjectDetectionResult:
+        text = document.markdown
         text_lower = text[:15000].lower()
+        
+        # Add TOC text to boost semantic matching
+        toc_text = " ".join([entry.get("title", "") for entry in document.toc]).lower()
+        text_lower += " " + toc_text
 
         # 1. Explicit subject code in text (highest confidence)
         code_matches = SUBJECT_CODE_PATTERN.findall(text[:3000])
@@ -102,7 +109,7 @@ class SubjectDetector:
                 subject_code=code,
                 subject_name=self.names.get(code, code),
                 confidence=0.99,
-                signals_found=[f"Subject code '{code}' found in document header"],
+                signals_found=[f"Subject code '{code}' found in document"],
                 needs_confirmation=False,
                 detected_codes_in_text=valid_codes,
             )
@@ -152,10 +159,6 @@ class SubjectDetector:
             detected_codes_in_text=valid_codes,
         )
 
-    def detect_file(self, file_path: str) -> SubjectDetectionResult:
-        text = self._extract_text(file_path)
-        return self.detect(text, filename=file_path)
-
     def register_subject(self, code: str, name: str, keywords: List[str]):
         """Add a new subject to the detector at runtime."""
         self.names[code] = name
@@ -179,21 +182,3 @@ class SubjectDetector:
             confidence=0.0,
             needs_confirmation=True,
         )
-
-    def _extract_text(self, file_path: str) -> str:
-        from pathlib import Path
-        suffix = Path(file_path).suffix.lower()
-        try:
-            if suffix == ".pdf":
-                import fitz
-                doc = fitz.open(file_path)
-                text = "\n".join(doc[i].get_text("text") for i in range(min(25, len(doc))))
-                doc.close()
-                return text
-            elif suffix == ".docx":
-                import docx as python_docx
-                doc = python_docx.Document(file_path)
-                return "\n".join(p.text for p in doc.paragraphs[:250])
-        except Exception as e:
-            logger.warning(f"[SubjectDetector] Extraction failed for {file_path}: {e}")
-        return ""

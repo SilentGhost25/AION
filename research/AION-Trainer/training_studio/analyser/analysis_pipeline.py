@@ -26,6 +26,10 @@ from training_studio.analyser.ambiguity_detector import AmbiguityDetector
 from training_studio.classifier.document_classifier import DocumentClassifier, DocumentType
 from training_studio.classifier.subject_detector import SubjectDetector
 from training_studio.classifier.module_mapper import ModuleMapper
+from document_intelligence.opendataloader_provider import OpenDataLoaderProvider
+from document_intelligence.cache_manager import CacheManager
+from document_intelligence.structure_builder import StructureBuilder
+from document_intelligence.layout_analyzer import LayoutAnalyzer
 
 logger = logging.getLogger("aion.studio.analysis")
 
@@ -53,6 +57,11 @@ class AnalysisPipeline:
         self.subject_detector = SubjectDetector(llm_client=llm_client)
         self.module_mapper = ModuleMapper(syllabus)
         self.ambiguity_detector = AmbiguityDetector()
+        
+        self.doc_provider = OpenDataLoaderProvider()
+        self.cache_manager = CacheManager()
+        self.structure_builder = StructureBuilder()
+        self.layout_analyzer = LayoutAnalyzer()
 
     def run(
         self,
@@ -113,8 +122,19 @@ class AnalysisPipeline:
         )
 
         try:
+            # Step 0: Document Intelligence
+            doc = self.cache_manager.load_cached_document(file_path)
+            if not doc:
+                doc = self.doc_provider.load(file_path)
+                # Apply processors
+                self.structure_builder.enrich_document(doc, {})
+                self.layout_analyzer.enrich_document(doc)
+                self.cache_manager.save_document(doc)
+                
+            fa.document = doc  # Optional, if downstream needs the raw doc
+
             # Step 1: Document type classification
-            type_result = self.doc_classifier.classify_file(file_path)
+            type_result = self.doc_classifier.classify_document(doc)
             fa.document_type = type_result.document_type
             fa.type_confidence = type_result.confidence
             fa.type_needs_confirmation = type_result.needs_confirmation
@@ -122,7 +142,7 @@ class AnalysisPipeline:
             fa.type_signals = type_result.signals_found
 
             # Step 2: Subject detection
-            subject_result = self.subject_detector.detect_file(file_path)
+            subject_result = self.subject_detector.detect_document(doc)
             fa.subject_code = subject_result.subject_code
             fa.subject_name = subject_result.subject_name
             fa.subject_confidence = subject_result.confidence
@@ -130,9 +150,8 @@ class AnalysisPipeline:
 
             # Step 3: Module mapping (only for textbooks and notes)
             if fa.document_type in (DocumentType.TEXTBOOK, DocumentType.NOTES):
-                toc = self.module_mapper.extract_toc(file_path)
-                if toc:
-                    mapping_result = self.module_mapper.map(toc)
+                if doc.toc:
+                    mapping_result = self.module_mapper.map_document(doc)
                     fa.module_mappings = [
                         {
                             "chapter_title": m.chapter_title,
@@ -155,7 +174,7 @@ class AnalysisPipeline:
 
             # Step 4: Quick concept estimation (title-level, not full extraction)
             fa.estimated_concept_count, fa.sample_concepts = (
-                self._estimate_concepts(file_path, fa.document_type)
+                self._estimate_concepts(doc)
             )
 
             fa.status = "complete"
@@ -243,26 +262,11 @@ class AnalysisPipeline:
 
         return previews
 
-    def _estimate_concepts(self, file_path: str, doc_type: str) -> Tuple[int, List[str]]:
+    def _estimate_concepts(self, doc: "AcademicDocument") -> Tuple[int, List[str]]:
         """Lightweight preview estimation of concepts."""
         try:
-            suffix = Path(file_path).suffix.lower()
-            text = ""
-            if suffix == ".pdf":
-                import fitz
-                doc = fitz.open(file_path)
-                pages = len(doc)
-                # Read a small subset for sample concepts
-                text = "\n".join(doc[i].get_text("text") for i in range(min(5, pages)))
-                doc.close()
-                count = pages * 3
-            elif suffix == ".docx":
-                import docx as python_docx
-                doc = python_docx.Document(file_path)
-                text = "\n".join(p.text for p in doc.paragraphs[:100])
-                count = len(doc.paragraphs) // 10
-            else:
-                count = 10
+            text = doc.markdown[:5000] # Just the first 5000 characters for estimation
+            count = len(doc.sections) * 3 if doc.sections else 10
 
             # Extracted concepts: find capitalized topic words
             words = re.findall(r"\b[A-Z][a-zA-Z]{3,15}\b", text)

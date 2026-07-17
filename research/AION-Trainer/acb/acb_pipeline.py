@@ -23,6 +23,11 @@ from acb.importance_scorer import ImportanceScorer
 from acb.completeness_analyzer import CompletenessAnalyzer
 from acb.course_intelligence_report import CourseIntelligenceReport
 
+from document_intelligence.opendataloader_provider import OpenDataLoaderProvider
+from document_intelligence.cache_manager import CacheManager
+from document_intelligence.structure_builder import StructureBuilder
+from document_intelligence.layout_analyzer import LayoutAnalyzer
+
 logger = logging.getLogger("aion.acb.pipeline")
 
 
@@ -78,24 +83,32 @@ class ACBPipeline:
         discoverer = ConceptDiscoverer()
         merger = ConceptMerger(self.concept_store, self.source_registry)
         
+        doc_provider = OpenDataLoaderProvider()
+        cache_manager = CacheManager()
+        structure_builder = StructureBuilder()
+        layout_analyzer = LayoutAnalyzer()
+        
         candidates: List[ConceptCandidate] = []
         for file_path, source_type in source_files:
             profile = self.source_registry.create_and_register(str(file_path), source_type, self.subject_code)
             
-            # Extract text and split into blocks
-            text = self._extract_text(file_path)
-            if not text.strip():
-                continue
+            # Step 0: Document Intelligence
+            doc = cache_manager.load_cached_document(str(file_path))
+            if not doc:
+                doc = doc_provider.load(str(file_path))
+                # Apply processors
+                structure_builder.enrich_document(doc, {})
+                layout_analyzer.enrich_document(doc)
+                cache_manager.save_document(doc)
                 
             if source_type in (SourceType.TEXTBOOK, SourceType.NOTES, SourceType.QUESTION_BANK):
-                blocks = self._split_into_blocks(text)
-                cands = discoverer.discover_from_blocks(blocks, profile.source_id, source_type)
+                cands = discoverer.discover_from_document(doc, profile.source_id, source_type)
                 candidates.extend(cands)
             elif source_type == SourceType.PREVIOUS_PAPER:
                 # Use PYQ Parser
                 from server.pyq_extractor import PYQParser
                 pyq_parser = PYQParser()
-                records = pyq_parser.parse_text(text)
+                records = pyq_parser.parse_text(doc.markdown)
                 cands = discoverer.discover_from_pyq_records(records, profile.source_id)
                 candidates.extend(cands)
 
@@ -173,83 +186,4 @@ class ACBPipeline:
                         sources.append((file, stype))
         return sources
 
-    def _extract_text(self, file_path: Path) -> str:
-        suffix = file_path.suffix.lower()
-        if suffix == ".pdf":
-            try:
-                import fitz
-                try:
-                    doc = fitz.open(str(file_path))
-                    text = "\n".join(page.get_text("text") for page in doc)
-                    doc.close()
-                    return text
-                except Exception:
-                    # Fallback to plain text read (useful in mock unit tests)
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        return f.read()
-            except ImportError:
-                return ""
-        elif suffix == ".docx":
-            try:
-                import docx as python_docx
-                doc = python_docx.Document(str(file_path))
-                return "\n".join(p.text for p in doc.paragraphs)
-            except ImportError:
-                return ""
-        else:
-            try:
-                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                    return f.read()
-            except Exception:
-                return ""
 
-    def _split_into_blocks(self, text: str) -> List[Dict[str, Any]]:
-        blocks = []
-        lines = text.splitlines()
-        current_block = []
-        current_kind = "text"
-        page_num = 1
-        line_num = 0
-
-        for line in lines:
-            line_num += 1
-            line_strip = line.strip()
-            if not line_strip:
-                continue
-
-            # Detect page marker heuristics
-            if "page" in line_strip.lower() or re.match(r"^\d+\s*$", line_strip):
-                page_num += 1
-
-            # Detect heading heuristics
-            if len(line_strip) < 80 and (
-                line_strip.isupper() or 
-                line_strip.endswith(":") or 
-                re.match(r"^\d+(\.\d+)*\s+[A-Z]", line_strip)
-            ):
-                if current_block:
-                    blocks.append({
-                        "text": "\n".join(current_block),
-                        "kind": current_kind,
-                        "page": page_num,
-                        "location": f"page {page_num}, line {line_num}"
-                    })
-                    current_block = []
-                blocks.append({
-                    "text": line_strip,
-                    "kind": "heading",
-                    "page": page_num,
-                    "location": f"page {page_num}, line {line_num}"
-                })
-                current_kind = "text"
-            else:
-                current_block.append(line_strip)
-
-        if current_block:
-            blocks.append({
-                "text": "\n".join(current_block),
-                "kind": current_kind,
-                "page": page_num,
-                "location": f"page {page_num}, line {line_num}"
-            })
-        return blocks
