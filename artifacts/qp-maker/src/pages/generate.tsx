@@ -41,27 +41,67 @@ const steps = [
   { id: 3, name: "Preview", icon: Check }
 ];
 
-// Mock generated questions following the strict CO-Bloom rules per module
-const MOCK_GENERATED: Record<number, { text: string; marks: number }[]> = {
+// Mock generated questions following the strict CO-Bloom rules per module.
+// Each pair = one OR choice. Questions may be whole (10 M) or split (6+4 or 5+5).
+const MOCK_GENERATED: Record<number, {
+  text: string;
+  marks: number;
+  subParts?: { label: string; text: string; marks: number }[];
+}[]> = {
   1: [
-    { text: "Define Machine Learning. Explain the different types of Machine Learning with suitable examples.", marks: 10 },
-    { text: "What is the Bias-Variance Tradeoff? Explain underfitting and overfitting with diagrams.", marks: 10 },
+    {
+      text: "",
+      marks: 10,
+      subParts: [
+        { label: "a", text: "Define Machine Learning and explain its three main types (supervised, unsupervised, reinforcement) with one example each.", marks: 6 },
+        { label: "b", text: "Differentiate between a model, algorithm, and hypothesis in the context of Machine Learning.", marks: 4 },
+      ],
+    },
+    { text: "Explain the Bias-Variance Tradeoff. With diagrams, illustrate underfitting and overfitting and state strategies to address each.", marks: 10 },
   ],
   2: [
-    { text: "Apply the Gradient Descent algorithm to optimize the parameters of a Linear Regression model on a given dataset.", marks: 10 },
-    { text: "Using the concept of Support Vector Machines, apply the kernel trick to classify a non-linearly separable dataset.", marks: 10 },
+    { text: "Apply the Gradient Descent algorithm to optimize the parameters of a Linear Regression model. Derive the weight update rule and trace three iterations on a sample dataset.", marks: 10 },
+    {
+      text: "",
+      marks: 10,
+      subParts: [
+        { label: "a", text: "Explain the kernel trick in Support Vector Machines and identify scenarios where it is necessary.", marks: 6 },
+        { label: "b", text: "Write and explain the decision boundary equation for an SVM with a linear kernel.", marks: 4 },
+      ],
+    },
   ],
   3: [
-    { text: "Analyze the K-Means clustering algorithm. Explain how the choice of K affects the clustering outcome using the Elbow method.", marks: 10 },
-    { text: "Analyze Principal Component Analysis (PCA) and demonstrate how it reduces dimensionality while preserving variance.", marks: 10 },
+    {
+      text: "",
+      marks: 10,
+      subParts: [
+        { label: "a", text: "Analyze the K-Means clustering algorithm step-by-step. Apply it on the dataset {2, 4, 10, 12, 3, 20, 30, 11, 25} with K=3.", marks: 5 },
+        { label: "b", text: "Explain the Elbow method and state how it is used to determine the optimal value of K.", marks: 5 },
+      ],
+    },
+    { text: "Analyze Principal Component Analysis (PCA). Derive the steps to reduce a 3-dimensional dataset to 2 dimensions and explain how variance is preserved.", marks: 10 },
   ],
   4: [
-    { text: "Analyze the Backpropagation algorithm and demonstrate weight update computations for a 3-layer neural network.", marks: 10 },
-    { text: "Compare and analyze the working of ReLU, Sigmoid, and Softmax activation functions. Justify their use in different layers.", marks: 10 },
+    { text: "Analyze the Backpropagation algorithm. Trace the weight update computation for one forward pass and one backward pass on a 3-layer neural network with given weights and a sample input.", marks: 10 },
+    {
+      text: "",
+      marks: 10,
+      subParts: [
+        { label: "a", text: "Compare ReLU, Sigmoid, and Softmax activation functions with equations and graphs. Justify their typical placement in network layers.", marks: 6 },
+        { label: "b", text: "Explain the vanishing gradient problem and state which activation function mitigates it.", marks: 4 },
+      ],
+    },
   ],
   5: [
-    { text: "Apply cross-validation techniques to evaluate and compare the performance of different ML models on a given dataset.", marks: 10 },
-    { text: "Using ensemble learning, apply the AdaBoost algorithm and compare its results with a single Decision Tree classifier.", marks: 10 },
+    {
+      text: "",
+      marks: 10,
+      subParts: [
+        { label: "a", text: "Apply k-Fold Cross-Validation (k=5) on a given dataset and explain how it reduces model variance compared to a single train-test split.", marks: 5 },
+        { label: "b", text: "Explain Stratified k-Fold Cross-Validation and state when it is preferred over standard k-Fold.", marks: 5 },
+      ],
+    },
+    { text: "Apply the AdaBoost ensemble algorithm on a binary classification problem. Trace the weight update across three weak learners and compare the final result with a single Decision Tree.", marks: 10 },
   ],
 };
 
@@ -114,8 +154,10 @@ export default function GeneratePaper() {
             text: q.text,
             marks: q.marks,
             co: mapping.co,
+            bloom: mapping.bloom.split("/")[0],
             bloomLevel: mapping.bloom.split("/")[0],
             module: mod,
+            ...(q.subParts ? { subParts: q.subParts } : {}),
           });
         });
       });
@@ -204,8 +246,7 @@ export default function GeneratePaper() {
                             <SelectContent>
                               <SelectItem value="IAT-1">First Internal Assessment (IAT-1)</SelectItem>
                               <SelectItem value="IAT-2">Second Internal Assessment (IAT-2)</SelectItem>
-                              <SelectItem value="IAT-3">Third Internal Assessment (IAT-3)</SelectItem>
-                              <SelectItem value="End-Sem">End Semester</SelectItem>
+                              <SelectItem value="SEE">Semester End Examination (SEE)</SelectItem>
                             </SelectContent>
                           </Select>
                           <FormMessage />

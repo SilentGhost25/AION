@@ -31,6 +31,7 @@ interface TemplateBlock {
   marksMin: number;        // lower bound when randomization is on
   marksMax: number;        // upper bound when randomization is on
   hasOrPattern: boolean;
+  splitMode: "whole" | "split-6-4" | "split-5-5" | "mixed"; // how 10-mark questions are divided
 }
 
 interface ExamTemplate {
@@ -71,25 +72,57 @@ const DEFAULT_TEMPLATES: Record<string, ExamTemplate> = {
     examType: "IAT-1", totalMarks: 50, duration: "1.5 hrs",
     referenceFile: null, referenceFileName: "", randomizationEnabled: false,
     blocks: [
-      { id: "b1", label: "Part A", instruction: "Answer ALL questions", questions: 5, attemptAll: true, attemptCount: 5, marksPerQuestion: 2, marksMin: 1, marksMax: 3, hasOrPattern: false },
-      { id: "b2", label: "Part B", instruction: "Answer any FOUR of FIVE questions (with OR)", questions: 5, attemptAll: false, attemptCount: 4, marksPerQuestion: 10, marksMin: 8, marksMax: 12, hasOrPattern: true },
+      {
+        id: "b1",
+        label: "Questions",
+        instruction: "Answer any FIVE questions choosing ONE from each OR pair",
+        questions: 10,         // 10 questions = 5 OR pairs
+        attemptAll: false,
+        attemptCount: 5,       // student answers 5 (one per pair) = 50 marks
+        marksPerQuestion: 10,
+        marksMin: 8,
+        marksMax: 12,
+        hasOrPattern: true,
+        splitMode: "mixed",    // questions may be whole (10), 6+4, or 5+5
+      },
     ],
   },
   "IAT-2": {
     examType: "IAT-2", totalMarks: 50, duration: "1.5 hrs",
     referenceFile: null, referenceFileName: "", randomizationEnabled: false,
     blocks: [
-      { id: "b1", label: "Part A", instruction: "Answer ALL questions", questions: 5, attemptAll: true, attemptCount: 5, marksPerQuestion: 2, marksMin: 1, marksMax: 3, hasOrPattern: false },
-      { id: "b2", label: "Part B", instruction: "Answer any FOUR of FIVE questions (with OR)", questions: 5, attemptAll: false, attemptCount: 4, marksPerQuestion: 10, marksMin: 8, marksMax: 12, hasOrPattern: true },
+      {
+        id: "b1",
+        label: "Questions",
+        instruction: "Answer any FIVE questions choosing ONE from each OR pair",
+        questions: 10,
+        attemptAll: false,
+        attemptCount: 5,
+        marksPerQuestion: 10,
+        marksMin: 8,
+        marksMax: 12,
+        hasOrPattern: true,
+        splitMode: "mixed",
+      },
     ],
   },
   "SEE": {
     examType: "SEE", totalMarks: 100, duration: "3 hrs",
     referenceFile: null, referenceFileName: "", randomizationEnabled: false,
     blocks: [
-      { id: "b1", label: "Part A", instruction: "Answer TEN questions (2 marks each)", questions: 10, attemptAll: true, attemptCount: 10, marksPerQuestion: 2, marksMin: 1, marksMax: 3, hasOrPattern: false },
-      { id: "b2", label: "Part B", instruction: "Answer ONE full question from each unit (10 marks × 5 units)", questions: 10, attemptAll: false, attemptCount: 5, marksPerQuestion: 10, marksMin: 8, marksMax: 12, hasOrPattern: true },
-      { id: "b3", label: "Part C", instruction: "Answer ONE full question from each unit (10 marks × 5 units)", questions: 10, attemptAll: false, attemptCount: 5, marksPerQuestion: 10, marksMin: 8, marksMax: 12, hasOrPattern: true },
+      {
+        id: "b1",
+        label: "Questions",
+        instruction: "Answer any FIVE questions choosing ONE from each MODULE OR pair",
+        questions: 10,         // 10 questions = 5 module OR pairs
+        attemptAll: false,
+        attemptCount: 5,       // student answers 5 (one per module) = 100 marks
+        marksPerQuestion: 20,  // each question worth 20 marks (sub-parts a+b+c)
+        marksMin: 18,
+        marksMax: 22,
+        hasOrPattern: true,
+        splitMode: "mixed",
+      },
     ],
   },
 };
@@ -156,17 +189,19 @@ export default function Settings() {
 
   const addBlock = () => {
     const newId = `b${Date.now()}`;
+    const newBlock: TemplateBlock = {
+      id: newId,
+      label: `Part ${String.fromCharCode(65 + templates[activeExamTab].blocks.length)}`,
+      instruction: "Answer all questions",
+      questions: 5, attemptAll: true, attemptCount: 5,
+      marksPerQuestion: 10, marksMin: 8, marksMax: 12,
+      hasOrPattern: false, splitMode: "mixed",
+    };
     setTemplates(prev => ({
       ...prev,
       [activeExamTab]: {
         ...prev[activeExamTab],
-        blocks: [...prev[activeExamTab].blocks, {
-          id: newId,
-          label: `Part ${String.fromCharCode(65 + prev[activeExamTab].blocks.length)}`,
-          instruction: "Answer all questions",
-          questions: 5, attemptAll: true, attemptCount: 5,
-          marksPerQuestion: 10, marksMin: 8, marksMax: 12, hasOrPattern: false,
-        }],
+        blocks: [...prev[activeExamTab].blocks, newBlock],
       },
     }));
     setExpandedBlock(newId);
@@ -536,16 +571,47 @@ export default function Settings() {
                                 </>
                               )}
                             </div>
-                            <div className="flex items-center gap-6">
+                            <div className="flex flex-wrap items-center gap-6">
                               <div className="flex items-center gap-2">
                                 <Switch checked={block.attemptAll} onCheckedChange={v => { updateBlock(block.id, "attemptAll", v); if (v) updateBlock(block.id, "attemptCount", block.questions); }} />
                                 <Label className="text-xs">Answer ALL questions</Label>
                               </div>
                               <div className="flex items-center gap-2">
                                 <Switch checked={block.hasOrPattern} onCheckedChange={v => updateBlock(block.id, "hasOrPattern", v)} />
-                                <Label className="text-xs">Use OR pattern (Q1a OR Q1b)</Label>
+                                <Label className="text-xs">Use OR pattern (Q1 OR Q2…)</Label>
                               </div>
                             </div>
+                            {/* Question split mode — only shown when OR pattern and 10 marks */}
+                            {block.hasOrPattern && (
+                              <div className="space-y-1.5">
+                                <Label className="text-xs font-medium">Question Split Mode</Label>
+                                <p className="text-[10px] text-muted-foreground">
+                                  How should the AI divide the {block.marksPerQuestion} marks within each question?
+                                </p>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                  {([
+                                    { value: "whole",     label: "Whole",     desc: `${block.marksPerQuestion} marks` },
+                                    { value: "split-6-4", label: "6 + 4",     desc: "6 and 4 marks" },
+                                    { value: "split-5-5", label: "5 + 5",     desc: "5 and 5 marks" },
+                                    { value: "mixed",     label: "AI decides",desc: "AI varies each question" },
+                                  ] as const).map(opt => (
+                                    <button
+                                      key={opt.value}
+                                      type="button"
+                                      onClick={() => updateBlock(block.id, "splitMode", opt.value)}
+                                      className={`p-2 rounded-lg border-2 text-left text-xs transition-all ${
+                                        block.splitMode === opt.value
+                                          ? "border-primary bg-primary/5 shadow-sm"
+                                          : "border-muted hover:border-primary/40 hover:bg-muted/30"
+                                      }`}
+                                    >
+                                      <div className="font-semibold">{opt.label}</div>
+                                      <div className="text-[10px] text-muted-foreground mt-0.5">{opt.desc}</div>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                             {/* Preview pill */}
                             <div className={`flex items-center gap-2 p-2.5 rounded-md border text-xs ${tpl.randomizationEnabled ? "bg-primary/5 border-primary/20 text-primary" : "bg-muted/40 border-muted text-muted-foreground"}`}>
                               <Info className="h-3.5 w-3.5 shrink-0" />

@@ -3,6 +3,13 @@ import { Trash2, ImagePlus, X, Plus } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+// ── Sub-part shape (for 6+4 or 5+5 splits) ────────────────────────────────────
+export interface QuestionSubPart {
+  label: string;   // "a", "b"
+  text: string;
+  marks: number;
+}
+
 // ── Question shape ─────────────────────────────────────────────────────────────
 export interface PaperQuestion {
   id: string;
@@ -15,6 +22,8 @@ export interface PaperQuestion {
   diagramCaption?: string;
   // legacy alias still accepted
   bloomLevel?: string;
+  // optional sub-parts: if present the question is split (6+4 or 5+5)
+  subParts?: QuestionSubPart[];
 }
 
 // ── Course Outcome description ─────────────────────────────────────────────────
@@ -370,7 +379,23 @@ export function PaperPreview({
                       </div>
                     ) : (
                       <div>
-                        <span style={{ fontSize: 10 }}>{q.text}</span>
+                        {/* ── Sub-part split (6+4 or 5+5) ── */}
+                        {q.subParts && q.subParts.length > 0 ? (
+                          <div style={{ fontSize: 10 }}>
+                            {q.subParts.map((sp, si) => (
+                              <div key={sp.label} style={{ marginBottom: si < q.subParts!.length - 1 ? 5 : 0, display: "flex", gap: 4 }}>
+                                <span style={{ fontWeight: "bold", minWidth: 14, flexShrink: 0 }}>{sp.label}.</span>
+                                <span style={{ flex: 1 }}>{sp.text}</span>
+                                <span style={{ marginLeft: 6, whiteSpace: "nowrap", color: "#333",
+                                               fontStyle: "italic", flexShrink: 0 }}>
+                                  ({sp.marks} M)
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: 10 }}>{q.text}</span>
+                        )}
                         {q.diagram && (
                           <div style={{ marginTop: 8, textAlign: "center" }}>
                             <img src={q.diagram} alt="diagram"

@@ -202,10 +202,10 @@ export const historyData = [
     coverageScope: "Modules 1 and 2 — up to SVM with kernels",
     modulesIncluded: [1, 2],
     questions: [
-      { id: "q1", text: "Define Machine Learning. Explain the different types of Machine Learning with suitable examples.", marks: 10, co: "CO1", bloomLevel: "L1", module: 1 },
-      { id: "q2", text: "What is the Bias-Variance Tradeoff? Explain underfitting and overfitting with neat diagrams.", marks: 10, co: "CO1", bloomLevel: "L2", module: 1 },
-      { id: "q3", text: "Apply the Gradient Descent algorithm to optimize the parameters of a Linear Regression model on a given dataset. Illustrate with a numerical example.", marks: 10, co: "CO2", bloomLevel: "L3", module: 2 },
-      { id: "q4", text: "Using the concept of Support Vector Machines, apply the kernel trick to classify a non-linearly separable dataset. Explain the choice of kernel function.", marks: 10, co: "CO2", bloomLevel: "L3", module: 2 },
+      { id: "q1", text: "Define Machine Learning. Explain the different types of Machine Learning with suitable examples.", marks: 10, co: "CO1", bloom: "L1", bloomLevel: "L1", module: 1 },
+      { id: "q2", text: "What is the Bias-Variance Tradeoff? Explain underfitting and overfitting with neat diagrams.", marks: 10, co: "CO1", bloom: "L2", bloomLevel: "L2", module: 1 },
+      { id: "q3", text: "Apply the Gradient Descent algorithm to optimize the parameters of a Linear Regression model on a given dataset. Illustrate with a numerical example.", marks: 10, co: "CO2", bloom: "L3", bloomLevel: "L3", module: 2 },
+      { id: "q4", text: "Using the concept of Support Vector Machines, apply the kernel trick to classify a non-linearly separable dataset. Explain the choice of kernel function.", marks: 10, co: "CO2", bloom: "L3", bloomLevel: "L3", module: 2 },
     ],
   },
   {
