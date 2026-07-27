@@ -1,0 +1,56 @@
+# config/aion_config.yaml
+
+system:
+  name: "AION Embeddings"
+  version: "2.0"
+  data_dir: "data"
+  log_level: "INFO"
+
+model:
+  base: "BAAI/bge-base-en-v1.5"
+  max_seq_length: 512
+  embedding_dim: 768
+  current_version: "v0"    # tracks which version is active
+
+training:
+  auto_train: true
+  min_new_questions: 20           # minimum new questions before auto-retrain
+  check_interval_seconds: 300     # how often daemon checks for new data
+  epochs: 3
+  batch_size: 32
+  learning_rate: 2.0e-5
+  warmup_ratio: 0.1
+  loss: "mnrl"                    # mnrl | triplet | contrastive
+  replay_ratio: 0.3              # mix old data to prevent forgetting
+  max_auto_epochs: 2             # limit for automatic training
+  freeze_model: false            # admin can freeze to stop all training
+
+evaluation:
+  enabled: true
+  min_score: 0.70                # don't deploy if eval drops below this
+  auto_rollback: true
+
+question_parsing:
+  detect_marks: true
+  detect_bloom: true
+  detect_type: true              # mcq, short, long, numerical
+  min_question_length: 10
+  supported_formats:
+    - "numbered"                 # 1. Question text
+    - "lettered"                 # a) Question text
+    - "roman"                    # i) Question text
+    - "qformat"                  # Q1. Question text
+    - "freeform"                 # fallback
+
+admin:
+  password_hash: "change_this"   # sha256 hash of admin password
+  can_delete_data: true
+  can_rollback: true
+  can_freeze: true
+  can_override_training: true
+
+user:
+  can_upload: true
+  can_search: true
+  max_upload_size_mb: 50
+  rate_limit_per_minute: 30

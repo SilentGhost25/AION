@@ -1,175 +1,137 @@
-# AION Unified System Architecture Blueprint (Merged)
+# AION Integrated Architecture Blueprint (Final Synthesis)
 
-This document freezes the final combined system architecture of AION (Academic Intelligence Oriented Network) integrated with production-grade governance, versioning, auditing, and state machine workflows.
-
----
-
-## 1. Unified Information Flow Topology
-
-AION combines native neural academic intelligence engines with a strict contract-first software execution layer.
-
-```
-                    ┌─────────────────────────┐
-                    │      Upload Client      │
-                    └────────────┬────────────┘
-                                 │ Ingestion Upload API
-                    ┌────────────▼────────────┐
-                    │      API Gateway        │
-                    │   (Pydantic AOM Gate)   │
-                    └────────────┬────────────┘
-                                 │ Strict AOM Contracts
-      ┌──────────────────────────┼──────────────────────────┐
-      │ Core Engine Registry     │                          │
-      │  ┌───────────────────────▼───────────────────────┐  │
-      │  │                 Event Bus / Queue             │  │
-      │  └───────────────────────┬───────────────────────┘  │
-      │  ┌───────────────────────▼───────────────────────┐  │
-      │  │        Audited Workflow Engine (States)       │  │
-      │  └───────────────────────┬───────────────────────┘  │
-      └──────────────────────────┼──────────────────────────┘
-                                 │
-      ┌──────────────────────────┼──────────────────────────┐
-      │ Generation Pipeline      │                          │
-      │  ┌───────────────────────▼───────────────────────┐  │
-      │  │  1. Ingestion & Reconstruction                │  │
-      │  └───────────────────────┬───────────────────────┘  │
-      │  ┌───────────────────────▼───────────────────────┐  │
-      │  │  2. Academic Genome & Answer Graph Builder    │  │
-      │  └───────────────────────┬───────────────────────┘  │
-      │  ┌───────────────────────▼───────────────────────┐  │
-      │  │  3. Question Discovery & Blueprint Engine     │  │
-      │  └───────────────────────┬───────────────────────┘  │
-      │  ┌───────────────────────▼───────────────────────┐  │
-      │  │  4. Context Expansion & AI Generator          │  │
-      │  └───────────────────────┬───────────────────────┘  │
-      │  ┌───────────────────────▼───────────────────────┐  │
-      │  │  5. Verification & Discriminator Gates        │  │
-      │  └───────────────────────┬───────────────────────┘  │
-      │  ┌───────────────────────▼───────────────────────┐  │
-      │  │  6. Review, Edit & Feedback Capture           │  │
-      │  └───────────────────────┬───────────────────────┘  │
-      └──────────────────────────┼──────────────────────────┘
-                                 │
-      ┌──────────────────────────▼──────────────────────────┐
-      │ Continuous Learning                                 │
-      │  ┌───────────────────────────────────────────────┐  │
-      │  │  7. Human Approval Gate                       │  │
-      │  ├───────────────────────────────────────────────┤  │
-      │  │  8. Replay Buffer & Training (ALF)            │  │
-      │  └───────────────────────────────────────────────┘  │
-      └─────────────────────────────────────────────────────┘
-```
+This document freezes the integrated architecture of **AION (Academic Intelligence Oriented Network)**, unifying **Design B's production engineering skeleton** with **Design A's cognitive reasoning brain**.
 
 ---
 
-## 2. Engineering Governance Features
+## 1. Integrated System Architecture Topology
 
-### 2.1 Contract-First Schema Enforcements
-Every data transaction across engines, databases, APIs, and client runtimes must adhere to the Pydantic schemas in `core/sdk/aom.py`. Untyped dictionaries, unstructured database rows, and raw strings are disallowed.
-
-### 2.2 Global Versioning Policy
-Every asset is versioned explicitly:
-- **Models**: Version of the base weights / fine-tuned checkpoints.
-- **Datasets**: Versioned incrementally via `DatasetVersion` metadata (e.g., `v1`, `v2`).
-- **Prompts**: Versioned templates sourced from the active database.
-- **AI Configurations**: Hyperparameters, decoding configurations, and routing options.
-- **Engines**: The software module versions (e.g., `validation_engine v1.1.2`).
-Each generated paper stores these exact versions in its metadata fields for full historical auditability.
-
-### 2.3 Comprehensive AI Call Auditing (`AICallLog`)
-Every call made by an academic engine to any LLM, parser, or translation service is logged synchronously with:
-- Target engine name and software version.
-- Active prompt version ID.
-- Exact input payload and returned model outputs.
-- Latency (ms), model confidence scores, and validation check outcomes.
-These audit logs provide a clean telemetry trail and double as high-quality episodic training inputs for future iterations of the AION Learning Factory.
-
-### 2.4 Human Approval Gates for Learning Episodes
-Before any user correction, teacher edit, or validation failure feedback is pushed into the active **Replay Buffer** for continual training, it must pass a human approval checklist. A designated administrator must approve the `LearningObject` in the ingestion queue (`approval_status` == `APPROVED`). This mitigates the risk of catastrophic forgetting or low-quality feedback loop amplification.
-
-### 2.5 Strict Blueprint Locking
-Before generation starts, the `PaperBlueprint` is frozen (`is_locked = True`). The generation and validation engines can modify candidate question formulations and answer wording, but are restricted from mutating:
-- Maximum marks allocation.
-- Selected Syllabus modules.
-- Targets for Bloom levels.
-
----
-
-## 3. Modular Intelligence Subsystems
-
-### 3.1 The Question Discovery Engine
-Rather than creating questions directly from text segments (RAG chunks), AION reverses the paradigm. The Question Discovery stage:
-1. Translates reconstructed concepts into `KnowledgeObject` nodes and `KnowledgeGene` lists.
-2. Forms an **Answer Graph** representing the optimal academic target answers.
-3. Computes the **Examiner Intention** and matches it against potential Student Learning Objectives.
-4. Identifies curriculum gaps and lists the most examinable questions implied by the topic nodes.
-5. Ranks discovered questions prior to actual prompt token assembly.
-
-### 3.2 Context-Expanding Failure Recovery Loops
-If a generated paper or question fails any semantic, validation, or compliance gates (e.g., Bloom level mismatch, grammar score < 0.90, or syllabus deviation):
-1. **Retrieve Again**: Re-query the Academic Genome and prerequisites maps using a broader semantic search window.
-2. **Expand Context**: Inject neighboring nodes, related topic definitions, and historical question templates into the active prompt workspace.
-3. **Reason Again**: Call the Examiner Reasoning Engine to re-evaluate the question design approach.
-4. **Generate Again**: Produce a candidate question.
-5. **Fallback Generator**: If validation still fails after 3 retries, swap to an emergency rule-based compiler or a highly-stable, smaller deterministic template builder.
-6. **Manual Entry**: Trigger a fallback warning notifying the human reviewer for direct instruction only if all recovery routines fail.
-
----
-
-## 4. The Complete Ingestion & Execution Pipeline
+AION combines a production-grade ingestion, retrieval, and training stack with an explicit academic reasoning layer:
 
 ```text
-Upload Book / Syllabus
-  ↓
-Document Intelligence (Text, OCR, tables, equations, structures)
-  ↓
-Academic Reconstruction (Construct semesters, course directories, subject files)
-  ↓
-Academic Genome & Answer Graph Construction (Genes mapping & prerequisite maps)
-  ↓
-Knowledge Validator (Identify contradictions or gaps in syllabus)
-  ↓
-Dataset Versioning (Increment training splits and version metadata)
-  ↓
-Exam Blueprint Locking (Freeze total marks, modules covered, Bloom distributions)
-  ↓
-Question Planner & Examiner Reasoning (Design outline for each question section)
-  ↓
-Question Discovery (Determine all implied question objectives from genome nodes)
-  ↓
-Academic Self-RAG (Validate candidates against textbook truth references)
-  ↓
-Context-Expanding Fail-safe Loops (Expand context & re-reason on validation failure)
-  ↓
-Validation & Discriminator Gates (Grammar, Bloom taxonomy, VTU style checks)
-  ↓
-Question Ranking & Formatting (Select highest quality candidates and compile layouts)
-  ↓
-Paper Compiler (Generate PDF, Word, LaTeX outputs)
-  ↓
-Review Loop (Reviewer approves or directly edits generated questions)
-  ↓
-Human Ingestion Review (Audit edits and save as approved Learning Episodes)
-  ↓
-Replay Buffer (Insert approved training episodes)
-  ↓
-Scheduled Retraining & Model Weights Promotion (Update active foundation weights)
+DOCUMENT INPUT (PDF / Textbook / Syllabus)
+     │
+     ▼
+┌──────────────────────────────────────────────────────────────┐
+│ STAGE 1 — DOCUMENT UNDERSTANDING                            │
+│ baidu/Unlimited-OCR + docling-models + table-transformer      │
+│ → Hierarchical JSON per textbook                             │
+│ ★ Diagram Intelligence Layer: Figure extraction to queryable │
+│   academic objects (nodes, relationships, learning obj)     │
+└──────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌──────────────────────────────────────────────────────────────┐
+│ STAGE 2 — KNOWLEDGE EXTRACTION                               │
+│ Hierarchical Chunking + GLiNER-relex → Concepts + Relations   │
+│ → Postgres Academic Knowledge Genome (DNA Strands)           │
+│ ★ Genome Algebra: MERGE, DIFF, CROSS, DECAY operations      │
+└──────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌──────────────────────────────────────────────────────────────┐
+│ STAGE 3 — HYBRID RETRIEVAL & INDEXING                        │
+│ Dense: BAAI/bge-m3 | Sparse: BM25 | Rerank: bge-reranker-v2-m3│
+│ Vector: Qdrant | Multimodal Figures: Qwen3-VL-2B             │
+└──────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌──────────────────────────────────────────────────────────────┐
+│ STAGE 3.5 — ACADEMIC THOUGHT GRAPH (ATG) TRAVERSAL            │
+│ Inputs: Retrieved Chunks + Concept Genomes                   │
+│ Traversal Policies: Depth-First | Breadth-First | Socratic |   │
+│                    Bloom-Directed | Examiner-Directed        │
+│ Output: Stage 3.5 ThoughtGraphIntent Specification            │
+└──────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌──────────────────────────────────────────────────────────────┐
+│ STAGE 4 — RAG² ANSWER-FIRST GENERATION                       │
+│ Base LLM: Qwen3-8B-Instruct + Multi-LoRA (vLLM serving)      │
+│ Sequence: 1. Ideal Answer -> 2. Marking Scheme ->            │
+│           3. Question Constraints -> 4. Exam Question        │
+│ ★ Examiner Personality Engine (EPE): Consistency Fingerprint │
+└──────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌──────────────────────────────────────────────────────────────┐
+│ STAGE 5 — SELF-CRITIC ENSEMBLE & GUARDRAILS                  │
+│ Gates: Faithfulness (LettuceDetect) | Originality (MinHash)  │
+│ Reason Codes: RC-01 (Concept) | RC-02 (Rel) | RC-03 (EPE)   │
+│              RC-04 (Bloom)   | RC-05 (Ped) | RC-06 (Grammar)│
+│              RC-07 (Abstain Retrieval Path)                  │
+│ Causal Failure Routing: Failures route back to failing stage │
+└──────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌──────────────────────────────────────────────────────────────┐
+│ STAGE 6 — HUMAN REVIEW & CONTINUAL TRAINING (ALF)            │
+│ Interface: Streamlit Faculty Dashboard (Accept/Reject/Edit)  │
+│ Dual Impact:                                                 │
+│  1. Updates Genome Confidence DNA (Knowledge Evolution Graph)│
+│  2. Logs Preference Pairs into RAFT -> GRPO -> DPO Buffer    │
+└──────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌──────────────────────────────────────────────────────────────┐
+│ METACOGNITIVE MONITOR (Wrapping System & Knowledge Health)   │
+│ Tracks: Knowledge Completeness | Critic Rejection Rate |     │
+│         Reason Code Histogram | Embedding Output Drift       │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 5. Paper Workflow State Machine
+## 2. Integrated Model Stack
 
-The life-cycle of a question paper follows a strict state transition:
-```
-  [ Draft ] ──(Trigger Generation)──> [ Generating ]
-                                            │
-                                            │ (Generation & Validation Pass)
-                                            ▼
-  [ Approved ] <──(Human Review Pass)── [ Review ]
-        │
-        │ (Publish & Export)
-        ▼
-  [ Archived ]
-```
-Each state change is validated by the workflow gate controller.
+| Pipeline Stage | Model / Component | Purpose in Integrated AION |
+|---|---|---|
+| **OCR & Parsing** | `baidu/Unlimited-OCR` | High-fidelity textbook OCR extraction |
+| **Document Structure** | `docling-project/docling-models` | Hierarchical JSON tree & figure extraction |
+| **Table Verification** | `microsoft/table-transformer` | Structural header & row validation |
+| **Text Embedding** | `BAAI/bge-m3` | Dense & sparse hybrid vector embedding |
+| **Reranking** | `BAAI/bge-reranker-v2-m3` | Cross-encoder retrieval reranking |
+| **Multimodal Figures** | `Qwen3-VL-2B` | Image/diagram semantic embedding & OCR |
+| **Concept Extraction** | `knowledgator/gliner-relex` | Zero-shot concept & relation extraction -> Genome DNA |
+| **Generation Engine** | `Qwen3-8B-Instruct` + LoRA | RAG² Answer-First Generation & Examiner Personality |
+| **Serving & Inference** | `vLLM` (AWQ/FP8, Multi-LoRA) | Production high-throughput multi-personality serving |
+| **Faithfulness Gate** | `LettuceDetect` / `HHEM` | Token-level grounding verification (RC-01) |
+| **Originality Gate** | `MinHash-LSH` | N-gram & embedding novelty check (RC-05) |
+| **Observability** | `MLflow` + Streamlit Trace Viewer | System & metacognitive monitoring telemetry |
+
+---
+
+## 3. Integrated 3-Stage Training Pipeline
+
+### Stage 1: RAFT-Formatted SFT (Retrieval-Augmented Fine-Tuning)
+- **Data Composition**: $P \approx 0.75$ golden context inclusion, $0.25$ distractor-only context.
+- **Thought Traversal**: Chain-of-thought traces explicitly follow **Academic Thought Graph** node traversals (`Concept -> Prerequisite -> Relationship -> Expected Answer`).
+
+### Stage 2: GRPO (Group Relative Policy Optimization)
+- Candidates per prompt ($G \ge 4$).
+- **Integrated 7-Signal Reward Function**:
+  $$\text{Reward} = w_1 \cdot R_{\text{faithfulness}} + w_2 \cdot R_{\text{originality}} + w_3 \cdot R_{\text{judge}} + w_4 \cdot R_{\text{fingerprint}} + w_5 \cdot R_{\text{bloom}} + w_6 \cdot R_{\text{simulation}} + w_7 \cdot R_{\text{atg}} - w_8 \cdot P_{\text{format}}$$
+  - $w_1 = 0.25$ (LettuceDetect Grounding)
+  - $w_2 = 0.15$ (MinHash Novelty)
+  - $w_3 = 0.15$ (RULER LLM Judge)
+  - $w_4 = 0.15$ (EPE Consistency Fingerprint Match)
+  - $w_5 = 0.10$ (Bloom Taxonomy Target Match)
+  - $w_6 = 0.10$ (Concept Simulation Consistency)
+  - $w_7 = 0.10$ (ATG Traversal Validity)
+  - $w_8 = 0.20$ (Format Violation Penalty)
+
+### Stage 3: DPO (Direct Preference Optimization)
+- Preference pairs constructed from real faculty accept/reject/edit decisions in Stage 6.
+
+---
+
+## 4. The 8 Validation Checkpoints
+
+1. **Checkpoint 1 (Wk 2-4)**: Document understanding quality (Unlimited-OCR & Docling accuracy $\ge 95\%$).
+2. **Checkpoint 2 (Wk 4-6)**: Concept extraction sanity (GLiNER precision $\ge 90\%$).
+3. **Checkpoint 3 (Wk 7)**: Baseline RAG² generation quality (zero-shot Qwen3-8B).
+4. **Checkpoint 4 (Wk 10)**: Fine-tuned RAFT vs. baseline blind review ($\ge 80\%$ faculty preference).
+5. **Checkpoint 5 (Ongoing)**: Anti-memorization & originality audit ($< 5\%$ source overlap).
+6. **Checkpoint 6 (Wk 5-6)**: Genome integrity & Genome Algebra verification (MERGE/CROSS ops).
+7. **Checkpoint 7 (Wk 8-9)**: ATG traversal validity (Socratic traversal yields cross-concept questions).
+8. **Checkpoint 8 (Wk 11)**: Cognitive reward correlation ($\text{Reward}_i$ correlates with faculty acceptance).

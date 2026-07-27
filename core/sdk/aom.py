@@ -172,3 +172,83 @@ class AICallLog(BaseModel):
     confidence_score: float = Field(..., description="Model self-reported or logprob-derived confidence score")
     validation_passed: bool = Field(..., description="True if the output passed subsequent validation gates")
     validation_details: Dict[str, Any] = Field(default_factory=dict, description="Detailed verification metrics and error reports")
+
+# ══════════════════════════════════════════════
+# INTEGRATED AION ARCHITECTURE EXTENSIONS
+# ══════════════════════════════════════════════
+
+class ReasonCode(str, Enum):
+    RC_01_CONCEPT_AMBIGUOUS = "RC-01: concept ambiguous"
+    RC_02_RELATIONSHIP_MISSING = "RC-02: relationship missing"
+    RC_03_EXAMINER_MISMATCH = "RC-03: examiner profile mismatch"
+    RC_04_DIFFICULTY_INCONSISTENT = "RC-04: difficulty/bloom inconsistent"
+    RC_05_PEDAGOGICALLY_INVALID = "RC-05: pedagogically invalid"
+    RC_06_LANGUAGE_QUALITY_FAIL = "RC-06: language/grammar quality failure"
+    RC_07_RETRIEVAL_INSUFFICIENT = "RC-07: retrieval insufficient (abstain path)"
+
+class TraversalPolicy(str, Enum):
+    DEPTH_FIRST = "depth_first"         # prerequisite chains
+    BREADTH_FIRST = "breadth_first"     # concept connections
+    BLOOM_DIRECTED = "bloom_directed"   # target taxonomy level
+    EXAMINER_DIRECTED = "examiner_directed" # professor style matching
+    SOCRATIC = "socratic"               # cross-domain relational reasoning
+
+class ThoughtGraphIntent(BaseModel):
+    """
+    Stage 3.5 — Academic Thought Graph Traversal Intent.
+    Produced between retrieval and generation to specify WHAT the question must accomplish.
+    """
+    intent_id: str = Field(..., description="Unique intent identifier")
+    primary_concept_id: str = Field(..., description="Root concept ID traversed")
+    traversed_genome_ids: List[str] = Field(default_factory=list, description="Genome node IDs along traversal path")
+    traversal_policy: TraversalPolicy = Field(default=TraversalPolicy.BLOOM_DIRECTED, description="Traversal strategy applied")
+    target_bloom_level: str = Field(default="L2_understand", description="Target Bloom level (L1-L6)")
+    target_marks: int = Field(default=5, description="Target marks allocation (e.g. 2, 5, 10)")
+    required_distractors: List[str] = Field(default_factory=list, description="Concepts to use as distractors/contrasts")
+    pedagogical_objective: str = Field(..., description="Structured rationale of what this question tests")
+
+class GRPORewardSignals(BaseModel):
+    """
+    Stage 4/5 — Integrated 7-Signal GRPO Reward Function.
+    Calculated during GRPO training step across candidate groups.
+    """
+    faithfulness_score: float = Field(..., description="LettuceDetect/HHEM grounding score (0.0 - 1.0)")
+    originality_score: float = Field(..., description="MinHash-LSH novelty score vs source/qbank (0.0 - 1.0)")
+    llm_judge_score: float = Field(..., description="RULER/Evaluator LLM score (0.0 - 1.0)")
+    examiner_fingerprint_match: float = Field(..., description="EPE Consistency Fingerprint cosine similarity (0.0 - 1.0)")
+    bloom_alignment_score: float = Field(..., description="Bloom taxonomy target match (0.0 - 1.0)")
+    simulation_consistency: float = Field(..., description="Concept Simulation Engine match vs ideal answer (0.0 - 1.0)")
+    atg_traversal_validity: float = Field(..., description="Thought graph traversal compliance (0.0 - 1.0)")
+    format_violation_penalty: float = Field(default=0.0, description="Penalty for formatting/verb violations")
+
+class GRPORewardWeights(BaseModel):
+    w1_faithfulness: float = Field(default=0.25)
+    w2_originality: float = Field(default=0.15)
+    w3_judge: float = Field(default=0.15)
+    w4_fingerprint: float = Field(default=0.15)
+    w5_bloom: float = Field(default=0.10)
+    w6_simulation: float = Field(default=0.10)
+    w7_atg: float = Field(default=0.10)
+    w8_format_penalty: float = Field(default=0.20)
+
+class FaithfulnessGateResult(BaseModel):
+    is_faithful: bool = Field(..., description="True if no ungrounded claims detected")
+    confidence_score: float = Field(..., description="Grounding confidence")
+    hallucinated_tokens: List[Dict[str, Any]] = Field(default_factory=list, description="Positions and scores of hallucinated tokens")
+
+class OriginalityGateResult(BaseModel):
+    is_original: bool = Field(..., description="True if below similarity threshold vs qbank/source")
+    minhash_similarity_source: float = Field(..., description="MinHash similarity vs source document")
+    minhash_similarity_qbank: float = Field(..., description="MinHash similarity vs historical question bank")
+
+class MetacognitiveMetrics(BaseModel):
+    """
+    Stage 6 — Metacognitive Monitor Observability Metrics.
+    Aggregated to track system reasoning quality and knowledge health.
+    """
+    knowledge_completeness_ratio: float = Field(..., description="Ratio of verified concept coverage")
+    critic_rejection_rate: float = Field(..., description="Self-Critic Ensemble rejection rate")
+    reason_code_counts: Dict[str, int] = Field(default_factory=dict, description="Histogram of Reason Code failures")
+    output_drift_score: float = Field(..., description="Embedding drift of generated questions over time")
+    confidence_calibration_error: float = Field(..., description="Expected vs actual validation error gap")
+

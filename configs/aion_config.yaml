@@ -1,0 +1,73 @@
+# Central Integrated Configuration for AION Platform
+# Unifying Production Infrastructure & Cognitive Reasoning Engine
+
+system:
+  name: "AION Platform"
+  version: "1.0-integrated"
+  environment: "production"
+  log_level: "INFO"
+
+models:
+  ocr: "baidu/Unlimited-OCR"
+  document_structure: "docling-project/docling-models"
+  table_verifier: "microsoft/table-transformer"
+  text_embedding: "BAAI/bge-m3"
+  reranker: "BAAI/bge-reranker-v2-m3"
+  multimodal: "Qwen3-VL-2B"
+  concept_extractor: "knowledgator/gliner-relex"
+  generator_base: "Qwen3-8B-Instruct"
+  serving_engine: "vllm"
+
+retrieval:
+  dense_top_k: 50
+  rerank_top_k: 10
+  hybrid_alpha: 0.6               # 0.6 dense + 0.4 sparse BM25
+  vector_db: "qdrant"
+
+thought_graph_traversal:
+  default_policy: "BLOOM_DIRECTED"
+  available_policies:
+    - "DEPTH_FIRST"
+    - "BREADTH_FIRST"
+    - "BLOOM_DIRECTED"
+    - "EXAMINER_DIRECTED"
+    - "SOCRATIC"
+
+rag2_generation:
+  enforce_answer_first: true
+  temperature: 0.6
+  max_tokens_answer: 350
+  max_tokens_question: 150
+
+grpo_training:
+  group_size_g: 4
+  kl_coeff: 0.05
+  weights:
+    w1_faithfulness: 0.25
+    w2_originality: 0.15
+    w3_judge: 0.15
+    w4_fingerprint: 0.15
+    w5_bloom: 0.10
+    w6_simulation: 0.10
+    w7_atg: 0.10
+    w8_format_penalty: 0.20
+
+guardrails:
+  faithfulness:
+    model: "lettucedetect"
+    min_threshold: 0.85
+  originality:
+    algorithm: "minhash_lsh"
+    max_source_similarity: 0.15
+    max_qbank_similarity: 0.20
+  retry_limit: 2
+
+checkpoints:
+  chk_1_ocr_accuracy_min: 0.95
+  chk_2_concept_precision_min: 0.90
+  chk_3_baseline_rag2_quality: "pass"
+  chk_4_raft_blind_review_min: 0.80
+  chk_5_anti_memorization_max: 0.05
+  chk_6_genome_integrity: "pass"
+  chk_7_atg_socratic_validity: "pass"
+  chk_8_grpo_reward_correlation_min: 0.75

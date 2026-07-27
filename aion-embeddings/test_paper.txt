@@ -1,0 +1,13 @@
+Artificial Intelligence Midterm
+
+Q1. Explain the concept of Neural Networks. (10 marks)
+What are its primary components?
+
+Q2. Define Backpropagation. [5M]
+Explain the concept of Backpropagation with a diagram.
+
+Q3. Discuss the difference between supervised and unsupervised learning.
+
+Q4. How does a Convolutional Neural Network work? (5 marks)
+
+Q5. What is Overfitting? How can we prevent it?
