@@ -24,10 +24,14 @@ class AIONLLM:
         self.fallback_models = ["llama3.2:3b", "qwen2.5:3b", "qwen2.5:1.5b", "mistral:latest"]
         self.host = host.rstrip("/")
 
-    def generate(self, prompt: str, system: Optional[str] = None, temperature: float = 0.45) -> str:
+    def generate(self, prompt: str, system: Optional[str] = None, temperature: float = 0.45, options: Optional[dict] = None) -> str:
         """
-        Generate text from local Ollama model with model fallbacks.
+        Generate text from local Ollama model with model fallbacks and optional stop sequences / limits.
         """
+        opts = {"temperature": temperature}
+        if options:
+            opts.update(options)
+
         candidate_models = [self.preferred_model] + [m for m in self.fallback_models if m != self.preferred_model]
 
         # Strategy 1: Python ollama package
@@ -43,7 +47,7 @@ class AIONLLM:
                     response = ollama.chat(
                         model=mdl,
                         messages=messages,
-                        options={"temperature": temperature}
+                        options=opts
                     )
                     content = response.get("message", {}).get("content", "").strip()
                     if content:
@@ -53,7 +57,7 @@ class AIONLLM:
                         response = ollama.generate(
                             model=mdl,
                             prompt=f"{system}\n\n{prompt}" if system else prompt,
-                            options={"temperature": temperature}
+                            options=opts
                         )
                         content = response.get("response", "").strip()
                         if content:
@@ -76,7 +80,7 @@ class AIONLLM:
                         {"role": "user", "content": prompt}
                     ],
                     "stream": False,
-                    "options": {"temperature": temperature}
+                    "options": opts
                 }
 
                 req = urllib.request.Request(

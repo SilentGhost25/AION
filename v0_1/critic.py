@@ -9,17 +9,23 @@ from typing import Tuple
 from .schemas import GeneratedQuestion
 
 
+from .turbo import review_turbo
+
+
 def review(q: GeneratedQuestion) -> Tuple[bool, str]:
     """
     Self-Critic Gate with template-question and quality detection.
     """
+    # ── Turbo Mode bypass (no ideal answer generated) ──
+    if q.ideal_answer is None:
+        return review_turbo(q)
 
     # RC-06: Language & Length Quality
     if len(q.question_text) < 15:
         return False, "RC-06: question too short"
 
     # RC-01: Concept & Answer Validity
-    if not q.ideal_answer or len(q.ideal_answer) < 20:
+    if len(q.ideal_answer) < 20:
         return False, "RC-01: ideal answer missing or too thin"
 
     # RC-04: Question Interrogative Check
