@@ -1,0 +1,245 @@
+•  Of all of the many optimization problems involved in deep learning,  the most difficult is  neural network training .  •  Because this problem is so important and so expensive, a specialized  set of optimization techniques have been developed for solving it. •  Optimization for training deep models focuses on one particular case  of optimization:  finding the parameters θ of a neural network that  significantly reduce a cost function J(θ),  which typically includes a  performance measure evaluated on the entire training set as well as  additional regularization terms.
+
+• Indirect vs. Direct Optimization • In machine learning, learning is generally  indirect : we aim to optimize a performance  measure (such as generalization error or test accuracy), which is often intractable or  only observable on unseen data. Because we cannot optimize this measure directly,  we use a proxy objective (like empirical risk or training loss) and hope that improving  this will also improve the real-world performance. • Pure optimization is  direct : the optimization process targets a precisely defined and  tractable objective function without concern for generalization or unseen data • Empirical vs. Expected Risk • Learning typically involves minimizing empirical risk (observed on the training set),  though the real goal is minimizing expected risk (performance over all possible data,  namely the data-generating distribution). • In optimization, the objective is minimized exactly as specified, without the  distinction between empirical and expected measures.
+
+•  Surrogate Objectives and Regularization • Learning may involve using surrogate loss functions that are easier to optimize  (e.g., differentiable losses) instead of the true error, and incorporating  regularization to improve generalization. • Optimization usually operates directly on the given loss function, without  surrogate substitutions or mechanisms to limit overfitting. •  Role of Data Distribution and Generalization • Machine learning focuses on discovering patterns that generalize beyond the  given data and is concerned with the unknown data-generating distribution. • Pure optimization makes no assumptions or requirements about generalization  and deals only with provided data or constraints.
+
+•  Stochastic Optimization and Decomposition • Learning tasks often utilize stochastic (mini-batch) optimization schemes due  to computational limitations and the structure that allows decomposition over  samples. • Classical optimization may not benefit from stochastic methods and is  commonly solved using deterministic algorithms. •  Early Stopping and Overfitting • In learning, optimization is sometimes intentionally stopped before full  convergence (early stopping) to improve generalization; in pure optimization,  the process usually continues until the objective is truly minimized.
+
+•  Optimization algorithms used for training of deep models differ from  traditional optimization algorithms in several ways. Machine learning  usually acts indirectly.  •  In most machine learning scenarios, we care about some performance  measure P (accuracy, precision, recall, F1-score), that is defined with  respect to the test set and may also be intractable. We therefore optimize P  only indirectly by reducing a different cost function J(θ) (cross-entropy  loss, mean squared error) in the hope that doing so will improve P.  •  This is in contrast to pure optimization, where minimizing J is a goal in  and of itself.  •  Optimization algorithms for training deep models(like SGD, Adam,  RMSprop) are  designed to exploit the structure  of the loss functions in  machine learning.
+
+•  The cost function can be written as an average over the training set, such as:
+
+• The training process based on minimizing this average training error is  known as  empirical risk minimization .  • In this setting, machine learning is still very similar to straightforward  optimization. Rather than optimizing the risk directly, we optimize the  empirical risk, and hope that the risk decreases significantly as well. • Empirical risk minimization  is prone to overfitting, where models  memorize training data but fail to generalize.
+
+•  Batch and Minibatch Algorithms
+
+• Computing this expectation exactly is very expensive because it requires  evaluating the model on every example in the entire dataset. In practice, we can  compute these expectations by randomly sampling a small number of examples  from the dataset, then taking the average over only those examples.  • Optimization algorithms that use the entire training set are called  batch or  deterministic gradient methods , because they process all of the training  examples simultaneous
+
+• Optimization algorithms that use only a single example at a time are sometimes  called  stochastic  or sometimes  online  methods. The term online is usually  reserved for the case where the examples are drawn from a stream of continually  created examples rather than from a fixed-size training set over which several  passes are made. • Most algorithms used for deep learning fall somewhere in between, using more  than one but less than all of the training examples. These were traditionally called  minibatch or minibatch stochastic  methods and it is now common to simply call  them  stochastic methods .
+
+• Minibatch sizes are generally driven by the following factors:
+
+• Larger batches provide a more accurate estimate of the gradient, but with less than linear returns.
+
+• Multicore architectures are usually underutilized by extremely small batches. This motivates using some
+
+absolute minimum batch size, below which there is no reduction in the time to process a minibatch.
+
+• If all examples in the batch are to be processed in parallel (as is typically the case), then the amount of
+
+memory scales with the batch size. For many hardware setups this is the limiting factor in batch size.
+
+• Some kinds of hardware achieve better runtime with specific sizes of arrays. Especially when using GPUs, it
+
+is common for power of 2 batch sizes to offer better runtime. Typical power of 2 batch sizes range from 32 to
+
+256, with 16 sometimes being attempted for large models.
+
+• Small batches can offer a regularizing effect (Wilson and Martinez, 2003), perhaps due to the noise they add
+
+to the learning process. Generalization error is often best for a batch size of 1. Training with such a small batch
+
+size might require a small learning rate to maintain stability due to the high variance in the estimate of the
+
+gradient. The total runtime can be very high due to the need to make more steps, both because of the reduced
+
+learning rate and because it takes more steps to observe the entire training set.
+
+• Minibatch stochastic gradient descent follows the gradient of the true generalization error (equation 8.2)
+
+so long as no examples are repeated.
+
+• Most implementations of minibatch stochastic gradient descent shuffle the dataset once and then pass
+
+through it multiple times.
+
+• On the first pass, each minibatch is used to compute an unbiased estimate of the true generalization error.
+
+• On the second pass, the estimate becomes biased because it is formed by re-sampling values that have
+
+already been used, rather than obtaining new fair samples from the data generating distribution.
+
+• The fact that stochastic gradient descent minimizes generalization error is easiest to see in the  online
+
+learning case , where examples or minibatches are drawn from a stream of data.
+
+• In other words, instead of receiving a fixed-size training set, the learner is similar to a living being who
+
+sees a new example at each instant, with every example (x, y) coming from the data generating distribution
+
+p data (x, y). In this scenario, examples are never repeated; every experience is a fair sample from p data .
+
+•  The most prominent challenges involved in optimization for training  deep models are:
+
+• Ill conditioning • Local Minima • Plateaus, Saddle Points and Other Flat Regions • Cliffs and Exploding Gradients • Long-Term Dependencies • Inexact Gradients • Poor Correspondence between Local and Global Structure • Theoretical Limits of Optimization
+
+•  Non-Convexity of Loss Function • Neural network optimization involves highly non-convex loss functions due to  complex model composition. • Non-convexity implies many local minima, saddle points, plateaus, and  unpredictable landscapes, making optimization much harder than classical  convex problems. •  Ill-Conditioning • The surface of the cost function can be 'ill-conditioned,' meaning the Hessian  matrix has eigenvalues that differ by many orders of magnitude. • Ill-conditioning causes slow and unstable convergence since gradient  directions are poorly aligned with steepest descent.
+
+•  Local Minima and Saddle Points • Contrary to early fears, most local minima in high-dimensional spaces are  likely to have low cost (i.e., are not catastrophic). • The real challenge is saddle points—critical points where gradients vanish but  are not minima, causing optimization algorithms to stall. •  Plateaus and Flat Regions • The loss surface may contain large, flat plateaus where gradients are very  small, leading to slow learning progress and high training times. •  Cliffs and Exploding Gradients • Neural networks can have sharp cliffs in the error surface or 'valleys' where  very large gradients (exploding gradients) can destabilize or stall optimization. • This is especially problematic in deep networks and recurrent neural networks.
+
+• Long-Term Dependencies • In deep or recurrent networks, learning to propagate information across many layers  or time steps is difficult due to vanishing or exploding gradients. • This hinders learning of meaningful long-range patterns. • Inexact Gradients • Stochastic optimization (mini-batches) means gradients are noisy, only approximating  the true gradient direction. • The optimization process is inherently stochastic, introducing variability and  complicating convergence analysis. • Mismatch Between Local and Global Structure • Directions that help decrease cost locally may not point toward better global  solutions. • The optimization trajectory can be unnecessarily long or move away from global  minima due to such inconsistencies
+
+•  Computational Constraints • Training on massive datasets requires approximate methods; full batch  optimization becomes computationally infeasible, promoting use of stochastic  and mini-batch methods that further complicate convergence. •  Initialization Sensitivity • Poor parameter initialization can exacerbate many of the above issues, causing  gradients to vanish or explode early in training and making it harder for  optimization algorithms to find good solutions
+
+•  The use of supervised and unsupervised deep learning models has  grown at a fast rate due to their success with learning of complex  problems.  •  High-performance computing resources, availability of huge  amounts of data (labeled and unlabeled) and state-of-the-art open- source libraries  are making deep learning more and more feasible for  various applications.  •  Convolutional Neural Network (CNN or ConvNets) is one of the  most commonly used supervised deep learning models
+
+Convolutional Neural Networks (ConvNet or CNN)
+
+•  Convolutional Neural Network also known as ConvNet or CNN is a deep  learning technique that consists of multiple numbers of layers.  •  ConvNets are inspired by the biological visual cortex. The visual cortex has  small regions of cells that are sensitive to specific regions of the visual field.  Different neurons in the brain respond to different features.  •  For example, certain neurons fire only in the presence of lines of a certain  orientation, some neurons fire when exposed to vertical edges and some  when shown horizontal or diagonal edges. This idea of certain neurons  having a specific task is the basis behind ConvNets.
+
+• Image classification • Object detection • Speech recognition • Natural language processing • Medical image analysis.  • Computer Vision • Self-driving cars, robotics, and treatments for the visually impaired.  • The main concept of ConvNets is to obtain local features from input (usually  an image) at higher layers and combine them into more complex features at  the lower layers.  • However, due to its multilayered architecture, it is computationally exorbitant and  training such networks on a large dataset takes several days.  • Therefore, such deep networks are usually trained on GPUs. Convolutional neural  networks are so powerful on visual tasks that they outperform almost all the  conventional methods.
+
+• Convolutional Neural Networks (CNNs)  learn features from images step-by- step. The idea is that the network first learns  simple patterns , and then gradually  combines them to recognize  more complex objects . 1. Local Feature Extraction • In a CNN, the  convolution layers  apply small filters (kernels) that slide over  small regions of the image. These filters detect  local features  such as:
+
+• Edges • Corners • Color gradients • Simple textures • For example, in an image of a face, the first layer might detect simple edges  around the eyes or nose. 2. Building More Complex Features • As the data passes through deeper layers of the network, the CNN combines the  earlier detected features to form  more meaningful patterns .
+
+• First layers:  detect edges and lines
+
+• Middle layers:  detect shapes like circles, curves, or textures
+
+• Deeper layers:  detect complex objects such as eyes, faces, or entire objects like cars or animals
+
+3. Hierarchical Learning
+
+• CNNs learn features in a  hierarchical manner : • Low-level features → edges and textures • Mid-level features → shapes and patterns • High-level features → objects or classes
+
+4. Example
+
+• Layer 1 detects edges and fur texture
+
+• Layer 2 detects shapes like ears or whiskers
+
+• Layer 3 combines these to recognize the  cat face
+
+• Final layer classifies the image as  “cat”
+
+LeNet: • The first practical convolution-based architecture was LeNet which used backpropagation for training the  network.  • LeNet was designed to classify handwritten digits (MNIST), and it was adopted to read large numbers of  handwritten checks in the United States.  • Disadvantage:  Limitation to scale well to larger problems due to: a. Small labeled datasets.  b. Slow computers.  c. Use of wrong nonlinearity (activation) function. • The use of appropriate activation function in a neural network has huge impact on the final performance.  • Any deep neural network that uses a nonlinear activation function like sigmoid or tanh and is
+
+• Vanishing gradient is a problem found in training the neural networks with gradient-based training  methods.  • Vanishing gradient makes it hard to train and tune the parameters of the top layers in a neural network.  • The problem worsens as the total number of layers in the network increases.
+
+• In 2012, AlexNet significantly outperformed all other conventional methods in ImageNet Large- Scale Visual Recognition Competition (ILSVRC) 2012 that featured the ImageNet dataset.
+
+• The AlexNet brought down classification error rate from 26 to 15%, a significant improvement at  that time.
+
+• AlexNet was simple but much more efficient than LeNet .
+
+• The improvements to overcome the above mentioned problems were due to the following reasons:
+
+a.  Large labeled image database  (ImageNet), which contained around 15 million labeled images
+
+from a total of over 22,000 categories, was used.
+
+b. The model was trained on  high-speed GTX 580 GPUs  for 5 to 6 days.
+
+c.  ReLU (Rectified Linear Unit) f (x) max(x, 0) activation function was used . This activation
+
+function is several times faster than the conventional activation functions like sigmoid and tanh.
+
+• The ReLU activation function does not experience the vanishing gradient problem.
+
+• AlexNet consists of five convolutional layers, three pooling layers, three fully connected layers,  and a 1000-way softmax classifier.
+
+ZFNet:  • In 2013, an improved version of CNN architecture called  ZFNet  was introduced.  • ZFNet reduced the filter size in the first layer from 11 × 11 to 7 × 7 and used a stride  of 2 instead of 4 which resulted in more distinctive features and fewer dead features.  • ZFNet turned out to be the winner of ImageNet Large-Scale Visual Recognition  Challenge (ILSVRC) 2013. VGGNet: • VGGNet, introduced in 2014, used increased depth of the network for improving the  results.  • The depth of the network was made 19 layers by adding more convolutional layers  with 3 × 3 filters, along with 2 × 2 max-pooling layers with stride and padding of 1 in  all layers.  • Reducing filter size and increasing the depth of the network resulted in CNN  architecture that produced more accurate results.  • VGGNet achieved an error rate of 7.32% in ILSVRC 2014 and was the runner-up  model in ILSVRC 2014.
+
+GoogLeNet: • Google developed a ConvNet model called  GoogLeNet  in 2015.  • The model has 22 layers and was the winner of ILSVRC 2015 for having the error  rate of 6.7%.  • The previous ConvNet models had convolution, and pooling layers stacked on top of  each other but the GoogLeNet architecture is a little different. It uses  an inception  module which helps in reducing the number of parameters in the network. • The  Inception Module  instead applies  multiple filters of different sizes in parallel to capture different types of features from the same input.
+
+• The inception module is actually a concatenated layer of convolutions (3 × 3 and 5 × 5  convolutions) and pooling sub-layers at different scales with their output filter banks  concatenated into a single output vector making the input for the succeeding stage. • These sub-layers are not stacked sequentially but the sub-layers are connected in parallel  as shown in Fig. 2.1.  • In order to compensate for additional computational complexity due to extra  convolutional operations, 1 × 1 convolution is used that results in reduced computations  before expensive 3 × 3 and 5 × 5 convolutions are performed.  • GoogLeNet model has two convolutional layers, four max-pooling layers, nine  inception layers, and a softmax layer.  • The use of this special inception architecture makes GoogLeNet to have 12 times  lesser parameters than AlexNet. • Increasing the number of layers increases the number of features which enhances the  accuracy of the network.
+
+• Practical Limitations of GoogleNet (1) Vanishing gradients:  Some neurons in too deep networks may die during training which
+
+can cause loss of useful information
+
+(2) Optimization difficulty:  Too many parameters can make training the network a difficult
+
+task. The network depth should be increased without any negative effects.  (3) The inception model was refined as Inception V3 in 2016, and as Inception-ResNet in
+
+2017. ResNet: • ResNet:  Microsoft Research Asia proposed a CNN architecture in 2015, which is, 152  layers deep and is called ResNet.  • ResNet introduced residual connections in which the output of a conv-relu-conv series is  added to the original input and then passed through Rectified Linear Unit (ReLU) as shown  in Fig. 2.2.  • In this way, the information is carried from the previous layer to the next layer and during  backpropagation, the gradient flows easily because of the addition operations, which  distributes the gradient.
+
+• ResNet proved that a complex  architecture like Inception is not  required to achieve the best results  but a simple and deep architecture  can be tweaked to get better results.  • ResNet performed good in  classification, detection, and  localization and won ILSVRC 2015  with an incredible error rate of 3.6%  which is better than the human error  rate of 5–10%.  • ResNet is currently deepest network  trained on ImageNet and has lesser  parameters than VGGNet which is  eight times lesser in depth.
+
+Inception-ResNet: • A hybrid inception model which uses residual connections, as in ResNet, was proposed in  2017.  • This hybrid model called Inception-ResNet dramatically improved the training speed of  inception model and slightly outperformed the pure ResNet model by a thin margin. Xception:  • A convolutional neural network architecture based on depthwise separable convolution  layers is called  Xception.
+
+• The architecture is actually inspired by inception model and that is why it is called  Xception (Extreme Inception).  • Xception architecture is a pile of depthwise separable convolution layers with  residual connections.  • Xception has 36 convolutional layers organized into 14 modules, all having linear residual  connections around them, except for the first and last modules.  • The Xception has claimed to perform slightly better than Inception V3 on ImageNet.
+
+• Table 2.1 and Fig. 2.3 show classification performance of VGG-16, ResNet-152,  Inception V3 and Xception on ImageNet.
+
+SqueezeNet: • As the accuracy of new ConvNets models kept on improving, researchers started  focusing on how to reduce the size and complexity of the existing ConvNet architectures  without compromising on accuracy.  • The goal was to design a model that has very few parameters, while maintaining high  accuracy.  • A pretrained model was used, and those of its parameters with values below a certain  threshold were replaced with zeros to form a sparse matrix followed by few iterations of  training on the sparse ConvNet.  • Another version of SqueezeNet model used the following three main strategies to reduce  the parameters and computational effort significantly while maintaining high accuracy.  (a) Replace 3 × 3 filters with 1 × 1 filters. (b) Reduce the number of input channels to 3 × 3 filters. (c) Delay subsampling till late in the network so that convolution layers have large
+
+activation maps.  • SqueezeNet achieved AlexNet-level accuracy on ImageNet with 50 times fewer  parameters.
+
+ShuffleNet:  • Another ConvNet architecture called  ShuffleNet  was introduced in 2017 for  devices with limited computational power, like mobile devices, without  compromising on accuracy.  • ShuffleNet used two ideas,  pointwise group convolution and channel shuffle , to  considerably decrease the computational cost while maintaining the accuracy.
+
+•  Convolution is a mathematical operation performed on two functions  and is written as (f * g), where f and g are two functions. The output of  the convolution operation for domain n is defined as
+
+•  For time-domain functions, n is replaced by t. The convolution  operation is commutative in nature, so it can also be written as
+
+•  Applications of convolution operation: • Digital Signal Processing • Statistics • Probability • Natural language processing • Computer vision, and  • Image processing.
+
+• Convolution operation can be applied to higher dimensional functions as well. It can be  applied to a two-dimensional function by sliding one function on top of another,  multiplying and adding. Convolution operation can be applied to images to perform  various transformations; here, images are treated as two-dimensional functions.
+
+• An example of a two-dimensional filter, a two-dimensional input, and a two-dimensional  feature map is shown in Fig. 2.4.
+
+•  Let the 2D input (i.e., 2D image) be denoted by A, the 2D filter of size  m × n be denoted by K, and the 2D feature map be denoted by F. Here,  the image A is convolved with the filter K and produces the feature  map F. This convolution operation is denoted by A*K and is  mathematically given as
+
+Convolution Operation
+
+Convolution Operation
+
+Convolution Operation
+
+https://towardsdatascience.com/computer-vision-convolution-basics- 2d0ae3b79346/
+
+• In a traditional neural network, neurons are fully connected between different  layers.  • Layers that sit between the input layer and output layer are called  hidden layers. • Each hidden layer is made up of a number of neurons, where each neuron is fully  connected to all neurons in the preceding layer.  • The problem with the fully connected neural network is that its densely  connected network architecture does not scale well to large images.  • For large images, the most preferred approach is to use convolutional neural  network.
+
+• Convolutional neural network  is a deep neural network architecture designed to  process data that has a known, grid-like topology, for example, 1D time-series  data, 2D or 3D data such as images and speech signal, and 4D data such as  videos.).
+
+• ConvNets have three key features: local receptive field, weight sharing, and  subsampling (pooling) (i) Local Receptive Field: • In a traditional neural network, each neuron or hidden unit is connected to every  neuron in previous layer or every input unit.  • Convolutional neural networks, however, have local receptive field architecture,  i.e., each hidden unit can only connect to a small region of the input called  local  receptive field.  • This is accomplished by making the filter/weight matrix smaller than the input.
+
+• With local receptive field, neurons can extract elementary visual features like  edges, corners, end points, etc.
+
+(ii) Weight Sharing:  • Weight sharing refers to using the same filter/weights for all receptive fields in a  layer.
+
+• In ConvNet, since the filters are smaller than the input, each filter is applied at  every position of the input, i.e., same filter is used for all local receptive fields. (iii) Subsampling (Pooling): • Subsampling reduces the spatial size of the input, thus reducing the parameters in  the network.  • There are few subsampling techniques available, and the most common  subsampling technique is max-pooling.
+
+Convolution Layer: • Convolution layer is the core building block of a convolutional neural network which  uses convolution operation (represented by *) in place of general matrix multiplication.  • Its parameters consist of a set of learnable filters also known as  kernels. • The main task of the convolutional layer is to detect features found within local regions  of the input image that are common throughout the dataset and mapping their appearance  to a feature map.  • A feature map is obtained for each filter in the layer by repeated application of the filter  across subregions of the complete image, i.e., convolving the filter with the input image,  adding a bias term, and then applying an activation function.
+
+• The input area on which a filter is applied is called  local receptive field .  • The size of the receptive field is same as the size of the filter.
+
+• Figure 2.5 shows how a  filter (T-shaped) is  convolved with the input to  get the feature map.  • Feature map is obtained  after adding a bias term and  then applying a nonlinear  function to the output of the  convolution operation.  • The purpose of nonlinearity  function is to introduce  nonlinearity in the ConvNet  model.
+
+Filters/Kernels:  • The weights in each convolutional layer specify the convolution filters and there  may be multiple filters in each convolutional layer.  • Every filter contains some feature like edge, corner, etc. and during forward pass,  each filter is slid across the width and height of the input generating feature map  of that filter.  Hyperparameters: • Convolutional neural network architecture has many hyperparameters that are  used to control the behavior of the model. Some of these hyperparameters control  the size of the output while some are used to tune the running time and memory  cost of the model. The four important hyperparameters in the convolution layer of  the ConvNet are given below:
+
+The four important hyperparameters in the convolution layer of the ConvNet are given  below:
+
+Architecture of CNN
+
+Activation Function (ReLU) • The output of each convolutional layer is fed to an activation function layer.
+
+• The activation function layer consists of an activation function that takes the feature  map produced by the convolutional layer and generates the activation map as its output. • The activation function is used to transform the activation level of a neuron into an  output signal. It specifies the output of a neuron to a given input.  • An activation function usually has a squashing effect which takes an input (a number),  performs some mathematical operation on it and outputs the activation level of a neuron  between a given range, e.g., 0 to 1 or −1 to 1.  • A typical activation function should be differentiable and continuous everywhere. Since  ConvNets are trained using gradient-based methods, an activation function should be  differential at any point.  • However, if a non-gradient-based method is used, then differentiability is not necessary.
+
+• Some of the commonly used activation functions ar e as follows:
+
+Architecture of CNN
+
+Architecture of CNN
+
+Architecture of CNN
+
+Pooling Layer:  • In ConvNets, the sequence of convolution layer and activation function layer is  followed by an optional pooling or down-sampling layer to reduce the spatial size of  the input and thus reducing the number of parameters in the network.
+
+• A pooling layer takes each feature map output from the convolutional layer and  down-samples it, i.e., pooling layer summarizes a region of neurons in the  convolution layer.  • There are few pooling techniques available and the most common pooling technique  is  max-pooling. • Max-pooling  simply outputs the maximum value in the input region.  • The input region is a subset of input (usually 2 × 2).  • For example, if input region is of size 2 × 2, the max-pooling unit will output the  maximum of the four values as shown in Fig. 2.10.
+
+• Other options for pooling layers are average pooling and L2-norm pooling. • Pooling layer operation discards less significant data but preserves the detected  features in a smaller representation.
+
+• The intuitive reasoning behind pooling operation is that feature detection is more  important than feature’s exact location.
+
+Fully Connected Layer: • Convolutional neural networks are composed of two stages:  • Feature extraction stage and classification stage. • In ConvNets, the stack of convolution and pooling layers act as feature extraction stage  while as the classification stage is composed of one or more fully connected layers  followed by a softmax function layer.  • The process of convolution and pooling continues until enough features are detected.  • Next step is to make a decision based on these detected features.  • In case of classification problem, the task uses the detected features in the spatial domain  to obtain probabilities that these features represent each class, that is, obtain the class  score. This is done by adding one or more fully connected layers at the end.  • In fully connected layer, each neuron from previous layer (convolution layer or pooling  layer or fully connected layer) is connected to every neuron in the next layer and every  value contributes in predicting how strongly a value matches a particular class.
+
+• Figure 2.11 shows the connection between a convolution layer and a fully connected  layer.  • Like convolutional layers, fully connected layers can be stacked to learn even more  sophisticated combinations of features.  • The output of last fully connected layer is fed to a classifier which outputs the class  scores.  • Softmax and Support Vector Machines (SVMs) are the two main classifiers used in  ConvNets.  • Softmax classifier produces probabilities for each class with a total probability of 1, and  SVM which produces class scores and the class having highest score is treated as the  correct class.
+
+Architecture of CNN
+
+Dropout: • Deep neural networks consist of multiple hidden layers enabling it to learn more  complicated features. It is followed by fully connected layers for decision-making.  • A fully connected layer is connected to all features, and it is prone to  overfitting. • Overfitting refers to the problem when a model is trained and it works so well on  training data that it negatively impacts the performance of the model on new data.  • In order to overcome the problem of overfitting, a dropout layer can be introduced in  the model in which some neurons along with their connections are randomly dropped  from the network during training (See Fig. 2.12).  • A reduced network is left; incoming and outgoing edges to a dropped-out node are also  removed. Only the reduced network is trained on the data in that stage.  • The removed nodes are then reinserted into the network with their original weights. • Dropout notably reduces overfitting and improves the generalization of the model.
+
+Architecture of CNN

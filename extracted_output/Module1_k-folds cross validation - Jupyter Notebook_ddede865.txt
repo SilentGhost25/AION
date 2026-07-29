@@ -1,0 +1,575 @@
+K folds cross-validation is a much better estimator of our model's performance, even more so than our train-test split. Here's how it works:
+
+We will take a finite number of equal slices of our data (usually 3, 5, or 10). Assume that this number is called k. For each "fold" of the cross-validation, we will treat k-1 of the sections as the training set, and the remaining section as our test set. For the remaining folds, a different arrangement of k-1 sections is considered for our training set and a different section is our training set. We compute a set metric for each fold of the cross-validation. We average our scores at the end.
+
+Type  Markdown  and LaTeX:  𝛼 2
+
+Cross-validation is effectively using multiple train-test splits being done on the same dataset. This is done for a few reasons, but mainly because cross-validation is the most honest estimate of our model's out of the sample error. To explain this visually, let's look at our mammal brain and body weight example for a second. The following code manually creates a five-fold cross-validation, wherein five different training and test sets are made from the same population:
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cross … 1/23
+
+In [49]:
+
+Here, each graph shows the exact same population of mammals, but the dots are colored red if they belong to the training set of that fold and blue if they belong to the testing set. By doing this, we are obtaining five different instances of the same machine learning model in order to see if performance remains consistent across the folds. If you stare at the dots long enough, you will note that each dot appears in a training set exactly four times (k – 1), while the same dot appears in a test set exactly once and only once.
+
+It is a more accurate estimate of the OOS (Out of sample) prediction error than a single train-test split because it is taking several independent train-test splits and averaging the results together. It is a more efficient use of data than single train-test splits because the entire dataset is being used for multiple train-test splits instead of just one. Each record in our dataset is used for both training and testing.
+
+from  sklearn.model_selection  import  KFold import  matplotlib.pyplot  as  plt import  pandas  as  pd ​ df  =  pd.read_table( 'http://people.sc.fsu.edu/~jburkardt/datasets/regression/x01.txt' , sep = '\s+' , skiprows = 33 , names = [ 'id' , 'brain' , 'body' ] ) ​ # filter data df  =  df[(df.brain    df[ 'brain' ].median()).astype( int )
+
+df[ 'brain' ].median()
+
+X.head()
+
+1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17
+
+1 2
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cross … 3/23
+
+In [68]:
+
+In [59]:
+
+In [107]:
+
+Try cross-validating KNN with K=5 (increasing our model's complexity), as shown:
+
+In [71]:
+
+In [125]:
+
+In [109]:
+
+Out[68]: 0 1
+
+1 0 2 0 4 1 5 1 Name: brain, dtype: int32
+
+Out[59]: ((56, 1), (56,))
+
+Scores:  [0.75 0.90909091 0.72727273 0.90909091 0.90909091] Cross-validation accuracy: 0.840909090909091
+
+scores:  [0.91666667 0.90909091 0.81818182 1. 1. ]
+
+Out[71]: 0.9287878787878789
+
+scores:  [0.91666667 0.81818182 0.81818182 0.90909091 0.90909091]
+
+Out[125]: 0.8742424242424243
+
+0 1 3.385 44.5
+
+1 2 0.480 15.5
+
+2 3 1.350 8.1
+
+4 5 36.330 119.5
+
+5 6 27.660 115.0
+
+y.head()
+
+X.shape, y.shape
+
+tree  =  KNeighborsClassifier(n_neighbors = 1 ) scores  =  cross_val_score(tree, X, y, cv = 5 , scoring = 'accuracy' ) print ( "Scores: " , scores) print ( "Cross-validation accuracy:" , scores.mean())
+
+# check CV score for K=5 knn  =  KNeighborsClassifier(n_neighbors = 5 ) scores  =  cross_val_score(knn, X, y, cv = 5 , scoring = 'accuracy' ) print ( "scores: " , scores) np.mean(scores)
+
+# check CV score for K=5 knn  =  KNeighborsClassifier(n_neighbors = 7 ) scores  =  cross_val_score(knn, X, y, cv = 5 , scoring = 'accuracy' ) print ( "scores: " , scores) np.mean(scores)
+
+df  =  df[(df.brain    df[ 'brain' ].median()).astype( int ) ​ knn  =  KNeighborsClassifier(n_neighbors  = 1 ) ​ scores  =  cross_val_score(knn, X, y, cv  = 5 , scoring  = 'accuracy' ) print ( "scores: " , scores) scores.mean()
+
+# check CV score for K=5 knn  =  KNeighborsClassifier(n_neighbors = 5 ) scores  =  cross_val_score(knn, X, y, cv = 5 , scoring = 'accuracy' ) print ( "Scores: " , scores) scores.mean()
+
+from  sklearn.model_selection  import  GridSearchCV from  sklearn.neighbors  import  KNeighborsClassifier ​ # Define X and y X  =  df[[ 'body' ]] y  =  (df[ 'brain' ]  >  df[ 'brain' ].median()).astype( int ) ​ knn  =  KNeighborsClassifier(n_neighbors  = 5 ) ​ k_range  = range ( 1 ,  30 ,  2 ) param_grid  = dict (n_neighbors = k_range) ​ grid  =  GridSearchCV(knn, param_grid, cv = 5 , scoring = 'accuracy' ) ​ grid.fit(X, y) ​ print ( "Best k:" , grid.best_params_) print ( "Best score:" , grid.best_score_) ​
+
+1 2 3 4 5 6 7 8 9 10 11 12 13 14
+
+1 2 3 4 5
+
+1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cross … 5/23
+
+Remember that we are not getting 100% accuracy anymore, because we have a distinct training and test set. The data points that KNN has never seen the test points and therefore cannot match them exactly to themselves. Let's try cross-validating KNN with K=5 (increasing our model's complexity), as shown:
+
+In [77]:
+
+Even better! So, now we have to find the best K? The best K is the one that maximizes our accuracy. Let's try a few:
+
+In [78]:
+
+We now have an error value (1 – accuracy) for each value of K (1, 3, 5, 7, 9.., .., 29):
+
+Out[77]: 0.9287878787878789
+
+knn  =  KNeighborsClassifier(n_neighbors = 5 ) scores  =  cross_val_score(knn, X, y, cv = 5 , scoring = 'accuracy' ) scores.mean()
+
+import  numpy  as  np ​ # search for an optimal value of K k_range  = range ( 1 ,  30 ,  2 )  # [1, 3, 5, 7, …, 27, 29] errors  =  [] for  k  in  k_range: knn  =  KNeighborsClassifier(n_neighbors = k) # instantiate a KNN with k neighbors scores  =  cross_val_score(knn, X, y, cv = 5 , scoring = 'accuracy' ) # get our five accuracy scores accuracy  =  np.mean(scores) # average them together error  = 1 -  accuracy # get our error, which is 1 minus the accuracy errors.append(error) # keep track of a list of errors
+
+1 2 3
+
+1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cross … 6/23
+
+In [79]:
+
+Compare this graph to the previous graph of model complexity and bias/variance. Toward the left, our graph has a higher bias and is underfitting. As we increased our model's complexity, the error term began to go down, but after a while, our model became overly complex, and the high variance kicked in, making our error term go back up. It seems that the optimal value of K is between 6 and 10.
+
+sklearn also has, up its sleeve, another useful tool called grid searching. A grid search will by brute force try many different model parameters and give us the best one based on a metric of our choosing. For example, we can choose to optimize KNN for accuracy in the following manner:
+
+In [126]:
+
+Out[126]: GridSearchCV(cv=5, estimator=KNeighborsClassifier(),
+
+param_grid={'n_neighbors': range(1, 30, 2)}, scoring='accurac y')
+
+# plot the K values (x-axis) versus the 5-fold CV score (y-axis) plt.figure() plt.plot(k_range, errors) plt.title( "Graph of errors of KNN model against KNN's complexity, represe plt.xlabel( 'K' ) plt.ylabel( 'Error' ) plt.show()
+
+from  sklearn.model_selection  import  GridSearchCV from  sklearn.neighbors  import  KNeighborsClassifier ​ # import our grid search module knn  =  KNeighborsClassifier() # instantiate a blank slate KNN, no neighbors k_range  = range ( 1 ,  30 ,  2 ) param_grid  = dict (n_neighbors = k_range) # param_grid = {"n_ neighbors": [1, 3, 5, …]} grid  =  GridSearchCV(knn, param_grid, cv = 5 , scoring = 'accuracy' ) grid.fit(X, y)
+
+1 2 3 4 5 6 7
+
+1 2 3 4 5 6 7 8 9 10 11
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cross … 7/23
+
+In the grid.fit() line of code, what is happening is that, for each combination of features, in this case we have 15 different possibilities for K, we are cross-validating each one five times. This means that by the end of this code, we will have 15 * 5 = 75 different KNN models! You can see how, when applying this technique to more complex models, we could run into difficulties with time:
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cross … 8/23
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cross … 9/23
+
+Out[127]: {'mean_fit_time': array([0.01029301, 0.00561714, 0.00551281, 0.00579958, 0.0
+
+0561233,
+
+0.00562472, 0.00520267, 0.00560055, 0.00630298, 0.00544538, 0.00538554, 0.00522642, 0.00476708, 0.00424075, 0.00486321]), 'std_fit_time': array([0.00733131, 0.00050134, 0.00062025, 0.00087265, 0.00 049911,
+
+0.00051395, 0.00075391, 0.00048554, 0.00159905, 0.00046213, 0.00047105, 0.00038043, 0.00039292, 0.0011621 , 0.00028451]), 'mean_score_time': array([0.00842199, 0.00601187, 0.00626044, 0.00613084,  0.00693188,
+
+0.00576706, 0.00621686, 0.00585618, 0.00681763, 0.00643134, 0.00562067, 0.00840397, 0.00534463, 0.00362444, 0.00486794]), 'std_score_time': array([0.00240736, 0.00111889, 0.00109905, 0.00067148, 0. 00160915,
+
+0.00119283, 0.00026973, 0.00083577, 0.00148192, 0.00086522, 0.00051292, 0.0060945 , 0.00089809, 0.00136732, 0.00069514]), 'param_n_neighbors': masked_array(data=[1, 3, 5, 7, 9, 11, 13, 15, 17, 19,  21, 23, 25, 27, 29],
+
+mask=[False, False, False, False, False, False, False, False, False, False, False, False, False, False, False], fill_value='?', dtype=object), 'params': [{'n_neighbors': 1},  {'n_neighbors': 3},  {'n_neighbors': 5},  {'n_neighbors': 7},  {'n_neighbors': 9},  {'n_neighbors': 11},  {'n_neighbors': 13},  {'n_neighbors': 15},  {'n_neighbors': 17},  {'n_neighbors': 19},  {'n_neighbors': 21},  {'n_neighbors': 23},  {'n_neighbors': 25},  {'n_neighbors': 27},  {'n_neighbors': 29}], 'split0_test_score': array([0.75 , 0.91666667, 0.91666667, 0.91666667,  0.91666667,
+
+0.91666667, 0.91666667, 0.91666667, 0.91666667, 0.91666667, 0.75 , 0.75 , 0.75 , 0.75 , 0.75 ]), 'split1_test_score': array([0.90909091, 0.90909091, 0.90909091, 0.81818182,  0.90909091,
+
+0.90909091, 0.90909091, 0.81818182, 0.81818182, 0.81818182, 0.81818182, 0.81818182, 0.81818182, 0.81818182, 0.81818182]), 'split2_test_score': array([0.72727273, 0.81818182, 0.81818182, 0.81818182,  0.81818182,
+
+0.81818182, 0.81818182, 0.81818182, 0.81818182, 0.81818182, 0.72727273, 0.72727273, 0.72727273, 0.72727273, 0.72727273]), 'split3_test_score': array([0.90909091, 1. , 1. , 0.90909091,  0.90909091,
+
+0.90909091, 0.90909091, 0.90909091, 0.90909091, 0.90909091, 0.90909091, 0.90909091, 0.90909091, 0.90909091, 0.90909091]), 'split4_test_score': array([0.90909091, 0.90909091, 1. , 0.90909091,  0.90909091,
+
+0.90909091, 0.90909091, 0.90909091, 0.81818182, 0.72727273, 0.72727273, 0.72727273, 0.72727273, 0.72727273, 0.72727273]), 'mean_test_score': array([0.84090909, 0.91060606, 0.92878788, 0.87424242,  0.89242424,
+
+0.89242424, 0.89242424, 0.87424242, 0.85606061, 0.83787879, 0.78636364, 0.78636364, 0.78636364, 0.78636364, 0.78636364]),
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cros… 10/23
+
+In [81]:
+
+Note that the preceding graph is basically the same as the one we achieved previously with our for loop, but much easier! We see that five neighbors (circled in the preceding graph) seem to have the best accuracy. However, we can also, very easily, get our best parameters and our best model, as shown:
+
+'std_test_score': array([0.08381404, 0.05757576, 0.06769184, 0.04585681, 0. 03723699,
+
+0.03723699, 0.03723699, 0.04585681, 0.04645367, 0.06969697, 0.0698286 , 0.0698286 , 0.0698286 , 0.0698286 , 0.0698286 ]), 'rank_test_score': array([ 9,  2,  1,  6,  3,  3,  3,  6,  8, 10, 11, 11, 1 1, 11, 11])}
+
+# check the results of the grid search grid.cv_results_ ​ grid_mean_scores  =  grid.cv_results_[ 'mean_test_score' ] ​ import  matplotlib.pyplot  as  plt ​ plt.figure() plt.ylim([ 0.9 ,  1 ]) plt.xlabel( 'Tuning Parameter: N nearest neighbors' ) plt.ylabel( 'Classification Accuracy' ) ​ plt.plot(k_range, grid_mean_scores) ​ plt.plot( grid.best_params_[ 'n_neighbors' ], grid.best_score_, 'ro' , markersize = 12 , markeredgewidth = 1.5 , markerfacecolor = 'None' , markeredgecolor = 'r' ) ​ plt.show() ​
+
+1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cros… 11/23
+
+In [82]:
+
+In [83]:
+
+In [84]:
+
+In [85]:
+
+KNN has other parameters as well, such as algorithm, p, and weights.
+
+p is an integer and represents the type of distance we wish to use. By default, we use p=2, which is our standard distance formula. Weights is, by default, uniform, but can also be distance, which weighs points by their distance, which means that closer neighbors have a greater impact on the prediction. Algorithm is how the model finds the nearest neighbors. We can try ball_tree, kd_tree, or brute. The default is auto, which tries to use the best one automatically.
+
+Out[82]: {'n_neighbors': 5}
+
+Out[83]: 0.9287878787878789
+
+Out[84]: KNeighborsClassifier()
+
+Out[85]: KNeighborsClassifier(n_jobs=1, n_neighbors=7)
+
+grid.best_params_
+
+grid.best_score_
+
+grid.best_estimator_
+
+# actually returns the unfit model with the best parameters KNeighborsClassifier(algorithm = 'auto' , leaf_size = 30 , metric = 'minkowski' , m
+
+1 2
+
+ 
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cros… 12/23
+
+In [86]:
+
+In [33]:
+
+In [87]:
+
+In [88]:
+
+Grid searching is a simple (but inefficient) way of parameter tuning our models to get the best possible outcome. It should be noted that to get the best possible outcome, data scientists should use feature manipulation (both reduction and engineering) to obtain better results in practice as well. It should not merely be up to the model to achieve the best performance.
+
+Out[86]: GridSearchCV(cv=5, estimator=KNeighborsRegressor(),
+
+param_grid={'algorithm': ['kd_tree', 'ball_tree', 'auto', 'brut e'],
+
+'n_neighbors': range(1, 30), 'p': range(1, 8), 'weights': ['uniform', 'distance']}, scoring='r2')
+
+Out[87]: 0.6590972222222222
+
+Out[88]: {'algorithm': 'kd_tree', 'n_neighbors': 4, 'p': 1, 'weights': 'uniform'}
+
+from  sklearn.model_selection  import  GridSearchCV from  sklearn.neighbors  import  KNeighborsRegressor ​ knn  =  KNeighborsRegressor() ​ k_range  = range ( 1 ,  30 ) algorithm_options  =  [ 'kd_tree' ,  'ball_tree' ,  'auto' ,  'brute' ] p_range  = range ( 1 ,  8 ) weight_range  =  [ 'uniform' ,  'distance' ] ​ param_grid  =  { 'n_neighbors' : k_range, 'weights' : weight_range, 'algorithm' : algorithm_options, 'p' : p_range } ​ grid  =  GridSearchCV( knn, param_grid, cv = 5 , scoring = 'r2' # regression metric ) ​ grid.fit(X, y) ​
+
+param_grid  =  { 'n_neighbors' :  range ( 1 ,  15 ), 'weights' : [ 'uniform' ,  'distance' ], 'p' : [ 1 ,  2 ] } ​
+
+grid.best_score_
+
+grid.best_params_
+
+1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26
+
+1 2 3 4 5 6
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cros… 13/23
+
+In [90]: import  numpy  as  np import  matplotlib.pyplot  as  plt from  sklearn.model_selection  import  train_test_split ​ # This function uses numpy polynomial fit to calculate RMSE def rmse (x, y, coefs): yfit  =  np.polyval(coefs, x) rmse_val  =  np.sqrt(np.mean((y  -  yfit)  ** 2 )) return  rmse_val ​ # Train-test split xtrain, xtest, ytrain, ytest  =  train_test_split( df[ 'body' ], df[ 'brain' ], test_size = 0.25 , random_state = 42 ) ​ train_err  =  [] validation_err  =  [] ​ degrees  = range ( 1 ,  8 ) ​ for  d  in  degrees: # Fit polynomial of degree d p  =  np.polyfit(xtrain, ytrain, d) ​ # Compute RMSE train_err.append(rmse(xtrain, ytrain, p)) validation_err.append(rmse(xtest, ytest, p)) ​ # Plot errors fig, ax  =  plt.subplots() ​ ax.plot(degrees, validation_err, lw = 2 , label = 'cross-validation error' ) ax.plot(degrees, train_err, lw = 2 , label = 'training error' ) ​ ax.legend(loc = 0 ) ax.set_xlabel( 'degree of polynomial' ) ax.set_ylabel( 'RMSE' ) ​ plt.show() ​
+
+1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cros… 14/23
+
+So, we see that as we increase our degree of fit, our training error goes down without a hitch, but we are now smart enough to know that as we increase the model complexity, our model is overfitting to our data and is merely regurgitating our data back to us, whereas our cross validation error line is much more honest and begins to perform poorly after about degree 2 or 3.
+
+To recap:
+
+Underfitting occurs when the cross-validation error and the training error are both high Overrfitting occurs when the cross-validation error is high, while the training error is low We have a good fit when the cross-validation error is low, and only slightly higher than the training error
+
+Both underfitting (high bias) and overfitting (high variance) will result in poor generalization of the data.
+
+Here are some tips if you face high bias or variance.
+
+If your model tends to have a high bias:
+
+Try adding more features to the training and test sets Either add to the complexity of your model or try a more modern sophisticated model
+
+If your model tends to have a high variance:
+
+Try to include more training samples, which reduces the effect of overfitting
+
+In general, the bias/variance tradeoff is the struggle to minimize bias and variance in our learning algorithms.
+
+Ensemble learning, or ensembling , is the process of combining multiple predictive models to produce a supermodel that is more accurate than any individual model on its own.
+
+Regression: We will take the average of the predictions for each model Classification: Take a vote and use the most common prediction, or take the average of the predicted probabilities
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cros… 15/23
+
+Imagine that we are working on a binary classification problem (predicting either 0 or 1).
+
+In [61]:
+
+Now, we simulate five different learning models that each have about a 70% accuracy, as follows:
+
+In [63]:
+
+In [65]:
+
+In [66]:
+
+In [67]:
+
+In [68]:
+
+In [69]:
+
+Each model has an accuracy of around 68% to 71% on its own
+
+In [70]:
+
+0.699
+
+0.698
+
+0.71
+
+0.699
+
+0.685
+
+Out[70]: 0.83
+
+# ENSEMBLING import  numpy  as  np ​ # set a seed for reproducibility np.random.seed( 12345 ) ​ # generate 1000 random numbers (between 0 and 1) for each model, represent mod1  =  np.random.rand( 1000 ) mod2  =  np.random.rand( 1000 ) mod3  =  np.random.rand( 1000 ) mod4  =  np.random.rand( 1000 ) mod5  =  np.random.rand( 1000 )
+
+# each model independently predicts 1 (the "correct response") if random n preds1  =  np.where(mod1  > 0.3 ,  1 ,  0 ) preds2  =  np.where(mod2  > 0.3 ,  1 ,  0 ) preds3  =  np.where(mod3  > 0.3 ,  1 ,  0 ) preds4  =  np.where(mod4  > 0.3 ,  1 ,  0 ) preds5  =  np.where(mod5  > 0.3 ,  1 ,  0 )
+
+print (preds1.mean())
+
+print (preds2.mean())
+
+print (preds3.mean())
+
+print (preds4.mean())
+
+print (preds5.mean())
+
+# average the predictions and then round to 0 or 1 ensemble_preds  =  np.round((preds1  +  preds2  +  preds3  +  preds4  +  preds5) / 5.0 ensemble_preds.mean()
+
+1 2 3 4 5 6 7 8 9 10 11 12
+
+1 2 3 4 5 6
+
+1 2 3
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cros… 16/23
+
+As you add more models to a voting process, the probability of errors will decrease; this is known as  Condorcet's jury theorem.
+
+For ensembling to work well in practice, the models must have the following characteristics:
+
+Accuracy:  Each model must at least outperform the null model Independence:  A model's prediction is not affected by another model's prediction process
+
+If you have a bunch of individually OK models, the edge case mistakes made by one model are probably not going to be made by the other models, so the mistakes will be ignored when combining the models.
+
+There are the following two basic methods for ensembling:
+
+Manually ensemble your individual models by writing a good deal of code Use a model that ensembles for you
+
+Decision trees tend to have  low bias and high variance. Given any dataset, the tree can keep asking questions (making decisions) until it is able to nitpick and distinguish between every single example in the dataset. It could keep asking question after question until there is only a single example in each leaf (terminal) node. The tree is trying too hard, growing too deep, and just memorizing every single detail of our training set. However, if we started over, the tree could potentially ask different questions and still grow very deep. This means that there are many possible trees that could distinguish between all elements, which means higher variance. It is unable to generalize well. In order to reduce the variance of a single tree, we can place a restriction on the number of questions asked in a tree (the max_depth parameter) or we can create an ensemble version of decision trees, called  Random forests.
+
+The primary weakness of decision trees is that different splits in the training data can lead to very different trees. Bagging  is a general purpose procedure to reduce the variance of a machine learning method, but is particularly useful for decision trees. Bagging is short for Bootstrap aggregation,  which means the aggregation of Bootstrap samples. What is a Bootstrap sample?
+
+It is a random sample with replacement:
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cros… 17/23
+
+In [71]:
+
+In [72]:
+
+This is our bootstrapped sample notice it has repeat variables!
+
+1. Grow B trees using Bootstrap samples from the training data. 2. Train each tree on its Bootstrap sample and make predictions. 3. Combine the predictions:
+
+Average the predictions for regression trees Take a vote for classification trees
+
+The following are a few things to note:
+
+Each Bootstrap sample should be the same size as the original training set B should be a large enough value that the error seems to have stabilized The trees are grown intentionally deep so that they have low bias/high variance
+
+The reason we grow the trees intentionally deep is because the bagging inherently increases predictive accuracy by reducing the variance, similar to how crossvalidation reduces the variance associated with estimating our out of sample error.
+
+Random forests are a variation of bagged trees. However, when building each tree, each time we consider a split between the features, a random sample of m features is chosen as split candidates from the full set of p features. The split is only allowed to be one of those m features:
+
+A new random sample of features is chosen for every single tree at every single split For classification, m is typically chosen to be the square root of p For regression, m is typically chosen to be somewhere between p/3 and p
+
+Suppose there is one very strong feature in the dataset. When using decision (or bagged) trees, most of the trees will use that feature as the top split, resulting in an ensemble of similar trees that are highly correlated to each other. If our trees are highly correlated to each other, then averaging these quantities will not significantly reduce variance (which is the entire goal of ensembling).
+
+[ 1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20]
+
+Out[72]: array([ 6, 12, 13,  9, 10, 12,  6, 16,  1, 17,  2, 13,  8, 14,  7, 19,  6,
+
+19, 12, 11])
+
+# set a seed for reproducibility np.random.seed( 1 ) ​ # create an array of 1 through 20 nums  =  np.arange( 1 ,  21 ) ​ print (nums)
+
+# sample that array 20 times with replacement np.random.choice(a = nums, size = 20 , replace = True )
+
+1 2 3 4 5 6 7
+
+1 2
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cros… 18/23
+
+Random forests can be used in both classification and regression problems and can be easily used in scikit-learn. Let's try to predict MLB salaries based on statistics about the player, as shown:
+
+In [2]:
+
+In [92]:
+
+In [3]:
+
+In [5]:
+
+In [6]:
+
+Out[92]:
+
+ 
+
+AtBat Hits HmRun Runs RBI Walks Years CAtBat CHits CHmRun CRuns CRBI CWa
+
+1 315 81 7 24 38 39 14 3449 835 69 321 414
+
+2 479 130 18 66 72 76 3 1624 457 63 224 266
+
+3 496 141 20 65 78 37 11 5628 1575 225 828 838
+
+4 321 87 10 39 42 30 2 396 101 12 48 46
+
+5 594 169 4 74 51 35 11 4408 1133 19 501 336
+
+Out[3]: (263, 20)
+
+import  pandas  as  pd # read in the data hitters  =  pd.read_csv( "Hitters.csv" ) ​ # remove rows with missing values hitters.dropna(inplace = True )
+
+hitters.head()
+
+hitters.shape
+
+# encode categorical variables as integers hitters[ 'League' ]  =  pd.factorize(hitters.League)[ 0 ] hitters[ 'Division' ]  =  pd.factorize(hitters.Division)[ 0 ] hitters[ 'NewLeague' ]  =  pd.factorize(hitters.NewLeague)[ 0 ]
+
+# define features: exclude career statistics (which start with "C") and th feature_cols  =  [h  for  h  in  hitters.columns  if  h[ 0 ]  != 'C' and  h  != 'Salary ​ # define X and y X  =  hitters[feature_cols] y  =  hitters.Salary
+
+1 2 3 4 5 6
+
+1 2 3 4
+
+1 2 3 4 5 6
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cros… 19/23
+
+In [8]:
+
+In [9]:
+
+Let's try and predict the salary first using a single decision tree, as illustrated:
+
+Out[8]: ['AtBat',
+
+'Hits', 'HmRun', 'Runs', 'RBI', 'Walks', 'Years', 'League', 'Division', 'PutOuts', 'Assists', 'Errors', 'NewLeague']
+
+Out[9]: 13
+
+feature_cols
+
+len (feature_cols)
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cros… 20/23
+
+In [95]:
+
+Let's do the same thing, but this time with a Random forest:
+
+from  sklearn.tree  import  DecisionTreeRegressor import  matplotlib.pyplot  as  plt ​ # list of values to try for max_depth max_depth_range  = range ( 1 ,  21 ) ​ # list to store the average RMSE for each value of max_depth RMSE_scores  =  [] ​ # use 10-fold cross-validation with each value of max_depth from  sklearn.model_selection  import  cross_val_score ​ for  depth  in  max_depth_range: treereg  =  DecisionTreeRegressor(max_depth = depth, random_state = 1 ) MSE_scores  =  cross_val_score(treereg, X, y, cv = 10 , scoring = 'neg_mean_ RMSE_scores.append(np.mean(np.sqrt( - MSE_scores))) # plot max_depth (x-axis) versus RMSE (y-axis) plt.plot(max_depth_range, RMSE_scores) plt.xlabel( 'max_depth' ) plt.ylabel( 'RMSE (lower is better)' ) plt.show()
+
+1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cros… 21/23
+
+In [96]:
+
+Note already the y axis, our RMSE is much lower on an average! See how we can obtain a major increase in predictive power using Random forests.
+
+In Random forests, we still have the concept of important features like we had in decision trees:
+
+Out[96]: Text(0, 0.5, 'RMSE (lower is better)')
+
+from  sklearn.ensemble  import  RandomForestRegressor ​ # list of values to try for n_estimators estimator_range  = range ( 10 ,  310 ,  10 ) ​ # list to store the average RMSE for each value of n_estimators RMSE_scores  =  [] ​ # use 5-fold cross-validation with each value of n_estimators (WARNING: SL for  estimator  in  estimator_range: rfreg  =  RandomForestRegressor(n_estimators = estimator, random_state = 1 ) MSE_scores  =  cross_val_score(rfreg, X, y, cv = 5 , scoring = 'neg_mean_squa RMSE_scores.append(np.mean(np.sqrt( - MSE_scores))) ​ ​ # plot n_estimators (x-axis) versus RMSE (y-axis) plt.plot(estimator_range, RMSE_scores) plt.xlabel( 'n_estimators' ) plt.ylabel( 'RMSE (lower is better)' )
+
+1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cros… 22/23
+
+In [97]:
+
+So, it looks like the number of years the player has been in the league is still the most important feature when deciding that player's salary.
+
+The advantages of Random forests are as follows:
+
+Its performance is competitive with the best supervised learning methods It provides a more reliable estimate of feature importance It allows you to estimate out-of-sample errors without using train/test splits or cross- validation
+
+The disadvantages of Random forests are as follows:
+
+It is less interpretable (cannot visualize an entire forest of decision trees) It is slower to train and predict (not great for production or real-time purposes
+
+6 Years 0.263695
+
+5 Walks 0.146403
+
+1 Hits 0.139560
+
+4 RBI 0.135896
+
+0 AtBat 0.091817
+
+9 PutOuts 0.061267
+
+3 Runs 0.057723
+
+2 HmRun 0.040391
+
+11 Errors 0.024919
+
+10 Assists 0.023287
+
+8 Division 0.007573
+
+12 NewLeague 0.004304
+
+7 League 0.003166
+
+1 2 3 4 5 6
+
+ 
+
+3/26/26, 10:15 AM k-folds cross validation - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Module 1/k-folds cros… 23/23

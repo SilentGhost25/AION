@@ -76,7 +76,7 @@ def _clean_turbo(raw: str) -> str:
 # ── Updated VTU verb pattern ──────────────────────────────────
 # Matches single verb at start — not a comma-separated list
 _VTU_VERB = re.compile(
-    r"^("
+    r"^(\(?\d+\)?[.\s]*)?("
     r"explain|compare|derive|analyse|analyze|illustrate|describe|"
     r"define|discuss|evaluate|justify|design|examine|interpret|"
     r"construct|apply|assess|investigate|demonstrate|identify|"
@@ -155,11 +155,23 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _concept_cache_key(file_path: str) -> str:
-    """SHA256 of file path + file size + modified time."""
+    """SHA256 of file path + file size + modified time (or contained files if directory)."""
     p    = Path(file_path)
     try:
-        stat = p.stat()
-        raw  = f"{file_path}:{stat.st_size}:{stat.st_mtime}"
+        if p.is_dir():
+            suffixes = {".pdf", ".txt", ".md"}
+            files = sorted(
+                [f for f in p.iterdir() if f.is_file() and f.suffix.lower() in suffixes and not f.name.startswith(".")],
+                key=lambda f: f.name
+            )
+            raw_parts = [file_path]
+            for f in files:
+                stat = f.stat()
+                raw_parts.append(f"{f.name}:{stat.st_size}:{stat.st_mtime}")
+            raw = "|".join(raw_parts)
+        else:
+            stat = p.stat()
+            raw  = f"{file_path}:{stat.st_size}:{stat.st_mtime}"
     except Exception:
         raw  = f"{file_path}:0:0"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
@@ -218,40 +230,89 @@ def run_pipeline(
     else:
         # ── 1. Ingestion & Preprocessing ────────────────────────
         validated_path = upload(file_path)
-        document       = extract(validated_path)
-        cleaned        = clean(document)
+        p = Path(validated_path)
+        if p.is_dir():
+            suffixes = {".pdf", ".txt", ".md"}
+            files = sorted(
+                [f for f in p.iterdir() if f.is_file() and f.suffix.lower() in suffixes and not f.name.startswith(".")],
+                key=lambda f: f.name
+            )
+            if not files:
+                raise FileNotFoundError(f"No PDF, TXT, or MD files found in directory: {file_path}")
 
-        # Diagnostic report
-        report_path = Path("extracted_output") / "last_report.json"
-        if report_path.exists():
-            try:
-                rpt = json.loads(report_path.read_text(encoding="utf-8"))
-                print(f"[DIAG] Method used: {rpt.get('method')}")
-                print(f"[DIAG] TOC found: {rpt.get('toc_found')}")
-                print(f"[DIAG] TOC entries: {len(rpt.get('toc_entries', []))}")
-                kept    = rpt.get("kept_pages", [])
-                dropped = rpt.get("dropped_pages", {})
-                print(f"[DIAG] Kept pages ({len(kept)} total): {kept[:10]}...")
-                print(f"[DIAG] Dropped breakdown: { {k: len(v) for k, v in dropped.items()} }\n")
-            except Exception as err:
-                print(f"[DIAG] Could not read report: {err}")
+            print(f"[PIPELINE] Processing directory: {file_path} ({len(files)} files found)")
 
-        print(f"[DOCUMENT] Document Processed: {document.source_path}")
-        print(f"   - Raw lines:          {cleaned.original_line_count}")
-        print(f"   - Noise lines removed:{cleaned.removed_line_count}")
-        print(f"   - Cleaned lines:      {cleaned.original_line_count - cleaned.removed_line_count}\n")
+            memory_store = ConceptMemoryStore()
+            learner      = Learner(memory_store=memory_store)
+            concepts     = []
 
-        # ── 2. Concept Learning & Knowledge Graph Sync ──────────
-        memory_store = ConceptMemoryStore()
-        learner      = Learner(memory_store=memory_store)
-        concepts     = learner.learn(cleaned)
+            for file_item in files:
+                print(f"\n[PIPELINE] Processing file: {file_item.name} ...")
+                try:
+                    val_file_path = upload(str(file_item))
+                    document      = extract(val_file_path)
+                    cleaned       = clean(document)
 
-        print(f"[GENOME] Concepts Extracted & Synced to Memory: {len(concepts)}")
-        stats = memory_store.stats()
-        print(f"   - Total Concepts in Memory Graph: {stats['total_concepts']}\n")
+                    report_path = Path("extracted_output") / "last_report.json"
+                    if report_path.exists():
+                        try:
+                            rpt = json.loads(report_path.read_text(encoding="utf-8"))
+                            print(f"  [DIAG] Method used: {rpt.get('method')}")
+                            kept    = rpt.get("kept_pages", [])
+                            print(f"  [DIAG] Kept pages ({len(kept)} total)")
+                        except Exception:
+                            pass
 
-        # Save to cache for next run
-        _save_cached_concepts(file_path, concepts, stats)
+                    print(f"  [DOCUMENT] Document Processed: {document.source_path}")
+                    print(f"     - Cleaned lines:      {cleaned.original_line_count - cleaned.removed_line_count}")
+
+                    file_concepts = learner.learn(cleaned)
+                    concepts.extend(file_concepts)
+                    print(f"  [GENOME] Concepts Extracted from {file_item.name}: {len(file_concepts)}")
+                except Exception as e:
+                    print(f"  [ERROR] Failed to process {file_item.name}: {e}")
+
+            print(f"\n[GENOME] All concepts Extracted & Synced to Memory. Combined concepts count: {len(concepts)}")
+            stats = memory_store.stats()
+            print(f"   - Total Concepts in Memory Graph: {stats['total_concepts']}\n")
+
+            # Save to cache for next run
+            _save_cached_concepts(file_path, concepts, stats)
+        else:
+            document       = extract(validated_path)
+            cleaned        = clean(document)
+
+            # Diagnostic report
+            report_path = Path("extracted_output") / "last_report.json"
+            if report_path.exists():
+                try:
+                    rpt = json.loads(report_path.read_text(encoding="utf-8"))
+                    print(f"[DIAG] Method used: {rpt.get('method')}")
+                    print(f"[DIAG] TOC found: {rpt.get('toc_found')}")
+                    print(f"[DIAG] TOC entries: {len(rpt.get('toc_entries', []))}")
+                    kept    = rpt.get("kept_pages", [])
+                    dropped = rpt.get("dropped_pages", {})
+                    print(f"[DIAG] Kept pages ({len(kept)} total): {kept[:10]}...")
+                    print(f"[DIAG] Dropped breakdown: { {k: len(v) for k, v in dropped.items()} }\n")
+                except Exception as err:
+                    print(f"[DIAG] Could not read report: {err}")
+
+            print(f"[DOCUMENT] Document Processed: {document.source_path}")
+            print(f"   - Raw lines:          {cleaned.original_line_count}")
+            print(f"   - Noise lines removed:{cleaned.removed_line_count}")
+            print(f"   - Cleaned lines:      {cleaned.original_line_count - cleaned.removed_line_count}\n")
+
+            # ── 2. Concept Learning & Knowledge Graph Sync ──────────
+            memory_store = ConceptMemoryStore()
+            learner      = Learner(memory_store=memory_store)
+            concepts     = learner.learn(cleaned)
+
+            print(f"[GENOME] Concepts Extracted & Synced to Memory: {len(concepts)}")
+            stats = memory_store.stats()
+            print(f"   - Total Concepts in Memory Graph: {stats['total_concepts']}\n")
+
+            # Save to cache for next run
+            _save_cached_concepts(file_path, concepts, stats)
 
     accepted: List[GeneratedQuestion]             = []
     rejected: List[Tuple[GeneratedQuestion, str]] = []

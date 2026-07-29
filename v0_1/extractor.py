@@ -11,22 +11,54 @@ from .schemas import Document
 from .content_filter import extract_academic_content, AcademicContentFilter
 from .material_classifier import classify_material
 
+# ── Feature flag — set to True to use new pipeline ───────────
+# False = existing PyMuPDF pipeline (fast, stable)
+# True  = new Unlimited-OCR + Docling + Table Validator pipeline
+USE_NEW_PARSER = True
+
+
 def extract(pdf_or_text_path: str) -> Document:
-    path = Path(pdf_or_text_path)
+    path      = Path(pdf_or_text_path)
     file_type = path.suffix.lstrip(".").lower() or "txt"
-    text = ""
-    report = {}
+    text      = ""
+    report    = {}
 
     if file_type == "pdf":
-        classification = classify_material(str(path))
-        mat_type = classification.material_type  # keep lowercase: "textbook", "notes"
-        print(f"[EXTRACTOR] Document Classified as '{mat_type}' (Confidence: {classification.confidence})", flush=True)
-        text, report = extract_academic_content(str(path), material_type=mat_type)
-        kept = len(report.get("kept_pages", []))
-        total = report.get("total_pages", 0)
-        print(f"[EXTRACTOR] Kept {report.get('kept_word_count', 0)} words across {kept}/{total} pages (Method: {report.get('method')})", flush=True)
-        if total > 20 and kept < total * 0.15:
-            print(f"[EXTRACTOR] ⚠ WARNING: Only {kept}/{total} pages kept. Content filter may be too aggressive.", flush=True)
+
+        if USE_NEW_PARSER:
+            # ── NEW: Unlimited-OCR + Docling + Table Validator ──
+            try:
+                from .document_parser import parse_document
+                parsed = parse_document(str(path))
+                text   = parsed.full_text_with_tables()
+                report = {
+                    "method":          parsed.method,
+                    "word_count":      parsed.word_count,
+                    "confidence":      parsed.confidence,
+                    "tables_found":    len(parsed.tables),
+                    "figures_found":   len(parsed.figures),
+                    "ocr_used":        parsed.ocr_used,
+                    "warnings":        parsed.warnings,
+                    "kept_word_count": parsed.word_count,
+                    "total_pages":     parsed.pages_total,
+                    "kept_pages":      list(range(1, parsed.pages_total + 1)),
+                }
+            except Exception as err:
+                print(f"[EXTRACTOR] ⚠ New parser error: {err}. Falling back to PyMuPDF...", flush=True)
+                classification = classify_material(str(path))
+                mat_type       = classification.material_type
+                text, report   = extract_academic_content(str(path), material_type=mat_type)
+        else:
+            # ── EXISTING: PyMuPDF pipeline (unchanged) ──────────
+            classification = classify_material(str(path))
+            mat_type       = classification.material_type
+            print(f"[EXTRACTOR] Document Classified as '{mat_type}' (Confidence: {classification.confidence})", flush=True)
+            text, report   = extract_academic_content(str(path), material_type=mat_type)
+            kept  = len(report.get("kept_pages", []))
+            total = report.get("total_pages", 0)
+            print(f"[EXTRACTOR] Kept {report.get('kept_word_count', 0)} words across {kept}/{total} pages (Method: {report.get('method')})", flush=True)
+            if total > 20 and kept < total * 0.15:
+                print(f"[EXTRACTOR] ⚠ WARNING: Only {kept}/{total} pages kept. Content filter may be too aggressive.", flush=True)
     else:
         raw = path.read_text(encoding="utf-8", errors="ignore")
         filt = AcademicContentFilter()

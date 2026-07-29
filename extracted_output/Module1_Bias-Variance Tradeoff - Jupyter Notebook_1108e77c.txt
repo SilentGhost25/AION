@@ -1,0 +1,169 @@
+Imagine that we are considering a relationship between the brain weight of mammals and their corresponding body weights. A hypothesis might read that there is a positive correlation between the two (as one goes up, so does the other). But how strong is this relationship? Is it even linear? Perhaps, as the brain weight increases, there is a logarithmic or quadratic increase in body weight.
+
+In [1]:
+
+In [2]:
+
+In [19]:
+
+We are going to take a small subset of the samples to exacerbate the visual representations of bias and variance, as follows:
+
+In [3]:
+
+We're actually going to pretend that there are only 51 mammal species in existence. In other words, we are pretending that this is the entire dataset of brain and body weights for every known mammal species.
+
+In [4]:
+
+Out[2]:
+
+brain body
+
+1 3.385 44.5
+
+2 0.480 15.5
+
+3 1.350 8.1
+
+4 465.000 423.0
+
+5 36.330 119.5
+
+Out[19]: (51, 3)
+
+Out[3]: (51, 2)
+
+# # Exploring the Bias-Variance Tradeoff import  pandas  as  pd import  numpy  as  np import  seaborn  as  sns % matplotlib inline
+
+# ## Brain and body weight ''' This is a [dataset]) of the average weight of the body and the brain for 62 mammal species. Let's read it into pandas and take a quick look: ''' df  =  pd.read_table( 'http://people.sc.fsu.edu/~jburkardt/datasets/regression/x01.txt' , sep = '\s+' df.head()
+
+df.shape
+
+# We're going to focus on a smaller subset in which the body weight is less than 200: df  =  df[df.body  < 200 ] df.shape
+
+import  matplotlib.pyplot  as  plt
+
+1 2 3 4 5
+
+1 2 3 4 5 6 7 8 9
+
+1 2 3
+
+ 
+
+2/16/26, 11:18 AM Bias-Variance Tradeoff - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Bias-Variance Tradeoff.i… 1/5
+
+In [5]:
+
+There appears to be a relationship between brain and body weight for mammals. So far, we might assume that it is a positive correlation. Now, let's throw in a linear regression into the mix. Let's use seaborn to make and plot a first degree polynomial (linear) regression.
+
+In [6]:
+
+Now, let's pretend that a new mammal species is discovered. We measure the body weight of every member of this species that we can find, and calculate an average body weight of 100. We want to predict the average brain weight of this species (rather than measuring it directly). Using this line, we might predict a brain weight of about 45. Something you might note is that this line isn't that close to the data points in the graph, so, maybe it isn't the best model to use! You might argue that the bias is too high. And I would agree!
+
+# Let's create a scatterplot sns.lmplot(x = 'body' , y = 'brain' , data = df, ci = None , fit_reg = False ) plt.xlim( - 10 ,  200 ) plt.ylim( - 10 ,  250 ) plt.title( "Scatter plot of mammalian brain and body weights" , loc  = 'center' ) plt.show()
+
+sns.lmplot(x = 'body' , y = 'brain' , data = df, ci = None ) plt.xlim( - 10 ,  200 ) plt.ylim( - 10 ,  250 ) plt.title( "Same scatter plot as before with a linear regression visualization put in" , loc  = 'c plt.show()
+
+1 2 3 4 5 6
+
+1 2 3 4 5
+
+2/16/26, 11:18 AM Bias-Variance Tradeoff - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Bias-Variance Tradeoff.i… 2/5
+
+Linear regression models tend to have high bias, but linear regression also has something up its sleeve—it has a very low variance. However, what does that really mean?
+
+Let's say that we take our entire population of mammals and randomly split them into two samples, as follows:
+
+In [7]:
+
+In [8]:
+
+We can now tell seaborn to create two plots, in which the left plot only uses the data from sample 1 and the right plot only uses the data from sample 2:
+
+In [11]:
+
+They barely look different, right? If you look closely, you will note that not a single data point is shared between the samples and yet the line looks almost identical.
+
+Out[7]:
+
+brain body sample
+
+1 3.385 44.5 1
+
+2 0.480 15.5 2
+
+3 1.350 8.1 2
+
+5 36.330 119.5 2
+
+6 27.660 115.0 1
+
+Out[8]:
+
+brain body
+
+sample
+
+1 18.113778 52.068889
+
+2 13.323364 34.669091
+
+# set a random seed for reproducibility np.random.seed( 12345 ) ​ # randomly assign every row to either sample 1 or sample 2 df[ 'sample' ]  =  np.random.randint( 1 ,  3 ,  len (df)) df.head()
+
+# Compare the two samples, they are fairly different! df.groupby( 'sample' )[[ 'brain' ,  'body' ]].mean()
+
+# col='sample' subsets the data by sample and creates two # separate plots sns.lmplot(x = 'body' , y = 'brain' , data = df, ci = None , col = 'sample' ) plt.xlim( - 10 ,  200 ) plt.ylim( - 10 ,  250 ) plt.title( "Side-by-side scatter plots of linear regressions for samples 1 and 2" , loc  = 'center plt.show()
+
+1 2 3 4 5 6
+
+1 2
+
+1 2 3 4 5 6 7
+
+2/16/26, 11:18 AM Bias-Variance Tradeoff - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Bias-Variance Tradeoff.i… 3/5
+
+To further show this point, let's put both the lines of best fit in the same graph and use colors to separate the samples, as illustrated:
+
+In [12]:
+
+The line looks pretty similar between the two plots, despite the fact that they used separate samples of data. In both the cases, we would predict a brain weight of about 45. The fact that even though the linear regression was given to completely distinct datasets pulled from the same population, it produced a very similar line, suggesting that the model is of low variance. What if we increased our model's complexity and allowed it to learn more? Instead of fitting a line, let's let seaborn fit a fourth degree polynomial (a quartic polynomial). By adding to the degree of the polynomial, the graph will be able to make twists and turns in order to fit our data better, as shown:
+
+In [16]:
+
+# hue='sample' subsets the data by sample and creates a # single plot sns.lmplot(x = 'body' , y = 'brain' , data = df, ci = None , hue = 'sample' ) plt.xlim( - 10 ,  200 ) plt.ylim( - 10 ,  250 ) plt.show()
+
+# What would a low bias, high variance model look like?  # Let's try polynomial regression, with an fourth order polynomial: sns.lmplot(x = 'body' , y = 'brain' , data = df, ci = None , col = 'sample' , order = 4 ) plt.xlim( - 10 ,  200 ) plt.ylim( - 10 ,  250 ) plt.title( "Using a quartic polynomial for regression purposes" ) plt.show()
+
+1 2 3 4 5 6
+
+1 2 3 4 5 6 7
+
+2/16/26, 11:18 AM Bias-Variance Tradeoff - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Bias-Variance Tradeoff.i… 4/5
+
+Note how, for two distinct samples from the same population, the quartic polynomial looks vastly different. This is a sign of high variance. This model is low bias because it matches our data well! However, it's high variance because the models are widely different depending upon which points happen to be in the sample. (For a body weight of 100, the brain weight prediction would either be 40 or 0, depending upon which data happened to be in the sample.) Our polynomial is also unaware of the general relationship of the data. It seems obvious that there is a positive correlation between the brain and body weight of mammals. However, in our quartic polynomials, this relationship is nowhere to be found and is unreliable. In our first sample (the graph on the left), the polynomial ends up shooting downwards, while in the second graph, the graph is going upwards towards the end. Our model is unpredictable and can behave wildly different depending on the given training set.
+
+*It is our job, as data scientists, to find a middle ground.
+
+Perhaps we can create a model that has less bias than the linear model, and less variance than the fourth order polynomial?
+
+In [18]:
+
+This plot seems to have a good balance of bias and variance.
+
+In [ ]:
+
+# Let's try a second order polynomial instead: sns.lmplot(x = 'body' , y = 'brain' , data = df, ci = None , col = 'sample' , order = 2 ) plt.xlim( - 10 ,  200 ) plt.ylim( - 10 ,  250 ) plt.title( "Scatter plot using a quadratic polynomial as our estimator" ) plt.show()
+
+1 2 3 4 5 6
+
+2/16/26, 11:18 AM Bias-Variance Tradeoff - Jupyter Notebook
+
+localhost:8888/notebooks/Ruchita PESU/Dayanand Sagar/Deep Learning and Reinforcement Learning/2023 batch/PPTs/Bias-Variance Tradeoff.i… 5/5

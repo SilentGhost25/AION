@@ -1,0 +1,449 @@
+• Introduction,
+
+• Stateless Algorithms: Multi-Armed Bandits
+
+• The Basic Framework of Reinforcement Learning
+
+• Case Studies. • AlphaGo and AlphaZero for Go and Chess  • Self-Learning Robots  • Deep Learning of Locomotion Skills  • Deep Learning of Visuomotor Skills  • Building Conversational Systems: Deep Learning for Chatbots • Self-Driving Cars  • Neural Architecture Search with Reinforcement Learning
+
+• Deep Q Networks
+
+• Policy Gradient Methods
+
+• Herbert Simon  proposed the ant hypothesis:  • “Human beings, viewed as behaving systems, are quite simple. The apparent  complexity of our behavior over time is largely a reflection of the complexity  of the environment in which we find ourselves.”  • Human beings are considered simple because they are one-dimensional, selfish,  and reward driven entities (when viewed as a whole), and all of biological  intelligence is therefore attributable to this simple fact.  • Since the goal of artificial intelligence is to simulate biological intelligence, it is  therefore natural to draw inspirations from the successes of biological greed in  simplifying the design of highly complex learning algorithms.  • This means humans may seem complex, but much of that complexity comes from  our interaction with a complex environment, not necessarily from our internal  systems. • We behave intelligently because our environment challenges us, not because we  are inherently complex beings.
+
+• A reward-driven  trial-and-error process , in which a system learns to interact with a complex environment  to achieve rewarding outcomes, is referred to as  reinforcement learning .
+
+• In reinforcement learning, the process of trial and error is driven by the need to maximize the expected  rewards over time.
+
+• Reinforcement learning can be a gateway to the quest for creating truly intelligent agents such as  game- playing algorithms, self-driving cars, and even intelligent robots  that interact with the environment.
+
+• Simply speaking, it is a gateway to general forms of artificial intelligence.
+
+• RL mimics biological learning — the agent learns from  experience  rather than from explicit instruction.
+
+Example: Imagine teaching a robot to walk: • If it moves forward — reward (+1) • If it falls — penalty (−1) • Over time, it learns which movements get rewards (walking properly).
+
+(a) Video Games • Deep learners have been trained to play video games by reinforcement learning.  • The input to the deep learner is the display of pixels from the current state of the  game.  • The reinforcement learning algorithm predicts the actions based on the display and  inputs them into the video game console.  • Initially, the computer algorithm makes many mistakes, which are reflected in the  virtual rewards given by the console. As the learner gains experience from its  mistakes, it makes better decisions. This is exactly how humans learn to play video  games • Deep RL systems (like Deep Q-Networks by DeepMind) learn to play games just by  seeing the screen pixels. • At first, they make random mistakes, but they improve as they get rewards or  penalties — exactly like humans learning to play.
+
+(b) AlphaZero • DeepMind’s  AlphaZero  learns chess, Go, and shogi purely through  self-play . • It wasn’t taught specific strategies — instead, it played millions of games against  itself and  discovered  winning strategies. • Result:  It beat top human players and even developed new, creative styles of play. (c) Self-driving Cars • Cars learn through sensor feedback: when actions lead to safe driving, they get a  positive “reward.” • Over time, the system learns to make fewer mistakes than humans. (d) Robotics • Robots learn motor skills like walking or grasping via trial and error. • In order to teach a robot to walk, we incentivize the robot to get from point A to  point B as efficiently as possible using its available limbs and motors. • Through reward-guided trial and error (e.g., reaching a target location efficiently),  robots learn to roll, crawl, and eventually walk.
+
+• Reinforcement learning is appropriate for tasks that are simple to evaluate but hard to  specify.  • For example,  it is easy to evaluate a player’s performance at the end of a complex  game like chess, but it is hard to specify the precise action in every situation.  • As in biological organisms, reinforcement learning provides a path to the simplification  of learning complex behaviors by only defining the reward and letting the algorithm  learn reward-maximizing behaviors.  • The complexity of these behaviors is automatically inherited from that of the  environment. Connection to the Ant Hypothesis Reinforcement learning matches Herbert Simon’s idea: • The  learning system (agent)  can be simple. • The  complexity of behavior  comes from the  environment  it interacts with. • So by letting the agent explore the environment and learn from feedback, we can create  intelligent behaviors  without explicitly programming them.
+
+• The simplest example of a reinforcement learning setting is the  multi-armed bandit  problem,  which addresses the problem of a gambler choosing one of many slot  machines in order to maximize his payoff. • Imagine you are in a casino with several slot machines (each called an  arm  of the  bandit). • Each machine gives a  reward  when you play it — but the  average reward probability is unknown. • You want to  maximize your total reward  over time. • To do that, you must: • Explore  → try different machines to learn their average payoffs. • Exploit  → play the machine that seems best based on what you have learned. • Balancing these two goals —  exploration vs. exploitation  — is the  central challenge .
+
+• The gambler suspects that the (expected) rewards from the various slot machines are not  the same, and therefore it makes sense to play the machine with the largest expected  reward.
+
+• Since the expected payoffs of the slot machines are not known in advance, the gambler  has to  explore  different slot machines by playing them and also  exploit  the learned  knowledge to maximize the reward.
+
+• Although exploration of a particular slot machine might gain some additional knowledge  about its payoff, it incurs the risk of the (potentially fruitless) cost of playing it.
+
+• Trying the slot machines randomly is wasteful but helps in gaining experience.
+
+• Trying the slot machines for a very small number of times and then always picking the  best machine might lead to solutions that are poor in the long-term.
+
+• Each machine always behaves the same way (same probability distribution of rewards).
+
+• The next reward depends only on which machine you pull —  not  on any evolving “state”  (unlike chess or driving, where the world changes).
+
+• Multi-armed bandit algorithms  provide carefully crafted strategies to optimize the  trade-off between  exploration  and  exploitation.
+
+How should one navigate this trade-off between exploration and exploitation?  • Note that every trial provides the same probabilistically distributed reward as  previous trials for a given action, and therefore there is no notion of state in such a  system (unlike chess where the action depends on the board state). • Common strategies used in multiarmed bandit systems to regulate the trade-off  between exploration and exploitation are instructive because they provide the  basic ideas and framework, which are used in generalized settings of  reinforcement learning.  • Some of these stateless algorithms are also used to define state-specific policies in  general forms of reinforcement learning. Common strategies used in multiarmed bandit systems to regulate the trade-off  between exploration and exploitation: • Naïve Algorithm  • ε-Greedy Algorithm  • Upper Bounding Methods
+
+Naïve Algorithm: • The gambler plays each machine for a fixed number of trials in the  exploration  phase.  • Subsequently, the machine with the highest payoff is used forever in the  exploitation  phase Drawbacks of Naïve Algorithm: • It is hard to determine the number of trials at which one can confidently predict  whether a particular slot machine is better than another machine. • The process of estimation of payoffs might take a long time, especially in cases  where the payoff events are rare compared to non-payoff events. • Using many exploratory trials will waste a significant amount of effort on  suboptimal strategies. • If the wrong strategy is selected in the end, the gambler will use the wrong slot  machine forever. Naïve Algorithm works poorly in real-world scenarios.
+
+ε-Greedy Algorithm  • The  ε -greedy algorithm is designed to use the best strategy as soon as possible, without  wasting a significant number of trials.  • Choose a random slot machine for a fraction of the trials ( ε) . These exploratory trials are  also chosen at random (with probability ) from all trials, and are therefore fully  interleaved with the exploitation trials.  • In the remaining (1 −  ε  ) fraction of the trials, the slot machine with the best average  payoff so far is used.  Advantage of ε-Greedy Algorithm: • One is guaranteed to not be trapped in the wrong strategy forever.  • Since the exploitation stage starts early, one is often likely to use the best strategy a large  fraction of the time.
+
+• For example, one might set  ε  = 0.1, although the best choice of  ε  will vary with  the application at hand.  • It is often difficult to know the best value of  ε  to use in a particular setting. • The value of  ε  needs to be reasonably small in order to gain significant advantages  from the exploitation portion of the approach.  • However, at small values of  ε  it might take a long time to identify the correct slot  machine.  • A common approach is to use  annealing,  in which large values of  ε  are initially  used, with the values declining with time.
+
+Upper Bounding Methods • Even though the  ε -greedy strategy is better than the naïve strategy in dynamic  settings, it is still quite inefficient at learning the payoffs of new slot machines.
+
+• In  upper bounding strategies , the gambler does not use the mean payoff of a slot  machine. Rather, the gambler takes a more optimistic view of slot machines that  have not been tried sufficiently, and therefore uses a slot machine with the best  statistical upper bound on the payoff.  • Therefore, one can consider the upper bound U i  of testing a slot machine i as the  sum of expected reward Q i  and one-sided confidence interval length C i :
+
+• The value of C i  is like a bonus for increased uncertainty about that slot machine in  the mind of the gambler.  • The value C i  is proportional to the standard deviation of the mean reward of the  tries so far.
+
+• According to the central limit theorem, this standard deviation is inversely proportional to  the square-root of the number of times the slot machine i is tried. • One can estimate the mean μ i  and standard deviation σ i  of the i th slot machine and then set  C i  to be
+
+• where
+
+• Therefore, rarely tested slot machines will tend to have larger upper bounds (because of  larger confidence intervals Ci) and will therefore be tried more frequently.  • That is, rarely played machines have  large  𝐶 𝑖  →they look more promising → get  explored more. • Machines played often have smaller  𝐶 𝑖  →less uncertainty → more exploitation.
+
+Advantages of Upper Bounding Methods: • Unlike the  ε -greedy algorithm, the trials are no longer divided into two categories  of exploration and exploitation; the process of selecting the slot machine with the  largest upper bound has the dual effect of encoding both the exploration and  exploitation aspects within each trial. • One can regulate the trade-off between exploration and exploitation by using a  specific level of statistical confidence. • The choice of K = 3 leads to a 99.99% confidence interval for the upper bound  under the Gaussian assumption.  • In general, increasing K will give large bonuses C i  for uncertainty, thereby causing  exploration to comprise a larger proportion of the plays compared to an algorithm  with smaller values of K.
+
+Multi-Armed Bandits are important because: • They are the  simplest case of Reinforcement Learning  (no states). • They illustrate  exploration vs. exploitation , which appears in all RL problems  (like robots, games, or recommendation systems). • The same ideas extend to  stateful RL  (where the environment changes with  actions).
+
+• Bandit algorithms are stateless . In other words,  the decision made at each time stamp  has an identical environment, and the actions in the past only affect the knowledge of  the agent (and not the environment).  • This is not the case  in generic reinforcement learning settings  like video games or self- driving cars, which  have a notion of state .
+
+• While playing a video game, the reward for moving the joystick in a certain way (action)  depends on all the other actions done in the past, which are incorporated in the state of the  pixels of the video game (environment).  • Similarly, in a self-driving car, the reward for violently swerving a car in normal traffic  conditions would be drastically different from that in a situation indicating the danger of a  collision. Therefore, the evaluation of actions needs to be state-sensitive.
+
+In  reinforcement learning (RL) : • The environment  has a state , which evolves over time. • Each action  affects the next state  (and therefore future rewards). • So the  agent  (the learner) must now think not just  which action gives me a good  reward now , but  which action will lead to a better future . Core Components of Reinforcement Learning:
+
+Examples of rewards in reinforcement learning settings: 1. Game of tic-tac-toe, chess, or Go: • The state is the position of the board at any point, and the actions correspond to  the moves made by the agent.  • The reward is +1, 0, or −1 (depending on win, draw, or loss), which is received at  the end of the game.  • Note that rewards are often not received immediately after strategically astute  actions.  2. Robot locomotion:  • The state corresponds to the current configuration of robot joints and its position. • The actions correspond to the torques applied to robot joints.  • The reward at each time stamp is a function of whether the robot stays upright and  the amount of forward movement from point A to point B.
+
+3. Self-driving car:  • The states correspond to the sensor inputs from the car, and the actions correspond  to the steering, acceleration, and braking choices.  • The reward is a hand-crafted function of car progress and safety
+
+• In reinforcement learning, the virtual entity that interacts with the environment to perform  actions and earn rewards is referred to as an  agent  (such as a video-game player).  • The actions change the state of the environment (such as moving the joystick changing the  game state). The  environment  gives the agent rewards (such as virtual points).  • The consequence of an action is sometimes long lasting.  • For example, the agent might have cleverly positioned a cursor at a particularly  convenient point a few moves back, and the current action may yield a high reward only  because of that positioning. Therefore, not only does the current state-action pair need to  be credited, but the past state-action pair (e.g., positioning the cursor) needs to be  appropriately credited when a  reward  (e.g., video game point) is received.  • Furthermore, the reward for an action might not be deterministic (as in card games), which  adds to complexity.
+
+• One of the primary goals of reinforcement learning is to identify the inherent values  of actions in different states, irrespective of the timing and stochasticity of the  reward. The agent can then choose actions based on these values.
+
+• Consider a mouse learning a path through a maze to earn a reward.  • The value of a particular action of the mouse (e.g., left turn) depends on where it is  in the maze.
+
+• When a reward is earned by reaching the goal, the synaptic weights in the mouse’s  brain adjust to reflect all past actions in various positions and not just the final  step.  • This is exactly the approach used in deep reinforcement learning, where a neural  network is used to predict values of actions from sensory inputs (e.g., pixels of  video game), and the values of past actions in various states are indirectly updated  depending on the received rewards (by updating the weights of the neural  network).  • This relationship between the agent and the environment is shown in Figure 11.1.
+
+The Mouse as a Deep RL Agent • Environment : The maze with walls, paths, and the cheese goal location.
+
+• Mouse observes its current position ( state )  • Chooses an action (move direction)  • Receives feedback:  • Reward → reaching cheese  • Penalty → hitting wall/dead-end  • Small negative reward → each step (to encourage shortest path)  • Moves to next state  This process repeats over many trials (episodes)
+
+Deep Learning Framework Mapping • Input Layer → Current maze state (position x, y coordinates or visual input) • Hidden Layers → Deep neural network learns: • Which directions historically led to cheese • Spatial patterns in maze layouts • Value of being in current position • Output Layer → Action probabilities (forward=0.6, left=0.3, right=0.1) Instead of storing all experiences in a table: • A  Deep Neural Network (DNN)  is used to approximate: • 𝑄𝑠𝑎 • Input to Network: • Mouse position or maze representation (grid/image)  • Output: • Q-values for all possible actions
+
+Learning Process (Deep Q-Learning Perspective) • Step 1: Exploration • Mouse initially moves randomly  • Learns about the maze structure  • Step 2: Experience Collection • Stores experiences: 𝑠𝑎𝑟𝑠 ′
+
+Step 3: Learning from Experience • Neural network updates Q-values  • Learns:  • Which paths lead to cheese  • Which paths lead to penalties Step 4: Policy Improvement
+
+• Gradually shifts from random moves → optimal path
+
+The mouse learns to find cheese by: • Interacting with the environment
+
+• Receiving rewards/penalties  • Updating its decision-making using deep learning
+
+Key Deep RL Concepts: 1. Delayed Reward : Mouse doesn't get cheese immediately, must learn long-term  consequences of actions.
+
+2. Exploration vs Exploitation : Early episodes try random turns (ε=1.0), later  episodes follow learned policy (ε=0.1). 3. Credit Assignment : Network learns which sequence of turns (not single moves)  leads to cheese. 4. Function Approximation : Deep network generalizes across similar maze  positions rather than memorizing exact paths. 5. Temporal Difference Learning : Each step updates value estimate based on  immediate reward + estimated future reward.
+
+• The process of generating a sequence of states, actions, and rewards is referred to  as a  Markov decision process .  • The main property of a Markov decision process is that the state at any particular  time stamp encodes all the information needed by the environment to make state  transitions and assign rewards based on agent actions.  • Finite Markov decision processes  (e.g., tic-tac-toe) terminate in a finite number  of steps, which is referred to as an  episode. • Infinite Markov decision processes  (e.g., continuously working robots) do not  have finite length episodes and are referred to as  non-episodic or continuous .  • A Markov decision process can be represented as a sequence of actions, states, and  rewards as follows:
+
+• The state before performing action a t  is s t , and the reward after action a t  is r t .  • The reward r t  only corresponds to the specific amount received at time t, and we  need a notion of  cumulative future reward over the long term  for each state- action pair in order to estimate its inherent value.  • The cumulative expected reward E[R t  | s t , a t ] for state-action pair (s t , a t ) is given by  the discounted sum of all future expected rewards at discount factor γ  ∈ (0, 1):
+
+• The discount factor γ  ∈ (0, 1) regulates how myopic we want to be in allocating  rewards.  • The value of γ is an application-specific parameter less than 1, because future  rewards are considered less important than immediate rewards.  • Choosing γ = 0 will result in myopically setting the full reward R t  to r t  and nothing  else.  • Larger values of γ will have a better long term perspective but will need more data  for robust learning.
+
+• If the cumulative expected rewards of all state-action pairs can be learned, it  provides a basis for a reinforcement learning algorithm of selecting the best  action in each state. Reasons for the challenges in learning the values of state-action pairs:
+
+• If we define a state-sensitive exploration-exploitation policy (like -greedy in  multiarmed bandits) in order to create randomized action sequences for estimating  E[R t  | s t , a t ], the estimated value of E[R t  | s t , a t ] will be sensitive to the policy used. • This is because actions have long-lasting consequences, which can interact with  subsequent choices of the policy.  • For example, a heavily exploratory policy will not learn a large value for E[R t  | s t , a t ]  for those actions a t  that bring a robot near the edge of a cliff, even if a t  is an optimal  action in state s t  in a non-exploratory setting.
+
+• It is customary to use the notation E p [R t  | s t , a t ] to show that the expected values are  specific to a policy p.  • Fortunately, E p [R t  | s t , a t ] is still quite helpful in predicting high-quality actions for  reasonable policies.
+
+• The reinforcement learning system might have a very large number of states (such as the  number of positions in chess).  • Therefore, explicit tabulation of E p [R t  | s t , a t ] is no longer possible, and it needs to be  learned as a parameterized function of (s t , a t ). This task of model generalization is the  primary function of deep learning.
+
+• Case studies from real domains to showcase different reinforcement learning  settings.  • Examples of reinforcement learning  in  Go, robotics, conversational systems,  self-driving cars, and neural-network hyperparameter learning.
+
+In Reinforcement Learning (RL): • An  agent  interacts with an  environment • It takes  actions  and receives  rewards or penalties • Over time, it learns: • “Which actions lead to better long-term outcomes?” • Learning happens through  trial and error , guided by rewards. Example: Playing a Racing Game Setup • Agent  → Game AI  • Environment  → Racing track  • Actions  → Accelerate, brake, turn  • Reward system :  • Stay on track → +1  • Finish race → +10  • Crash → –5
+
+• Agent makes random moves  • Frequently crashes • Learns which actions are bad
+
+Learning Phase • Notices:  • Turning at corners avoids crashes  • Maintaining speed improves progress
+
+• Finishes race efficiently
+
+• As in the case of the robot locomotion task, the car is rewarded for progressing  from point A to point B without causing accidents or other undesirable road  incidents.  • The car is equipped with various types of video, audio, proximity, and motion  sensors in order to record observations.
+
+• The objective of the reinforcement learning system is for the car to go from point  A to point B safely irrespective of road conditions. • Driving is a task for which it is hard to specify the proper rules of action in every  situation; on the other hand, it is relatively easy to judge when one is driving  correctly. • In real cars,  imitation learning (supervised learning)  is more common due to  safety.
+
+How Reinforcement Learning uses reward driven trial and error in an  environment such as self-driving cars
+
+Setup • Agent  → Autonomous car  • Environment  → Road, traffic, pedestrians  • Actions  → Steering, braking, accelerating
+
+Reward Function • Stay in lane → +1  • Avoid collision → +10  • Crash → –100  • Traffic violation → –10
+
+Trial-and-Error Process Training (Usually in Simulation) • Car tries different driving actions  • Makes mistakes (e.g., wrong turns, collisions)  • Receives penalties
+
+Learning • Gradually learns:  • Safe steering angles  • When to brake  • How to maintain distance
+
+Final Policy • Smooth, safe driving  • Predicts best actions in real time
+
+Training Setup • The training data was collected by driving in a wide variety of roads and conditions. • A single front-facing camera in the driver position was used as the primary data source  for making decisions, the training phase used two additional cameras at other positions  in the front to collect rotated and shifted images.  • These auxiliary cameras, which were not used for final decision making, were however  useful for collecting additional data.  • The placement of the additional cameras ensured that their images were shifted and  rotated, and therefore they could be used to train the network to recognize cases where  the car position had been compromised. In short, these cameras were useful for data  augmentation.  • The neural network was trained to minimize the error between the steering command  output by the network and the command output by the human driver.  • Note that this approach tends to make the approach closer to supervised learning rather  than reinforcement learning.  • These types of learning methods are also referred to as  imitation learning . Imitation  learning is often used as a first step to buffer the cold-start inherent in reinforcement  learning systems.
+
+• The convolutional neural network architecture is shown in Figure 11.10.  • The network consists of 9 layers, including a normalization layer, 5 convolutional  layers, and 3 fully connected layers.  • The first convolutional layer used a 5 × 5 filter with a stride of 2.  • The next two convolutional layers each used non-strided convolution with a 3 × 3 filter. • These convolutional layers were followed with three fully connected layers.  • The final output value was a control value, corresponding to the inverse turning radius. • The network had 27 million connections and 250, 000 parameters.
+
+• The resulting car was tested both in simulation and in actual road conditions.  • A human driver was always present in the road tests to perform interventions when  necessary.  • On this basis, a measure was computed on the percentage of time that human  intervention was required. It was found that the vehicle was autonomous 98% of the  time.  • It was observed that the features were heavily biased towards learning aspects of the  image that were important to driving.  • In the case of unpaved roads, the feature activation maps were able to detect the outlines  of the roads.  • On the other hand, if the car was located in a forest, the feature activation maps were  full of noise.  • Note that this does not happen in a convolutional neural network that is trained on  ImageNet  because the feature activation maps would typically contain useful  characteristics of trees, leaves, and so on.  • This difference in the two cases is because the convolutional network of the self-driving  setting is trained in a goal-driven matter, and it learns to detect features that are relevant  to driving. The specific characteristics of the trees in a forest are not relevant to driving.
+
+Understand the game of Go: • Go is a two-person board game like chess.  • The complexity of a two-person board game largely depends on the size of the  board and the number of valid moves at each position.  • The simplest example of a board game is tic-tac-toe with a 3 × 3 board, and most  humans can solve it optimally without the need for a computer.  • Chess is a significantly more complex game with an 8×8 board, although clever  variations of the brute-force approach of selectively exploring the minimax tree of  moves up to a certain depth can perform significantly better than the best human  today.  • Go occurs at the extreme end of complexity because of its 19 × 19 board. • Players play with white or black stones, which are kept in bowls next to the Go  board. An example of a Go board is shown in Figure 11.7.
+
+• The game starts with an empty board, and it fills up as players put stones on the board. • Black makes the first move and starts with 181 stones in her bowl, whereas white starts  with 180 stones.  • The total number of junctions is equal to the total number of stones in the bowls of the  two players.  • A player places a stone of her color in each move at a particular position (from the  bowl), and does not move it once it is placed.  • A stone of the opponent can be captured by encircling it. • The objective of the game is for the player to control a larger part of the board  than her opponent by encircling it with her stones. • Whereas one can make about 35 possible moves (i.e., tree branch factor) in a particular  position in chess, the average number of possible moves at a particular position in Go is  250, which is almost an order of magnitude larger. Furthermore, the average number of  sequential moves (i.e., tree depth) of a game of Go is about 150, which is around twice  as large as chess. All these aspects make Go a much harder candidate from the  perspective of automated game-playing.
+
+• The typical strategy of chess-playing software is to construct a minimax tree with all  combinations of moves the players can make up to a certain depth, and then evaluate the  final board positions with chess-specific heuristics (such as the amount of remaining  material and the safety of various pieces).  • Suboptimal parts of the tree are pruned in a heuristic manner.
+
+• This approach is simply a improved version of a brute-force strategy in which all  possible positions are explored up to a given depth.  • The number of nodes in the minimax tree of Go is larger than the number of atoms in  the observable universe, even at modest depths of analysis (20 moves for each player). • As a result of the importance of spatial intuition in these settings, humans always  perform better than brute force strategies at Go.  • The use of reinforcement learning in Go is much closer to what humans attempt to do. • We rarely try to explore all possible combinations of moves; rather, we visually learn  patterns on the board that are predictive of advantageous positions, and try to make  moves in directions that are expected to improve our advantage.
+
+• The automated learning of spatial patterns that are predictive of good performance is  achieved with a convolutional neural network.  • The state of the system is encoded in the board position at a particular point, although  the board representation in AlphaGo includes some additional features about the status  of junctions or the number of moves since a stone was played.  • Multiple such spatial maps are required in order to provide full knowledge of the state. • For example, one feature map would represent the status of each intersection, another  would encode the number of turns since a stone was played, and so on.  • Integer feature maps were encoded into multiple one-hot planes. Altogether, the game  board could be represented using 48 binary planes of 19 × 19 pixels. • AlphaGo uses its win-loss experience with repeated game playing (both using the moves  of expert players and with games played against itself) to learn good policies for moves  in various positions with a policy network.  • Furthermore, the evaluation of each position on the Go board is achieved with a value  network.  • Subsequently, Monte Carlo tree search is used for final inference. Therefore, AlphaGo is  a multi-stage model, whose components are discussed in the following sections.
+
+• The policy network takes as its input the aforementioned visual representation of the board, and  outputs the probability of action a in state s. This output probability is denoted by p(s, a).
+
+• Note that the actions in the game of Go correspond to the probability of placing a stone at each  legal position on the board. Therefore, the output layer uses the softmax activation.
+
+• Two separate policy networks are trained using different approaches.
+
+• The two networks were identical in structure, containing convolutional layers with ReLU nonlinearities.
+
+• Each network contained 13 layers.
+
+• Most of the convolutional layers convolve with 3×3 filters, except for the first and final  convolutions.
+
+• The first and final filters convolve with 5 × 5 and 1 × 1 filters, respectively.
+
+• The convolutional layers were zero padded to maintain their size, and 192 filters were used.
+
+• The ReLU nonlinearity was used, and no maxpooling was used in order to maintain the spatial  footprint.
+
+• The networks were trained in the following two ways:  • Supervised learning: • Randomly chosen samples from expert players were used as training data.  • The input was the state of the network, while the output was the action performed by  the expert player.  • The score (advantage) of such a move was always +1, because the goal was to train  the network to imitate expert moves, which is also referred to as  imitation learning . • Therefore, the neural network was backpropagated with the log-likelihood of the  probability of the chosen move as its gain. This network is referred to as the  SL- policy network.  • It is noteworthy that these supervised forms of imitation learning are often quite  common in reinforcement learning for avoiding cold-start problems. However,  subsequent work showed that dispensing with this part of the learning was a better  option.
+
+• Reinforcement learning:  • In this case, reinforcement learning was used to train the network.  • One issue is that Go needs two opponents, and therefore the network was played  against itself in order to generate the moves.  • The current network was always played against a randomly chosen network from a  few iterations back, so that the reinforcement learning could have a pool of  randomized opponents.  • The game was played until the very end, and then an advantage of +1 or −1 was  associated with each move depending on win or loss.  • This data was then used to train the policy network. This network was referred to as  the  RL-policy network. • These networks are formidable Go players in their own right, and they were combined  with Monte Carlo tree search to strengthen them.
+
+• Value Networks  • This network was also a convolutional neural network, which uses the state of the  network as the input and the predicted score in [−1, +1] as output, where +1  indicates a perfect probability of 1.  • The output is the predicted score of the next player, whether it is white or black, and  therefore the input also encodes the “color” of the pieces in terms of “player” or  “opponent” rather than white or black.  • The architecture of the value network was very similar to the policy network, except  that there were some differences in terms of the input and output.  • The input contained an additional feature corresponding to whether the next player  to play was white or black.  • The score was computed using a single tanh unit at the end, and therefore the value  lies in the range [−1, +1].  • The early convolutional layers of the value network are the same as those in the  policy network, although an additional convolutional layer is added in layer 12. • A fully connected layer with 256 units and ReLU activation follows the final  convolutional layer.
+
+• In order to train the network, one possibility is to use positions from a data set of Go  games.  • However, the preferred choice was to generate the data set using self-play with the SL- policy and RL-policy networks all the way to the end, so that the final outcomes were  generated.
+
+• The state-outcome pairs were used to train the convolutional neural network.  • Since the positions in a single game are correlated, using them sequentially in training  causes overfitting.  • It was important to sample positions from different games in order to prevent overfitting  caused by closely related training examples. Therefore, each training example was  obtained from a distinct game of self-play.
+
+AlphaZero: Enhancements to Zero Human Knowledge • AlphaGo Zero, removed the need for human expert moves (or an SL-network).  • Instead of separate policy and value networks, a single network outputs both the policy  (i.e., action probabilities) p(s, a) and the value v(s) of the position.  • The cross-entropy loss on the output policy probabilities and the squared loss on the  value output were added to create a single loss.  • Whereas the original version of AlphaGo used Monte Carlo tree search only for  inference from trained networks, the zero-knowledge versions also use the visit counts  in Monte Carlo tree search for training.
+
+• One can view the visit count of each branch in tree search as a policy improvement  operator over p(s, a) by virtue of its lookahead-based exploration.  • This provides a basis for creating boot-strapped ground-truth values (Intuition 11.5.1)  for neural network learning.  • While temporal difference learning bootstraps state values, this approach bootstraps visit  counts for learning policies.
+
+• The predicted probability of Monte Carlo tree search for action a in board state s is
+
+• The value of N(s, a) is computed using a similar Monte Carlo search algorithm as used  for AlphaGo, where the prior probabilities p(s, a) output by the neural network are used  for computing Equation 11.28. • Assume that the probability P(s, a) of each action (move) a at state (board position) s  can be estimated using a policy network. At the same time, for each move we have a  quantity Q(s, a), which is the quality of the move a at state s. For example, the value of  Q(s, a) increases with increasing number of wins by following action a from state s in  simulations. • Then, in each iteration, the “upper bound” u(s, a) of the quality of the move a at state s  is given by the following:
+
+• Here, N(s, a) is the number of times that the action a was followed from state s over the  course of the Monte Carlo tree search.
+
+• The value of Q(s, a) in Equation 11.28 is set to the average value output
+
+• AlphaGo Zero updates the neural network by bootstrapping π(s, a) as a ground-truth, whereas  ground-truth state values are generated with Monte Carlo simulations.
+
+• At each state s, the probabilities π(s, a), values Q(s, a) and visit counts N(s, a) are updated by  running the Monte Carlo tree search procedure (repeatedly) starting at state s.
+
+• The neural network from the previous iteration is used for selecting branches according to  Equation 11.28 until a state is reached that does not exist in the tree or a terminal state is  reached.
+
+• For each non-existing state, a new leaf is added to the tree with its Q-values and visit values  initialized to zero.
+
+• The Q-values and visit counts of all edges on the path from s to the leaf node are updated based  on leaf evaluation by the neural network (or by game rules for terminal states).
+
+• After multiple searches starting from node s, the posterior probability π(s, a) is used to sample  an action for self-play and reach the next node sꞌ.
+
+• The entire procedure discussed in this paragraph is repeated at node sꞌto recursively  obtain the next position sꞌꞌ • The game is recursively played to completion and the final value from {−1, +1} is  returned as the ground-truth value z(s) of uniformly sampled states s on the game path. • Note that z(s) is defined from the perspective of the player at state s.  • The ground-truth values of the probabilities are already available in π(s, a) for various  values of a.  • Therefore, one can create a training instance for the neural network containing the input  representation of state s, the bootstrapped ground-truth probabilities in π(s, a), and the  Monte Carlo ground-truth value z(s). This training instance is used to update the neural  network parameters. • Therefore, if the probability and value outputs for the neural network are p(s, a) and  v(s), respectively, the loss for a neural network with weight vector  ഥ 𝑊 is as follows:
+
+• Here, λ > 0 is the regularization parameter.
+
+Comments on Performance • AlphaGo  has shown extraordinary performance against a variety of computer and human  opponents. Against a variety of computer opponents, it won the majority of the games even in  handicapped settings. It also defeated the best human opponents, such as the European  champion, the  • AlphaGo  made many unconventional and brilliantly unorthodox moves, which would  sometimes make sense only in hindsight after the victory of the program [631, 632]. There were  cases in which the moves made by AlphaGo were contrary to conventional wisdom, but  eventually revealed innovative insights acquired by AlphaGo during self-play World champion,  • The performance of  Alpha Zero  in chess was similar, where it often made material sacrifices in  order to incrementally improve its position and constrict its opponent. This type of behavior is a  hallmark of human play and is very different from conventional chess software (which is  already much better than humans). Unlike hand-crafted evaluations, it seemed to have no pre- conceived notions on the material values of pieces, or on when a king was safe in the center of  the board. and the top-ranked player. • It had the ability to discover knowledge on its own.  • A key difference of reinforcement learning from supervised learning is that it has the  ability to innovate beyond known knowledge through learning by reward-guided trial and  error.
+
+• In Self-learning robots, robots can be trained to perform various tasks such as  locomotion,  mechanical repairs, or object retrieval  by using a reward-driven approach.  • For example,  consider the case in which one has constructed a robot that is physically  capable of locomotion (in terms of how it is constructed and the movement choices available  to it), but it has to learn the precise choice of movements in order to keep itself balanced and  move from point A to point B.  • The problem becomes even more difficult when uncertain terrain and obstacles are placed in  the way of a robot. Why Reinforcement Learning for Robots? • It is  easy to check  if the robot is doing the task correctly (e.g., it is walking forward). • But it is  hard to define exact rules  for every situation (uneven ground, obstacles, balance). • So the robot is given  rewards  when it moves correctly and  punishments  when it falls or  fails. • The robot learns  by trial and error , just like humans learning to walk. • The robot now needs to learn the specific sequence of actions to take in order to earn the goal- driven rewards.
+
+Two cases of training robots using Reinforcement Learning: • Teaching a robot Locomotion skills • Teaching a robot manipulation tasks such as grasping an object or screwing the cap on a  bottle.  Deep Learning of Locomotion Skills: What was done? • Locomotion skills were taught to virtual robots, in which the robot was simulated with  the  MuJoCo physics engine , which stands for  Multi-Joint Dynamics with Contact .  • It is a physics engine aiming to facilitate research and development in robotics,  biomechanics, graphics, and animation, where fast and accurate simulation is needed  without having to construct an actual robot.  • Two robots were trained: • A  humanoid/biped  robot • A  quadruped  robot
+
+• An example of the  biped model  is shown in Figure 11.8.  • The  advantage  of this type of simulation is that  • It is inexpensive to work with a virtual simulation, and  • One avoids the natural safety and expense issues that arise with the physical  damages in an experimentation framework that is likely to be marred by high levels  of mistakes/accidents.  • On the flip side, a physical model provides more realistic results.  • In general, a simulation can often be used for smaller scale testing before building a  physical model. • The humanoid model has 33 state dimensions and 10 actuated degrees of freedom,  while the quadruped model has 29 state dimensions and 8 actuated degrees of freedom. • Models were rewarded for forward progress, although episodes were terminated when  the center of mass of the robot fell below a certain point.  • The actions of the robot were controlled by joint torques.  • A number of features were available to the robot, such as sensors providing the  positions of obstacles, the joint positions, angles, and so on. These features were fed  into the neural networks.
+
+• Two neural networks were used;  • One was used for value estimation, and  • The other was used for policy estimation.
+
+• Therefore, a policy gradient method was used in which the value network played the role of  estimating the advantage. Such an approach is an instantiation of an actor-critic method.
+
+• A feed-forward neural network was used with three hidden layers, with 100, 50, and 25 tanh  units, respectively.
+
+• The approach requires the estimation of both a policy function and a value function, and the  same architecture was used in both cases for the hidden layers.
+
+• However, the value estimator required only one output, whereas the policy estimator required as  many outputs as the number of actions.
+
+• Therefore, the main difference between the two architectures was in terms of how the  output layer and the loss function was designed.
+
+• The generalized advantage estimator (GAE) was used in combination with trust-based policy  optimization (TRPO).
+
+• On training the neural network for 1000 iterations with reinforcement learning, the robot learned  to walk with a visually pleasing gait.
+
+Deep Learning of Visuomotor Skills: • Robots were trained to learn  household manipulation tasks , such as: • Placing a coat hanger on a rack • Inserting a block into a shape-sorting cube • Fitting the claw of a toy hammer under a nail with various grasps • Screwing a cap onto a bottle. • Examples of these tasks are illustrated in Figure 11.9(a) along with an image of the  robot.
+
+• State:  The actions were 7-dimensional joint motor torque commands, and each action  required a sequence of commands in order to optimally perform the task.  • In this case, an actual physical model of a robot was used for training.  • Input:  A camera image was used by the robot in order to locate the objects and  manipulate them.  • This camera image can be considered the robot’s eyes, and the convolutional neural  network used by the robot works on the same conceptual principle as the visual cortex. • A convolutional neural network was used for mapping image frames to actions. • The convolutional neural network had 7 layers and 92,000 parameters.  • The first three layers were convolutional layers, the fourth layer was a spatial softmax,  and the fifth layer was a fixed transformation from spatial feature maps to a concise set  of two coordinates.  • The idea was to apply a softmax function to the responses across the spatial feature map.
+
+• This provides a probability of each position in the feature map.
+
+• The expected position using this probability distribution provides the 2-dimensional  coordinate, which is referred to as a  feature point.  • Each spatial feature map in the convolution layer creates a feature point.  • The feature point can be viewed as a kind of soft argmax over the spatial probability  distribution.  • The fifth layer was quite different from what one normally sees in a convolutional  neural network, and was designed to create a precise representation of the visual scene  that was suitable for feedback control.  • The spatial feature points are concatenated with the robot’s configuration, which is an  additional input occurring only after the convolution layers.  • This concatenated feature set is fed into two fully connected layers, each with 40  rectified units, followed by linear connections to the torques. • The observations corresponding to the camera were fed to the first layer of the  convolutional neural network, and the observations corresponding to the robot state  were fed to the first fully connected layer.  • This is because the convolutional layers cannot make much use of the robot states, and it  makes sense to concatenate the state-centric inputs after the visual inputs have been  processed by the convolutional layers.
+
+• The entire network contained about 92,000 parameters, of which 86,000 were in the  convolutional layers.  • The architecture of the convolutional neural network is shown in Figure 11.9(b).  • The observations consist of the RGB camera image, joint encoder readings, velocities,  and end-effector pose.
+
+• The full robot states contained between 14 and 32 dimensions, such as the joint  angles, end-effector pose, object positions, and their velocities. This provided a  practical notion of a state. • A  guided policy search method  was used,  • Which converts portions of the reinforcement learning problem into  supervised learning.  • It makes training more stable and efficient.
+
+• Chatbots are also referred to as conversational systems or dialog systems.  • The ultimate goal of a chatbot is to build an agent that can freely converse with a  human about a variety of topics in a natural way.
+
+• An example of a relatively general-purpose system is Apple’s Siri, which is a  digital personal assistant.  • One can view Siri as an open-domain system, because it is possible to have  conversations with it about a wide variety of topics.  • It is reasonably clear to anyone using Siri that the assistant is sometimes either  unable to provide satisfactory responses to difficult questions, and in some cases  hilarious responses to common questions are hard-coded.
+
+• RL is applied to  dialog systems , specifically  Facebook's negotiation chatbot -  a  system built by Facebook for end-to-end learning of negotiation skills. • This is a closed-domain system because it is designed for the particular purpose of  negotiation. The following negotiation task was used:  • Two agents are shown a collection of items of different types (e.g., two books, one hat,  three balls).  • The agents are instructed to divide these items among themselves by negotiating a split  of the items.  • A key point is that the value of each of the types of items is different for the two agents,  but they are not aware of the value of the items for each other.  • This is often the case in real-life negotiations, where users attempt to reach a mutually  satisfactory outcome by negotiating for items of value to them. • The goal: • Negotiate to maximize your own reward. • Reward  =  total value  of items obtained.
+
+• The values of the items are always assumed to be non-negative and generated randomly  in the test-bed under some constraints.  • First, the total value of all items for a user is 10.  • Second, each item has non-zero value to at least one user so that it makes little sense to  ignore an item.  • Last, some items have nonzero values to both users.  • Because of these constraints, it is impossible for both users to achieve the maximum  score of 10, which ensures a competitive negotiation process.  • After 10 turns, the agents are allowed the option to complete the negotiation with no  agreement, which has a value of 0 points for both users.  • The three item types of books, hats, and balls were used, and a total of between 5 and 7  items existed in the pool.  • The fact that the values of the items are different for the two users (without knowledge  about each other’s assigned values) is significant; if both negotiators are capable, they  will be able to achieve a total value of larger than 10 for the items between them. • Nevertheless, the better negotiator will be able to capture the larger value by optimally  negotiating for items with a high value for them.
+
+• The reward function for this reinforcement learning setting is the final value of the items  attained by the user.  • The incorporation of supervised learning within the reinforcement learning helps in  ensuring that the models do not diverge from human language.  • A form of planning for dialogs called  dialog roll-out  was introduced.  • The approach uses an encoder-decoder recurrent architecture, in which the decoder  maximizes the reward function rather than the likelihood of utterances. This encoder- decoder architecture is based on sequence-to-sequence learning. • To facilitate supervised learning, dialogs were collected from  Amazon Mechanical  Turk. • A total of 5808 dialogs were collected in 2236 unique scenarios, where a scenario is  defined by assignment of a particular set of values to the items. Of these cases, 252  scenarios corresponding to 526 dialogs were held out. • Each scenario results in two training examples, which are derived from the perspective  of each agent.
+
+• A concrete training example could be one in which the items to be divided among the  two agents correspond to 3 books, 2 hats, and 1 ball. These are part of the input to each  agent.  • The second input could be the value of each item to the agent, which are  (i) Agent A: book:1, hat:3, ball:1, and  (ii) Agent B: book:2, hat:1, ball:2.  • Note that this means that agent A should secretly try to get as many hats as possible in  the negotiation, whereas agent B should focus on books and balls. • An example of a dialog in the training data is given below:  • Agent A: I want the books and the hats, you get the ball.  • Agent B: Give me a book too and we have a deal.  • Agent A: Ok, deal.  • Agent B: choose  • The final output for agent A is 2 books and 2 hats, whereas the final output for agent B  is 1 book and 1 ball.
+
+• Therefore, each agent has her own set of inputs and outputs, and the dialogs for each agent are  also viewed from their own perspective in terms of the portions that are reads and the portions  that are writes.  • Therefore, each scenario generates two training examples and the same recurrent network is  shared for generating the writes and the final output of each agent.  • The dialog x is a list of tokens x 0  ...x T  , containing the turns of each agent interleaved with  symbols marking whether the turn was written by an agent or their partner.  • A special token at the end indicates that one agent has marked that an agreement has been  reached. • The supervised learning procedure uses four different gated recurrent units (GRUs).  • The first gated recurrent unit GRU g  encodes the input goals, the second gated recurrent unit  GRU q  generates the terms in the dialog, a forward-output gated recurrent unit GRU Ԧ𝑂 , and a  backward-output gated recurrent unit GRU ശ𝑂 • The output is essentially produced by a bi-directional GRU.  • These GRUs are hooked up in end-to-end fashion. In the supervised learning approach, the  parameters are trained using the inputs, dialogs, and outputs available from the training data.  • The loss for the supervised model for a weighted sum of the token-prediction loss of the dialog  and the output choice prediction loss of the items.
+
+• However, for reinforcement learning, dialog roll-outs are used. • One can use this policy network to generate Monte Carlo roll-outs of various dialogs  and their final rewards.  • Each of the sampled actions becomes a part of the training data, and the action is  associated with the final reward of the roll-out.  • In other words, the approach uses self-play in which the agent negotiates with itself to  learn better strategies.  • The final reward achieved by a roll-out is used to update the policy network parameters. • This reward is computed based on the value of the items negotiated at the end of the  dialog. This approach can be viewed as an instance of the  REINFORCE a lgorithm. • One issue with self-play is that the agents tend to learn their own language, which  deviates from natural human language when both sides use reinforcement learning. • Therefore, one of the agents is constrained to be a supervised model.
+
+• For the final prediction, one possibility is to directly sample from the probabilities  output by the GRU.  • However, such an approach is often not optimal when working with recurrent networks. • Therefore, a two-stage approach is used.  • First, c candidate utterances are created by using sampling.  • The expected reward of each candidate utterance is computed and the one with the  largest expected value is selected.  • In order to compute the expected reward, the output was scaled by the probability of the  dialog because low-probability dialogs were unlikely to be selected by either agent. • Interesting observations about the performance of the approach: • First, the supervised learning methods often tended to give up easily, whereas the  reinforcement learning methods were more persistent in attempting to obtain a good  deal.  • Second, the reinforcement learning method would often exhibit human-like  negotiation tactics.
+
+Explain how reinforcement learning was applied to Facebook’s negotiation  chatbot. How did self-play and reward based learning improve negotiation  behavior?
+
+• Facebook’s negotiation chatbot, developed by Facebook AI Research (FAIR) in  2017, was a landmark project in applying Reinforcement Learning (RL) to natural  language processing.  • The task involved a "multi-issue bargaining" game where two agents had to divide  a set of items (books, hats, and balls) with different point values assigned to each.
+
+• The implementation followed a two-step training process:
+
+• Supervised Learning to teach the bot how to speak like a human, followed by • Reinforcement Learning to teach it how to win.
+
+1. The Role of Reinforcement Learning In the initial supervised phase, the bot learned to imitate human dialogue from a  dataset of 5,808 human conversations. However, imitation only makes a bot "sound"  human; it doesn't make it a good strategist.  RL was introduced to shift the focus from likelihood (what is the most common  word to say next?) to reward (what sentence will get me more points?). • Policy Gradients:  The researchers used a policy gradient algorithm. At the end of  a successful negotiation, the agent received a reward based on the points it scored.  This reward was back-propagated through every word the agent spoke, increasing  the probability of those specific sequences occurring in future negotiations. • The "Deal or No Deal" Penalty:  To ensure the bot didn't just become "greedy," it  received a zero reward if the negotiation ended without an agreement (a "no  deal"). This forced the RL agent to balance its pursuit of high points with the  necessity of reaching a compromise.
+
+2. Improving Behavior through Self-Play Self-play is a technique where the AI practices by playing millions of games against  a copy of itself. This created an "evolutionary" environment where the bots  constantly pushed each other to find better strategies. • Discovery of "Lying" (Feigning Interest):  One of the most famous emergent  behaviors from self-play was the bot's ability to deceive. It would initially pretend  to highly value an item it actually didn't want (zero points), only to later "concede"  that item as a "sacrifice" to get what it truly valued. • Planning and Rollouts:  Using self-play, the bot could perform "mental  simulations." Before speaking, it would simulate thousands of possible directions  the conversation could take (rollouts) to choose the sentence most likely to lead to  a high-reward outcome.
+
+3. The "Non-English" Challenge • A significant side effect of reward-based learning in self-play was that the bots  eventually discovered they could negotiate more efficiently by deviating from  English. Since the reward was based on  points  and not  grammar , they began using  a shorthand that looked like gibberish to humans (e.g.,  "i can i i everything else" ). • To fix this, researchers had to add a  human-language constraint : the RL agent  was forced to stay close to the original supervised model so that its "strategic"  language remained understandable to human partners.
+
+High; outperformed humans in  many scenarios.
+
+• An interesting application of reinforcement learning is to learn the neural network  architecture for performing a specific task.  • Consider a setting in which we wish to determine the structure of a convolutional  neural architecture to classify a data set like CIFAR-10.  • The structure of the neural network depends on a number of hyper-parameters,  such as the number of filters, filter height, filter width, stride height, and stride  width. These parameters depend on one another, and the parameters of later layers  depend on those from earlier layers. • The reinforcement learning method uses a recurrent network as the  controller  to  decide the parameters of the convolutional network, which is also referred to as  the child network . The overall architecture of the recurrent network is illustrated  in Figure 11.11.
+
+• The choice of a recurrent network is motivated by the sequential dependence  between different architectural parameters.  • The softmax classifier is used to predict each output as a token rather than a  numerical value.  • This token is then used as an input into the next layer, which is shown by the  dashed lines in Figure 11.11.  • The generation of the parameter as a token results in a discrete action space, which  is generally more common in reinforcement learning as compared to a continuous  action space. • The performance of the child network on a validation set drawn from CIFAR-10 is  used to generate the reward signal.  • Note that the child network needs to be trained on the CIFAR-10 data set in order  to test its accuracy. • Therefore, this process requires a full training procedure of the child network,  which is quite expensive.
+
+• This reward signal is used in conjunction with the REINFORCE algorithm in  order to train the parameters of the controller network.  • Therefore, the controller network is really the policy network in this case, which  generates a sequence of inter-dependent parameters. • A key point is about the number of layers of the child network (which also decides  the number of layers in the recurrent network). This value is not held constant but  it follows a certain schedule as training progresses.  • In the early iterations, the number of layers is fewer, and therefore the learned  architecture of the convolutional network is shallow.  • As training progresses, the number of layers slowly increases over time.
+
+• In the context of self-learning robots, Reinforcement Learning (RL) serves as the  mathematical and computational bridge between raw sensor data and purposeful  physical action.  • Unlike supervised learning, which requires a "labeled" dataset of correct moves, RL  allows a robot to learn through an autonomous  reward-driven trial-and-error loop.
+
+1. The Interaction Loop: Agent and Environment • A self-learning robot is defined as an  Agent  operating within an  Environment .  This relationship is modeled as a Markov Decision Process (MDP), consisting of  four key elements: • State (s):  The robot’s current understanding of the world (e.g., joint angles,  camera feed, LIDAR distance). • Action (a):  The motor commands sent to the actuators (e.g., "rotate motor B by  5°"). • Reward (r):  A scalar feedback signal that tells the robot how well it is doing. • Policy (π):  The "brain" or strategy that the robot uses to decide which action to  take in a given state.
+
+2. The Mechanics of Trial and Error In a robotic setting, trial and error is not random; it is a structured search for the  optimal policy. Exploration vs. Exploitation The robot faces a fundamental trade-off: • Exploration:  Trying new, potentially sub-optimal movements to discover better  rewards (e.g., a robot arm trying a different grip strength). • Exploitation:  Using its current knowledge to maximize rewards based on past  success (e.g., using the grip that worked 90% of the time). Temporal Credit Assignment • A major challenge for robots is that a reward is often "delayed." For example, a  humanoid robot only receives a "success" reward after it finishes walking across a  room. RL helps the robot identify which specific micro-movements early in the  sequence (the "credit") actually contributed to that final success.
+
+3. Reward Function Design: The "Incentive" The reward function is the most critical part of a self-learning robot’s design. If the reward is  poorly defined, the robot may exhibit "reward hacking"—finding a shortcut that gains points  without actually performing the task. • Sparse Rewards:  The robot only gets points at the very end (e.g., +1 for a goal, 0 for everything  else). This is hard for robots to learn. • Shaped Rewards:  The designer provides small intermediate rewards to "guide" the robot (e.g.,  +0.1 for every inch moved toward the target).
+
+4. Real-World Applications in Robotics • Self-learning through RL has enabled breakthroughs that traditional programming could not  achieve: • Locomotion:  Humanoid and quadruped robots (like those from Boston Dynamics or Unitree)  use RL to learn how to recover their balance on slippery surfaces or uneven terrain by simulating  millions of "falls" in a virtual environment. • Manipulation:  Robotic hands use RL to learn high-dexterity tasks, such as rotating a cube or  threading a needle, by sensing the tactile "trial and error" feedback from their sensors. • Warehouse Automation:  Autonomous Mobile Robots (AMRs) use RL to navigate crowded  warehouses, learning to avoid obstacles while minimizing the time taken for a delivery.
+
+5. Transitioning from Simulation to Reality (Sim-to-Real) • Because physical robots are expensive and can break during "trial and error," most  learning happens in high-fidelity physics simulators. • Domain Randomization:  In the simulator, engineers vary the friction, gravity,  and lighting. This forces the robot to learn a robust policy that can survive the  "reality gap" when it is finally downloaded into the physical hardware. • By utilizing reward-driven trial and error, robots move away from being rigid  machines following "if-then" code and toward becoming adaptive systems that can  handle the unpredictability of the real world.
+
+1. Traditional Table-Based RL (The "Library" Approach) Traditional RL (like Q-Learning) uses a  Look-up Table  (Q-Table). Imagine a massive  spreadsheet where every row is a unique board position, and every column is a possible  move. The cell contains a "Q-value" representing the expected reward for that move. Example: Tic-Tac-Toe • State Space:  Small. There are roughly  5,478  valid board positions. • How it works:  A computer can easily store a table with 5,478 rows. When it's the AI's  turn, it looks up the current board "index" in its table and picks the move with the highest  value. • Learning:  If the AI wins, it goes back to the states it visited and increases those values.  If it loses, it decreases them. • Feasibility: Perfect.  Because the table fits in a standard computer's memory, the AI can  eventually "solve" the game and never lose.
+
+2. Deep Reinforcement Learning (The "Intuition" Approach) Deep RL replaces the table with a Neural Network. Instead of looking up a specific row,  the AI feeds the board image/state into a network, which "guesses" the best move based  on patterns it has seen before.
+
+Example: Chess • State Space:  Massive. There are approximately 10 40 to 10 50 legal positions (the  Shannon Number). • Why a table fails:  A table for chess would require more atoms than exist in the  observable universe to store. You cannot "index" every possible chess game. • How DRL works (e.g., AlphaZero):  The Neural Network acts as a function  approximator. It doesn't need to have seen the exact board position before. Instead, it  recognizes features (e.g., "my Queen is pinned," "the King's pawn structure is weak"). • Intuition:  Much like a Grandmaster, the AI develops a "feel" for the board. It  generalizes knowledge from one game to apply it to a completely new, slightly  different position. • Feasibility:  Necessary. This is the only way to master games with high complexity.
+
+Remains constant regardless of  states (Efficient).
+
+Generalization None. If a state is 1% different,  it's a "new" state.
+
+High. It recognizes patterns and  "vibes."
+
+Best for complex, continuous  tasks (Chess, Go, Robotics).
+
+Computationally heavy (needs  GPUs) but scales to infinity.
+
+• Deep Q Networks • Policy Gradient Methods
+
+• Deep Q-Networks (DQN)  revolutionized reinforcement learning by combining  Q-learning with neural networks.  • This approach tackles high-dimensional state spaces, overcoming limitations of  traditional methods.
+
+• DQNs use experience replay and target networks to stabilize learning. • Policy gradient methods  directly optimize the policy function, making them  suitable for continuous action spaces.  • These methods can learn stochastic policies and avoid function approximation  issues.  • Variants like REINFORCE, Actor-Critic, and PPO offer different trade-offs  instability and efficiency.
+
+• Deep Q-Networks represent a transition from "tabular" RL (where we store every state in a  table) to using Neural Networks as function approximators to estimate the optimal action- value function, $Q(s, a)$.
+
+Winder highlights three specific techniques that made DQNs stable enough for industrial use:
+
+• Experience Replay:  Instead of learning from a sequence of consecutive experiences (which  are highly correlated), the agent stores experiences in a "Replay Buffer." It then samples a  random "batch" of these experiences to train. This breaks the temporal correlation and leads  to more stable learning (Winder, 2020).
+
+• Target Networks (Clones):  DQNs use two identical networks: the  Policy Network  (updated  every step) and the  Target Network  (a "frozen" copy). The Target Network provides the  ground-truth values for the loss function and is only updated periodically. This prevents the  "moving target" problem where the network chases its own tail.
+
+• Clipping Rewards:  In complex environments (like industrial sensors), rewards can vary  wildly in scale. DQNs often clip rewards (e.g., between -1 and 1) to keep the gradient  updates from exploding.
+
+Rainbow DQN Winder notes that modern industrial applications rarely use the "vanilla" DQN.  Instead, they use  Rainbow DQN , which combines several improvements including:
+
+• Double DQN:  Reduces the overestimation bias of Q-values. • Dueling DQN:  Splits the network into two streams: one for the state value and  one for action advantage. • Prioritized Experience Replay:  Samples "important" or "surprising" experiences  more often than common ones (Winder, 2020).
+
+While DQN focuses on finding the  value  of actions, Policy Gradient (PG) methods  learn the  strategy  (policy) directly. Winder emphasizes that PG methods are often  preferred in industry when dealing with  continuous action spaces  (e.g., controlling  the exact angle of a robotic joint). REINFORCE (Monte Carlo Policy Gradient) This is the foundational PG algorithm. • Mechanism:  The agent plays an entire episode, then looks back. Actions that led  to high total rewards are made more likely in the future; actions that led to low  rewards are made less likely. • The Problem:  High variance. Because one "lucky" or "unlucky" move at the end  of a long episode can drastically change the reward, the gradient updates can be  very noisy (Winder, 2020).
+
+Actor-Critic Methods To solve the variance problem, Winder introduces the  Actor-Critic  framework: • The Actor:  Learns the policy (how to act). • The Critic:  Learns a value function (how "good" the state is). • The Interaction:  The Critic tells the Actor whether the action taken was better or worse than  expected. This immediate feedback significantly speeds up training compared to waiting for  the end of an episode.
+
+Industrial-Grade PG Algorithms Winder discusses state-of-the-art variants used in real-world scenarios: • PPO (Proximal Policy Optimization):  Currently the "industry standard" for stability. It  ensures that the policy doesn't change too much in a single update, preventing the agent from  "falling off a cliff" into a bad strategy. • DDPG (Deep Deterministic Policy Gradient):  An Actor-Critic method specifically  designed for continuous actions, essentially a "DQN for continuous spaces" (Winder, 2020). • SAC (Soft Actor-Critic):  An advanced algorithm that encourages  exploration  by adding an  "entropy" term to the reward—essentially rewarding the agent for trying a diverse set of  actions.
+
+Best for Continuous (0.52  rad/sec)
+
+Robotics, fluid dynamics,  tuning
+
+•  Policy Gradient (PG) methods represent a class of Reinforcement  Learning (RL) algorithms that optimize a decision-making strategy— known as a  policy —directly. •  Unlike value-based methods (like Q-Learning) which estimate how  "good" a state is and then choose an action, Policy Gradient methods  learn a mapping from states to actions by following the gradient of  expected rewards. They are particularly powerful for complex  problems because they can handle high-dimensional, continuous  action spaces and can learn stochastic policies (where the agent  chooses actions with a certain probability).
+
+1. Robotics: Continuous Control and Precision In robotics, the "action space" is often the precise amount of voltage or torque  applied to multiple motors or joints simultaneously. Because these values are  continuous (e.g., 1.45 Newtons), traditional grid-based AI fails. • High-Dimensional Coordination:  Robots like humanoid walkers or multi- fingered hands have dozens of degrees of freedom. PG methods allow the robot to  learn smooth, coordinated movements rather than jerky, discrete steps. • Robustness to Noise:  Sensors in the real world are "noisy." Since PG methods  can learn stochastic policies, the robot can remain flexible, exploring various ways  to achieve a goal (like grasping a cup) even when its sensors provide slightly  inaccurate data. • Common Algorithms:  Proximal Policy Optimization (PPO) and Soft Actor-Critic  (SAC) are industry standards for training robotic limbs in simulation before  deploying to hardware.
+
+2. Finance: Portfolio Optimization and Risk Decision-making in finance is characterized by extreme uncertainty and "non- stationary" environments (the rules of the market change constantly). • Dynamic Portfolio Management:  A PG agent can be trained to allocate assets  (stocks, bonds, crypto) in a portfolio. Instead of just picking the "best" stock, the  policy learns to balance the weights of all assets to maximize the Sharpe ratio  (risk-adjusted return). • Handling Continuous Trade Volumes:  Trading isn't just about "buy" or "sell";  it’s about  how much  to buy. PG methods excel at determining the exact quantity to  trade to minimize market impact and slippage. • Hedging Strategies:  In options trading, agents use PG to learn complex hedging  strategies that protect against sudden market crashes, adapting their "policy" as  volatility shifts.
+
+3. Game AI: Mastering Complex Strategy From board games like Go to real-time strategy (RTS) games like StarCraft II, PG  methods have been the backbone of "superhuman" AI.
+
+• Large Action Spaces:  In a game like Dota 2, the number of possible actions at  any second is astronomical (moving, attacking, using items, leveling up). Policy  Gradients allow the AI to prioritize which actions are most likely to lead to a win. • Long-Term Credit Assignment:  In games, an action taken at minute 5 might not  result in a win until minute 40. PG methods use "Advantage" functions to help the  agent understand which specific moves early on contributed to the final victory. • Stochasticity for Unpredictability:  In competitive games, being predictable is a  weakness. Because PG methods can produce a probability distribution over  actions, the AI can be "bluffed" less easily and can employ mixed strategies (like  in Poker).
+
+Why Policy Gradients Win in These Fields? • The mathematical core of these methods is the Policy Gradient Theorem, which  provides a way to calculate how to change the parameters (θ) of a neural network  to increase the probability of actions that lead to higher rewards.
+
+• By focusing on the intent (the policy) rather than just the value of the current  moment, these methods allow AI to plan, adapt, and execute complex sequences  of actions in the most demanding real-world and virtual environments.
+
+• Policy Gradient (PG) methods are a category of Reinforcement Learning (RL)  algorithms that optimize a decision-making strategy—known as a  policy — directly. • In robotics, the "action space" is often high-dimensional and continuous (e.g., the  specific torque applied to 20 different motor joints). Traditional "table-based" AI  fails here because there are an infinite number of possible movements. Policy  Gradient methods solve this by learning a mapping from sensor inputs directly to  actions using neural networks.
+
+1. Handling Continuous Action Spaces
+
+• Unlike discrete algorithms that choose between "Move Left" or "Move Right," PG  methods output a probability distribution over continuous values.
+
+• Precision:  A robotic arm can learn to apply exactly  1.24 Newtons  of force rather than  jumping between predefined increments.
+
+• Smoothness:  Because the policy is differentiable, the gradients guide the robot toward  fluid, human-like motions rather than jerky, robotic steps.
+
+2. High-Dimensional Coordination
+
+• Robots like humanoids or multi-fingered hands have dozens of "Degrees of Freedom"  (DoF).
+
+• Joint Correlation:  PG methods excel at learning how a movement in the "shoulder"  affects the "wrist." The algorithm optimizes the entire sequence of joint movements  simultaneously to achieve a global goal, such as walking or grasping an object.
+
+• Degrees of Freedom:  While value-based methods struggle as the number of joints  increases, Policy Gradients scale effectively by treating the entire robot configuration as a  single policy output.
+
+3. Robustness and Stochasticity
+
+• Robotic environments are "noisy"—sensors fluctuate, and surfaces can be slippery.
+
+• Stochastic Policies:  PG methods naturally learn  stochastic policies  (probabilistic). This  means the robot can "explore" different ways to solve a problem. If one path is blocked or  a sensor fails, the probabilistic nature of the policy allows the robot to adapt and try  alternative movements.
+
+• End-to-End Learning:  Robots can learn directly from raw pixels (camera feed) to motor  torques, bypassing the need for manual, hand-coded physics equations.
+
+4. Common Algorithms in Robotics
+
+• These two Policy Gradient variants are the industry standards:
+
+• PPO (Proximal Policy Optimization):  Known for stability; it ensures the robot doesn't  make a "massive" update to its behavior that could lead to a crash or hardware damage.
+
+• SAC (Soft Actor-Critic):  Highly "sample efficient," meaning it requires less practice  time to learn a task—critical when training on expensive physical hardware.
+
+A B Reward A Reward B
+
+C C 3 3
+
+C D 0 5
+
+D C 5 0
+
+D D 1 1
+
+Parameters • Learning rate  𝛼= 0.5 • Discount factor  𝛾= 0.9 Initial Condition • Initial state:  (𝐶, 𝐶) • All Q-values = 0 Episode 1  Step 1: Current State
+
+• 𝑠= 𝐶𝐶 Step 2: Actions Chosen (Assume Exploration) • Player A → Defect (D)  • Player B → Cooperate (C)  Step 3: Rewards • From payoff matrix:
+
+• 𝐴= 5, 𝐵= 0
+
+𝑠 ′ = (𝐷, 𝐶)
+
+𝑄(s, a) ←𝑄(s, a) + 𝛼𝑟+ 𝛾max 𝑄𝑠 ′ 𝑎 ′ −𝑄(𝑠, 𝑎) Substitute values: • 𝑄( C, C , D) = 0 • Reward  𝑟= 5 • Future Q = 0  𝑄= 0 + 0.5 5 + 0.9 ⋅0 −0 = 2.5 Updated:
+
+𝑄( C, C , D) = 2.5
+
+Step 6: Q-Update for Player B • 𝑄( C, C , C) = 0 • Reward  𝑟= 0 • 𝑄= 0 + 0.5 0 + 0.9 ⋅0 −0 = 0 No change:
+
+• 𝑄( C, C , C) = 0
+
+Episode 2 Step 1: Current State • 𝑠=  (D, C) Step 2: Actions (Assume) • A → Defect (D)  • B → Defect (D)
+
+• 𝑠=  (D, D) Actions • A → Defect
+
+• B → Defect Rewards • 𝐴= 1, 𝐵= 1
+
+• Summary after all the three episodes
+
+Interpretation • Defection gets higher rewards → Q-values increase  • Cooperation gives lower payoff → not preferred  • Agents learn: “Defect is safer and more rewarding” Final Outcome • After many iterations: • Both agents converge to: Always Defect • This is the  Nash Equilibrium
+
+State Action Q-value (A)
+
+(C,C) D 2.5
+
+(D,C) D 0.5
+
+(D,D) D 0.725

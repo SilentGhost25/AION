@@ -53,7 +53,10 @@ Requirements:
 - For {marks} marks, the question must have proportional depth
 - Do NOT write phrases like "as described in the source", "as per the material",
   "from the source material", "as outlined in the text", "from the document".
-- Write as a standalone exam question a student reads on an answer sheet.
+- Do NOT mention any author names, researcher names, or person names.
+- Do NOT reference any Figure, Table, Diagram, Program, or Listing numbers.
+- Do NOT mention any book titles, chapter numbers, or publication names.
+- Write a clean, self-contained exam question with zero external references.
 - Output ONLY the question text. No answer, no note, no prefix.
 
 Question:""",
@@ -73,6 +76,10 @@ Style guide:
 - Draw TWO specific concepts from the source material and ask the student to compare them
 - The question must be complete and end with a period or question mark
 - Do NOT reference the source document. Write as a clean exam question.
+- Do NOT mention any author names, researcher names, or person names.
+- Do NOT reference any Figure, Table, Diagram, Program, or Listing numbers.
+- Do NOT mention any book titles, chapter numbers, or publication names.
+- Write a clean, self-contained exam question with zero external references.
 - Output ONLY the raw question text. No labels, no notes, no answer.
 
 Question:""",
@@ -95,6 +102,10 @@ Rules:
 - Replace the bracketed placeholders with actual concepts from the source material
 - Each sub-part must be a complete grammatical sentence
 - Do NOT write "as per the source", "from the material", or any reference to the document
+- Do NOT mention any author names, researcher names, or person names.
+- Do NOT reference any Figure, Table, Diagram, Program, or Listing numbers.
+- Do NOT mention any book titles, chapter numbers, or publication names.
+- Write a clean, self-contained exam question with zero external references.
 - Output ONLY the question. No answer, no note, no preamble.
 
 Question:""",
@@ -117,6 +128,10 @@ Rules:
   OR illustrate with a worked example
   OR design a solution using a concept from the source
 - Do NOT reference "the source material", "the document", "the text", "the notes"
+- Do NOT mention any author names, researcher names, or person names.
+- Do NOT reference any Figure, Table, Diagram, Program, or Listing numbers.
+- Do NOT mention any book titles, chapter numbers, or publication names.
+- Write a clean, self-contained exam question with zero external references.
 - The question must be complete. End with a period or question mark.
 - Output ONLY the question. No answer, no prefix, no note.
 
@@ -137,6 +152,10 @@ Rules:
 - Challenge the student to think beyond memorization
 - Be specific to the concepts in the source material
 - Do NOT reference "the source", "the material", "the document", "the text"
+- Do NOT mention any author names, researcher names, or person names.
+- Do NOT reference any Figure, Table, Diagram, Program, or Listing numbers.
+- Do NOT mention any book titles, chapter numbers, or publication names.
+- Write a clean, self-contained exam question with zero external references.
 - Write as a clean standalone exam question
 - End the question with a period or question mark
 - Output ONLY the question text. Nothing else.
@@ -182,6 +201,16 @@ _TURBO_STOP = [
     "Critically examine",
     ", Evaluate,",
     ", Critically",
+    # Author/figure stops
+    "as described by",
+    "according to",
+    "Figure ",
+    "Fig. ",
+    "Table ",
+    "Program ",
+    "Listing ",
+    "as shown in Figure",
+    "as described in Figure",
 ]
 
 
@@ -277,12 +306,109 @@ def _post_clean(text: str) -> str:
     for pat in source_ref_patterns:
         t = re.sub(pat, "", t, flags=re.I).strip()
 
+    # ── FIX 4: Remove author, book, figure, table references ─
+    academic_ref_patterns = [
+        # Explicit author references: "by Donald Knuth", "according to Russell and Norvig"
+        r",?\s*(by|according to|as (described|proposed|suggested|introduced|"
+        r"formulated|defined|stated|shown|demonstrated|proved|discussed|"
+        r"presented|outlined|explained|noted|mentioned|illustrated|developed|"
+        r"designed|invented|coined|established|discovered|theorized|"
+        r"hypothesized|argued|advocated|recommended|concluded) by)\s+"
+        r"(Russell|Norvig|Knuth|Brooks|Turing|Dijkstra|Cormen|"
+        r"Sedgewick|Tanenbaum|Stallings|Pressman|Sommerville|"
+        r"Hopcroft|Ullman|Sipser|Goodfellow|Bengio|Bishop|"
+        r"Mitchell|Haykin|Duda|Hart|Stork|Pearl|Nilsson|"
+        r"Winston|Rich|Knight|Luger|Poole|Mackworth|"
+        r"Horowitz|Sahni|Anderson|Rajaraman|Shalev-Shwartz|"
+        r"Yegnanarayana|Kanetkar|Balagurusamy|Reema|Lipschutz|"
+        r"[A-Z][a-z]+\s+[A-Z][a-z]+)\b",
+
+        # Possessive known author: "Russell & Norvig's", "Knuth's", "Turing's"
+        r"\b(Russell|Norvig|Knuth|Brooks|Turing|Dijkstra|Cormen|"
+        r"Sedgewick|Tanenbaum|Stallings|Pressman|Sommerville|"
+        r"Hopcroft|Ullman|Sipser|Goodfellow|Bengio|Bishop|"
+        r"Mitchell|Haykin|Duda|Hart|Stork|Pearl|Nilsson|"
+        r"Winston|Rich|Knight|Luger|Poole|Mackworth|"
+        r"Horowitz|Sahni|Anderson|Rajaraman|Shalev-Shwartz|"
+        r"Yegnanarayana|Kanetkar|Balagurusamy|Reema|Lipschutz"
+        r")'s?\b",
+
+        # Figure/Table references: "Figure 3.4", "Table 2.1", "Fig. 5"
+        r",?\s*(as )?(described|shown|illustrated|depicted|presented|"
+        r"given|displayed|drawn|plotted|listed|tabulated|represented|"
+        r"demonstrated|explained|outlined|summarized|highlighted|"
+        r"indicated|mentioned|noted|specified|defined|seen|found|"
+        r"appearing|visible|observable)?\s*"
+        r"(in|from|of|per|see|refer|as per|as in|as shown in|"
+        r"as described in|as illustrated in|as depicted in|"
+        r"as presented in|as given in|as displayed in)?\s*"
+        r"(Figure|Fig\.|Fig|Table|Tab\.|Diagram|Chart|Graph|"
+        r"Exhibit|Illustration|Plate|Map|Drawing|Sketch|"
+        r"Plot|Panel|Box|Frame|Screen|Display|View|Window|"
+        r"Appendix|App\.|Section|Sec\.|Chapter|Ch\.|"
+        r"Page|Pg\.|Equation|Eq\.|Algorithm|Alg\.|"
+        r"Listing|List\.|Code|Snippet|Example|Ex\.|"
+        r"Problem|Prob\.|Exercise|Exer\.|Case|"
+        r"Scenario|Situation|Instance)"
+        r"\s*\.?\s*\d+(\.\d+)*\s*[a-d]?",
+
+        # Standalone figure refs: "Figure 3.4", "as shown in Figure 2"
+        r"\s*\(?\s*(Figure|Fig\.|Fig|Table|Tab\.|Diagram|Chart)\s*\.?\s*"
+        r"\d+(\.\d+)*\s*[a-d]?\s*\)?",
+
+        # Book/chapter references
+        r",?\s*(as (described|discussed|mentioned|stated|outlined|"
+        r"explained|presented|shown|noted|specified|listed|found|"
+        r"contained|included|covered|detailed|highlighted|"
+        r"summarized|elaborated) in)\s+(the\s+)?(book|chapter|"
+        r"textbook|text|module|unit|section|paragraph|page|"
+        r"lecture|slide|handout|notes|reading|reference|"
+        r"publication|journal|paper|article|document|manual|"
+        r"guide|handbook|encyclopedia|dictionary|glossary|"
+        r"appendix|supplement|addendum|errata|corrigendum|"
+        r"preface|foreword|introduction|abstract|summary|"
+        r"conclusion|bibliography|index|table of contents)",
+
+        # Program/listing references: "Program 1.22", "Listing 3.1"
+        r"\s*\(?\s*(Program|Listing|Code|Snippet|Algorithm|"
+        r"Procedure|Function|Routine|Subroutine|Method|Class|"
+        r"Module|Package|Library|Framework|API|Interface|"
+        r"Implementation|Version|Release|Build|Revision|"
+        r"Edition|Volume|Issue|Number|Part|Section|Chapter|"
+        r"Appendix|Exhibit)\s+\d+(\.\d+)*\s*\)?",
+
+        # "The Mythical Man-Month", book titles in quotes
+        r",?\s*(from|in|per|as per|as described in|as outlined in|"
+        r"as mentioned in|as stated in|as discussed in)\s+"
+        r"['\"][^'\"]+['\"]",
+    ]
+    for pat in academic_ref_patterns:
+        t = re.sub(pat, "", t, flags=re.I).strip()
+
     # ── FIX 3: Clean up broken punctuation after removals ─────
     # e.g. "decisions. In your..." becomes clean after "s material" removed
     t = re.sub(r"\s{2,}", " ", t)                      # collapse double spaces
     t = re.sub(r"\s+([.,;:?!])", r"\1", t)             # remove space before punct
     t = re.sub(r"([.,;:])\s*([.,;:])", r"\1", t)       # remove double punctuation
     t = re.sub(r"\n{3,}", "\n\n", t)                   # collapse excess newlines
+
+    # ── FIX 5: Clean orphaned fragments after removal ─────────
+    # Fix "as described  and discuss" → "and discuss"
+    t = re.sub(r"\s{2,}", " ", t)
+    # Fix leading conjunctions after removal: "and discuss..." → "Discuss..."
+    t = re.sub(r"^\s*(and|or|but|also|moreover|furthermore|additionally|"
+               r"however|therefore|hence|thus|consequently|meanwhile|"
+               r"subsequently|finally|lastly|firstly|secondly)\s+",
+               "", t, flags=re.I).strip()
+    # Fix "described. How" → "How"
+    t = re.sub(r"^(described|outlined|mentioned|stated|discussed|"
+               r"given|provided|presented|defined|shown|indicated|"
+               r"noted|specified|listed|found|contained|included|"
+               r"covered|elaborated|detailed|highlighted|summarized)"
+               r"\s*[.,]?\s*", "", t, flags=re.I).strip()
+    # Capitalize first letter after cleanup
+    if t and t[0].islower():
+        t = t[0].upper() + t[1:]
 
     # ── Remove markdown ───────────────────────────────────────
     t = re.sub(r"\*{1,2}([^*]+)\*{1,2}", r"\1", t)
@@ -351,6 +477,159 @@ def _is_valid_cs_question(question: str) -> tuple[bool, str]:
         return False, "no_cs_domain_terms_found"
 
     return True, "ok"
+
+
+# ─────────────────────────────────────────────────────────────
+# VTU Mark & Bloom Taxonomy Mapper
+# ─────────────────────────────────────────────────────────────
+
+def _assign_marks_and_bloom(question_text: str) -> tuple:
+    """
+    Dynamically maps question complexity to VTU standard marks and Bloom level.
+    
+    VTU Standard Mark Patterns:
+        2  marks — Definition / Single concept (Bloom 1: Remember)
+        5  marks — Explanation with example (Bloom 2: Understand)
+        8  marks — Compare / Contrast / Application (Bloom 3: Apply)
+        10 marks — Multi-part / Design / Derive (Bloom 4: Analyze)
+        15 marks — Critical analysis / Case study (Bloom 5: Evaluate)
+        20 marks — Comprehensive / Research-level (Bloom 6: Create)
+    
+    Bloom Taxonomy Levels:
+        1 — Remember (define, list, state, identify)
+        2 — Understand (explain, describe, discuss, summarize)
+        3 — Apply (illustrate, demonstrate, apply, solve, calculate)
+        4 — Analyze (analyse, compare, contrast, differentiate, derive)
+        5 — Evaluate (evaluate, assess, justify, critique, recommend)
+        6 — Create (design, construct, develop, formulate, propose)
+    
+    Returns:
+        (marks: int, bloom_level: int)
+    """
+    q = question_text.lower().strip()
+    words = q.split()
+    word_count = len(words)
+
+    # ── Complexity scoring ────────────────────────────────────
+    complexity_score = 0
+
+    # ── BLOOM 6: Create (20 marks) ────────────────────────────
+    create_indicators = [
+        "design and implement", "develop a complete", "construct a system",
+        "formulate a comprehensive", "propose a novel", "create a framework",
+        "build a prototype", "architect a solution", "engineer a",
+        "develop an algorithm that", "design a complete system",
+    ]
+    if any(x in q for x in create_indicators):
+        complexity_score += 25
+
+    # ── BLOOM 5: Evaluate (15 marks) ──────────────────────────
+    evaluate_indicators = [
+        "critically evaluate", "critically examine", "critically analyse",
+        "assess the effectiveness", "justify your answer with",
+        "evaluate the advantages and disadvantages",
+        "assess the implications", "critique the approach",
+        "recommend with justification", "evaluate and recommend",
+        "assess the performance", "justify with suitable reasoning",
+    ]
+    if any(x in q for x in evaluate_indicators):
+        complexity_score += 18
+
+    # ── BLOOM 4: Analyze (10 marks) ───────────────────────────
+    analyze_indicators = [
+        "(1)", "(2)", "(3)",                    # Multi-part questions
+        "compare and contrast", "differentiate between",
+        "derive the expression", "derive the formula",
+        "derive or justify", "analyse and compare",
+        "analyse the role", "analyse the impact",
+        "analyse how", "design an algorithm",
+        "step-by-step example", "with a worked example",
+        "design a scenario", "analyse the significance",
+        "derive the time complexity", "derive the relationship",
+    ]
+    if any(x in q for x in analyze_indicators):
+        complexity_score += 12
+
+    # ── BLOOM 3: Apply (8 marks) ──────────────────────────────
+    apply_indicators = [
+        "illustrate with", "with suitable example",
+        "with an example", "apply the concept",
+        "solve the following", "calculate the",
+        "demonstrate how", "show how",
+        "implement the", "use the algorithm",
+        "apply this to", "illustrate your solution",
+        "illustrate this by", "work out",
+    ]
+    if any(x in q for x in apply_indicators):
+        complexity_score += 8
+
+    # ── BLOOM 2: Understand (5 marks) ─────────────────────────
+    understand_indicators = [
+        "explain the concept", "explain the significance",
+        "explain the role", "explain how",
+        "describe the", "discuss the",
+        "summarize the", "outline the",
+        "what is meant by", "what are the",
+        "explain in detail", "discuss in brief",
+    ]
+    if any(x in q for x in understand_indicators):
+        complexity_score += 5
+
+    # ── BLOOM 1: Remember (2 marks) ───────────────────────────
+    remember_indicators = [
+        "define ", "list the", "state the",
+        "identify the", "name the", "mention the",
+        "what is ", "write the definition",
+    ]
+    # Only match if it is a SHORT question (< 20 words)
+    if word_count < 20 and any(x in q for x in remember_indicators):
+        complexity_score += 2
+
+    # ── Word count bonus ──────────────────────────────────────
+    # Longer questions tend to be more complex
+    if word_count > 80:
+        complexity_score += 5
+    elif word_count > 50:
+        complexity_score += 3
+    elif word_count > 30:
+        complexity_score += 1
+
+    # ── Verb-based scoring (first word analysis) ──────────────
+    first_word = words[0] if words else ""
+
+    bloom_6_verbs = ["design", "construct", "develop", "formulate", "propose", "create", "build", "architect"]
+    bloom_5_verbs = ["evaluate", "assess", "justify", "critique", "recommend", "judge", "defend"]
+    bloom_4_verbs = ["analyse", "analyze", "compare", "contrast", "differentiate", "derive", "examine", "investigate"]
+    bloom_3_verbs = ["apply", "illustrate", "demonstrate", "solve", "calculate", "implement", "use", "show"]
+    bloom_2_verbs = ["explain", "describe", "discuss", "summarize", "outline", "classify", "interpret"]
+    bloom_1_verbs = ["define", "list", "state", "identify", "name", "recall", "recognize", "label"]
+
+    if first_word in bloom_6_verbs:
+        complexity_score += 8
+    elif first_word in bloom_5_verbs:
+        complexity_score += 6
+    elif first_word in bloom_4_verbs:
+        complexity_score += 4
+    elif first_word in bloom_3_verbs:
+        complexity_score += 3
+    elif first_word in bloom_2_verbs:
+        complexity_score += 2
+    elif first_word in bloom_1_verbs:
+        complexity_score += 1
+
+    # ── Final mapping to VTU standard marks ───────────────────
+    if complexity_score >= 25:
+        return 20, 6    # 20 Marks | Bloom 6: Create
+    elif complexity_score >= 18:
+        return 15, 5    # 15 Marks | Bloom 5: Evaluate
+    elif complexity_score >= 12:
+        return 10, 4    # 10 Marks | Bloom 4: Analyze
+    elif complexity_score >= 8:
+        return 8, 3     # 8 Marks  | Bloom 3: Apply
+    elif complexity_score >= 4:
+        return 5, 2     # 5 Marks  | Bloom 2: Understand
+    else:
+        return 2, 1     # 2 Marks  | Bloom 1: Remember
 
 
 # ─────────────────────────────────────────────────────────────
@@ -497,6 +776,8 @@ def generate_turbo(
         if raw:
             question_text  = _post_clean(raw)
 
+    marks, bloom = _assign_marks_and_bloom(question_text)
+
     return GeneratedQuestion(
         concept_id    = concept_id,
         ideal_answer  = None,
@@ -638,10 +919,12 @@ Exam Question:"""
     if not question_text.strip().endswith("?"):
         question_text = question_text.strip() + "?"
 
+    marks, bloom_level = _assign_marks_and_bloom(question_text)
+
     return GeneratedQuestion(
         concept_id    = concept.concept_id,
         ideal_answer  = ideal_answer,
         question_text = question_text,
         marks         = marks,
-        bloom_level   = concept.bloom_dna or 2,
+        bloom_level   = bloom_level,
     )
