@@ -1,19 +1,15 @@
 """
 AION Module: Extractor
-Maturity:    v0.1 — PYMUPDF / TEXT EXTRACTOR
-Upgrades to: Document Intelligence Parser Engine (LayoutLMv3 / OCR / Table Extraction)
-Contract:    source_path: str -> Document (see schemas.py)
+Handles PDF, DOCX, TXT, MD files correctly.
 """
 
 from pathlib import Path
 import uuid
+import json
 from .schemas import Document
 from .content_filter import extract_academic_content, AcademicContentFilter
 from .material_classifier import classify_material
 
-# ── Feature flag — set to True to use new pipeline ───────────
-# False = existing PyMuPDF pipeline (fast, stable)
-# True  = new Unlimited-OCR + Docling + Table Validator pipeline
 USE_NEW_PARSER = True
 
 
@@ -23,63 +19,98 @@ def extract(pdf_or_text_path: str) -> Document:
     text      = ""
     report    = {}
 
-    if file_type == "pdf":
+    print(f"[EXTRACTOR] File: {path.name} | Type: {file_type}", flush=True)
 
+    # ── DOCX ──────────────────────────────────────────────────
+    if file_type == "docx":
+        try:
+            from .docx_parser import extract_docx_text
+            text   = extract_docx_text(str(path))
+            report = {
+                "method":     "python-docx",
+                "word_count": len(text.split()),
+            }
+        except ImportError:
+            raise RuntimeError(
+                "python-docx not installed. Run: pip install python-docx"
+            )
+        except Exception as e:
+            raise RuntimeError(f"DOCX extraction failed: {e}")
+
+    # ── PDF ───────────────────────────────────────────────────
+    elif file_type == "pdf":
         if USE_NEW_PARSER:
-            # ── NEW: Unlimited-OCR + Docling + Table Validator ──
             try:
                 from .document_parser import parse_document
                 parsed = parse_document(str(path))
                 text   = parsed.full_text_with_tables()
                 report = {
-                    "method":          parsed.method,
-                    "word_count":      parsed.word_count,
-                    "confidence":      parsed.confidence,
-                    "tables_found":    len(parsed.tables),
-                    "figures_found":   len(parsed.figures),
-                    "ocr_used":        parsed.ocr_used,
-                    "warnings":        parsed.warnings,
-                    "kept_word_count": parsed.word_count,
-                    "total_pages":     parsed.pages_total,
-                    "kept_pages":      list(range(1, parsed.pages_total + 1)),
+                    "method":       parsed.method,
+                    "word_count":   parsed.word_count,
+                    "confidence":   parsed.confidence,
+                    "tables_found": len(parsed.tables),
+                    "ocr_used":     parsed.ocr_used,
                 }
             except Exception as err:
-                print(f"[EXTRACTOR] ⚠ New parser error: {err}. Falling back to PyMuPDF...", flush=True)
-                classification = classify_material(str(path))
-                mat_type       = classification.material_type
-                text, report   = extract_academic_content(str(path), material_type=mat_type)
+                print(f"[EXTRACTOR] New parser failed: {err} — trying fallback", flush=True)
+                try:
+                    classification = classify_material(str(path))
+                    text, report   = extract_academic_content(
+                        str(path),
+                        material_type=classification.material_type
+                    )
+                except Exception as e2:
+                    raise RuntimeError(f"PDF extraction failed: {err} | {e2}")
         else:
-            # ── EXISTING: PyMuPDF pipeline (unchanged) ──────────
             classification = classify_material(str(path))
-            mat_type       = classification.material_type
-            print(f"[EXTRACTOR] Document Classified as '{mat_type}' (Confidence: {classification.confidence})", flush=True)
-            text, report   = extract_academic_content(str(path), material_type=mat_type)
-            kept  = len(report.get("kept_pages", []))
-            total = report.get("total_pages", 0)
-            print(f"[EXTRACTOR] Kept {report.get('kept_word_count', 0)} words across {kept}/{total} pages (Method: {report.get('method')})", flush=True)
-            if total > 20 and kept < total * 0.15:
-                print(f"[EXTRACTOR] ⚠ WARNING: Only {kept}/{total} pages kept. Content filter may be too aggressive.", flush=True)
+            text, report   = extract_academic_content(
+                str(path),
+                material_type=classification.material_type
+            )
+
+    # ── TXT / MD ──────────────────────────────────────────────
+    elif file_type in ("txt", "md"):
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore").strip()
+            report = {
+                "method":     "direct-read",
+                "word_count": len(text.split()),
+            }
+        except Exception as e:
+            raise RuntimeError(f"Text extraction failed: {e}")
+
     else:
-        raw = path.read_text(encoding="utf-8", errors="ignore")
-        filt = AcademicContentFilter()
-        pages = raw.split("\n\n")
-        text, report_obj = filt.filter_text_pages(pages)
+        raise RuntimeError(
+            f"Unsupported file type: .{file_type}. Supported: pdf, docx, txt, md"
+        )
 
-    doc_id = str(uuid.uuid4())[:8]
+    # ── Validate ──────────────────────────────────────────────
+    word_count = len(text.split()) if text else 0
+    print(f"[EXTRACTOR] Extracted {word_count} words", flush=True)
 
-    # Save artifact copy in output folder
-    import json
+    if word_count < 10:
+        raise RuntimeError(
+            f"Extraction failed — only {word_count} words extracted from {path.name}. File may be corrupted or empty."
+        )
+
+    # ── Save artifact ─────────────────────────────────────────
+    doc_id     = str(uuid.uuid4())[:8]
     output_dir = Path("extracted_output")
     output_dir.mkdir(exist_ok=True)
+
     out_file = output_dir / f"{path.stem}_{doc_id}.txt"
     out_file.write_text(text, encoding="utf-8")
+
     if report:
-        report_out = output_dir / "last_report.json"
-        report_out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        (output_dir / "last_report.json").write_text(
+            json.dumps(report, indent=2), encoding="utf-8"
+        )
+
+    print(f"[EXTRACTOR] Saved to {out_file}", flush=True)
 
     return Document(
-        doc_id=doc_id,
-        source_path=str(path),
-        raw_text=text,
-        file_type=file_type,
+        doc_id      = doc_id,
+        source_path = str(path),
+        raw_text    = text,
+        file_type   = file_type,
     )
