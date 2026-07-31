@@ -1,36 +1,420 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
-  version: 0.1.0
-  description: API specification
+  version: 1.0.0
+  description: AION Question Paper Generator API
+
 servers:
   - url: /api
-    description: Base API path
-tags:
-  - name: health
-    description: Health operations
+
 paths:
+  # ── Health ────────────────────────────────────────────────
   /healthz:
     get:
-      operationId: healthCheck
-      tags: [health]
-      summary: Health check
-      description: Returns server health status
+      operationId: getHealth
+      summary: Check API and Ollama status
       responses:
         "200":
-          description: Healthy
+          description: Health status
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HealthStatus"
+                $ref: "#/components/schemas/HealthResponse"
+
+  # ── Materials ─────────────────────────────────────────────
+  /materials:
+    get:
+      operationId: listMaterials
+      summary: List all uploaded materials
+      parameters:
+        - name: subject
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of materials
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Material"
+
+    post:
+      operationId: uploadMaterial
+      summary: Upload a new academic material
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, subject, category]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                subject:
+                  type: string
+                category:
+                  type: string
+                  enum: [textbook, notes, question_bank, slides, syllabus]
+      responses:
+        "201":
+          description: Uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Material"
+
+  /materials/{id}:
+    delete:
+      operationId: deleteMaterial
+      summary: Delete a material
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+
+  # ── Generation ────────────────────────────────────────────
+  /generate:
+    post:
+      operationId: generatePaper
+      summary: Generate a question paper
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateRequest"
+      responses:
+        "200":
+          description: Generated question paper
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedPaper"
+        "202":
+          description: Job accepted (async mode)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+
+  /generate/stream:
+    post:
+      operationId: generatePaperStream
+      summary: Stream question paper generation (SSE)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateRequest"
+      responses:
+        "200":
+          description: Server-Sent Events stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /generate/status/{jobId}:
+    get:
+      operationId: getJobStatus
+      summary: Poll job status for async generation
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatus"
+
+  # ── History ───────────────────────────────────────────────
+  /history:
+    get:
+      operationId: listHistory
+      summary: List all previously generated papers
+      parameters:
+        - name: subject
+          in: query
+          schema:
+            type: string
+        - name: examType
+          in: query
+          schema:
+            type: string
+            enum: [ia, see]
+      responses:
+        "200":
+          description: List of papers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PaperSummary"
+
+  /history/{id}:
+    get:
+      operationId: getPaper
+      summary: Get a specific generated paper
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Full paper
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedPaper"
+
+    delete:
+      operationId: deletePaper
+      summary: Delete a paper from history
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+
+  # ── Syllabus ──────────────────────────────────────────────
+  /syllabus:
+    get:
+      operationId: getSyllabus
+      summary: Get CO-Bloom mapping for a subject
+      parameters:
+        - name: subject
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Syllabus mapping
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyllabusMap"
+
+# ── Schemas ───────────────────────────────────────────────────
 components:
   schemas:
-    HealthStatus:
+    HealthResponse:
       type: object
+      required: [status, ollama, model]
       properties:
         status:
           type: string
-      required:
-        - status
+          enum: [ok, degraded]
+        ollama:
+          type: boolean
+        model:
+          type: string
+        version:
+          type: string
 
+    Material:
+      type: object
+      required: [id, filename, subject, category, uploadedAt, sizeBytes]
+      properties:
+        id:
+          type: string
+        filename:
+          type: string
+        subject:
+          type: string
+        category:
+          type: string
+          enum: [textbook, notes, question_bank, slides, syllabus]
+        uploadedAt:
+          type: string
+          format: date-time
+        sizeBytes:
+          type: integer
+        wordCount:
+          type: integer
+
+    GenerateRequest:
+      type: object
+      required: [subject, examType, mode]
+      properties:
+        subject:
+          type: string
+        examType:
+          type: string
+          enum: [ia, see]
+        mode:
+          type: string
+          enum: [turbo, balanced, deep]
+        maxConcepts:
+          type: integer
+          default: 10
+        materialIds:
+          type: array
+          items:
+            type: string
+        moduleFilter:
+          type: array
+          items:
+            type: integer
+
+    GeneratedPaper:
+      type: object
+      required: [id, subject, examType, modules, generatedAt]
+      properties:
+        id:
+          type: string
+        subject:
+          type: string
+        examType:
+          type: string
+          enum: [ia, see]
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModuleQuestions"
+        generatedAt:
+          type: string
+          format: date-time
+        totalMarks:
+          type: integer
+        mode:
+          type: string
+
+    ModuleQuestions:
+      type: object
+      required: [moduleIndex, moduleTitle, questions]
+      properties:
+        moduleIndex:
+          type: integer
+        moduleTitle:
+          type: string
+        bloomLevel:
+          type: integer
+        bloomName:
+          type: string
+          nullable: true
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/MainQuestion"
+
+    MainQuestion:
+      type: object
+      required: [mqIndex, totalMarks, bloomLevel, bloomName, subQuestions]
+      properties:
+        mqIndex:
+          type: integer
+        totalMarks:
+          type: integer
+        bloomLevel:
+          type: integer
+        bloomName:
+          type: string
+          nullable: true
+        subQuestions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubQuestion"
+
+    SubQuestion:
+      type: object
+      required: [text, marks]
+      properties:
+        letter:
+          type: string
+          nullable: true
+        text:
+          type: string
+        marks:
+          type: integer
+
+    JobAccepted:
+      type: object
+      required: [jobId, status]
+      properties:
+        jobId:
+          type: string
+        status:
+          type: string
+          enum: [queued]
+
+    JobStatus:
+      type: object
+      required: [jobId, status]
+      properties:
+        jobId:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, done, failed]
+        progress:
+          type: number
+        result:
+          $ref: "#/components/schemas/GeneratedPaper"
+        error:
+          type: string
+
+    PaperSummary:
+      type: object
+      required: [id, subject, examType, generatedAt, totalMarks]
+      properties:
+        id:
+          type: string
+        subject:
+          type: string
+        examType:
+          type: string
+        generatedAt:
+          type: string
+          format: date-time
+        totalMarks:
+          type: integer
+        mode:
+          type: string
+
+    SyllabusMap:
+      type: object
+      required: [subject, modules]
+      properties:
+        subject:
+          type: string
+        modules:
+          type: array
+          items:
+            type: object
+            properties:
+              moduleIndex:
+                type: integer
+              co:
+                type: string
+              bloomLevels:
+                type: array
+                items:
+                  type: integer
+              topics:
+                type: array
+                items:
+                  type: string

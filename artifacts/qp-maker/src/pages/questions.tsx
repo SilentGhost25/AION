@@ -32,7 +32,7 @@ export default function QuestionBank() {
     toast.success("Question deleted successfully");
   };
 
-  const filteredQuestions = questionBank.filter(q => 
+  const filteredQuestions = questionBank.filter((q: any) => 
     q.text.toLowerCase().includes(search.toLowerCase()) ||
     q.subject.toLowerCase().includes(search.toLowerCase()) ||
     q.co.toLowerCase().includes(search.toLowerCase())
@@ -178,7 +178,7 @@ export default function QuestionBank() {
           </TableHeader>
           <TableBody>
             {filteredQuestions.length > 0 ? (
-              filteredQuestions.map((q, idx) => (
+              filteredQuestions.map((q: any, idx: number) => (
                 <TableRow key={q.id} className="hover:bg-muted/20">
                   <TableCell className="font-medium text-muted-foreground">{idx + 1}</TableCell>
                   <TableCell>

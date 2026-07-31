@@ -261,3 +261,33 @@ export const historyData = [
     ],
   },
 ];
+
+export const questionBank = [
+  {
+    id: "q-bank-1",
+    text: "Define Machine Learning and explain supervised, unsupervised, and reinforcement learning with examples.",
+    subject: "Machine Learning",
+    co: "CO1",
+    bloomLevel: "L1",
+    difficulty: "Easy",
+    marks: 5,
+  },
+  {
+    id: "q-bank-2",
+    text: "Explain the Bias-Variance Tradeoff and describe underfitting and overfitting with appropriate illustrations.",
+    subject: "Machine Learning",
+    co: "CO1",
+    bloomLevel: "L2",
+    difficulty: "Medium",
+    marks: 10,
+  },
+  {
+    id: "q-bank-3",
+    text: "Derive the weight update rule for linear regression using Gradient Descent and write the complete update algorithm.",
+    subject: "Machine Learning",
+    co: "CO2",
+    bloomLevel: "L3",
+    difficulty: "Hard",
+    marks: 10,
+  },
+];

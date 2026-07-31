@@ -10,14 +10,21 @@ import { toast } from "sonner";
 import { PaperPreview, PaperQuestion } from "@/components/paper-preview";
 import { motion, AnimatePresence } from "framer-motion";
 
-type PaperRecord = typeof historyData[number] & {
+type PaperRecord = Omit<typeof historyData[number], "questions"> & {
   questions: PaperQuestion[];
   finalized?: boolean;
 };
 
 export default function History() {
   const [papers, setPapers] = useState<PaperRecord[]>(
-    historyData.map(p => ({ ...p, finalized: p.status === "Downloaded" }))
+    historyData.map(p => ({
+      ...p,
+      finalized: p.status === "Downloaded",
+      questions: p.questions.map(q => ({
+        ...q,
+        bloom: (q as any).bloom || (q as any).bloomLevel || "L1"
+      })) as PaperQuestion[]
+    }))
   );
   const [selectedId, setSelectedId] = useState<string>(historyData[0]?.id ?? "");
   const [search, setSearch] = useState("");
