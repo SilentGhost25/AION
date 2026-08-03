@@ -1,25 +1,6 @@
 #!/usr/bin/env python
 r"""
-AION CLI — Quick Question Generation Runner
-
-Usage:
-    python aion.py <file_path>
-    python aion.py <file_path> -n 20
-    python aion.py <file_path> -n 15 -m balanced
-    python aion.py <file_path> --mode deep --model mistral:7b
-    python aion.py --help
-
-Examples:
-    python aion.py "C:\Users\Tarun J\Downloads\notes.pdf"
-    python aion.py "C:\path\to\textbook.pdf" -n 20
-    python aion.py "C:\path\to\textbook.pdf" -n 15 -m balanced
-    python aion.py "C:\path\to\textbook.pdf" --mode deep
-    python aion.py "D:\Documents\AI Module 1.pdf" -n 5 -m turbo
-
-Modes:
-    turbo     — Question only, fastest (~3-5s per question)
-    balanced  — Question + Answer, moderate speed
-    deep      — Full question + detailed answer + marking scheme
+AION CLI — Question Generation Runner with strict VTU Exam layouts.
 """
 
 import argparse
@@ -27,27 +8,19 @@ import os
 import sys
 from pathlib import Path
 
-
 def main():
     parser = argparse.ArgumentParser(
         prog="aion",
-        description="AION — Academic Question Generator CLI",
+        description="AION — VTU Academic Question Generator CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 ==============================================================
 Examples:
 ==============================================================
   python aion.py "notes.pdf"
-  python aion.py "textbook.pdf" -n 20
-  python aion.py "textbook.pdf" -n 15 -m balanced
-  python aion.py "textbook.pdf" --mode deep
-  python aion.py "textbook.pdf" --model mistral:7b
-  python aion.py "folder/Module1.pdf" -n 10 -m turbo -o questions.txt
-==============================================================
-Modes:
-  turbo     Fast question-only generation (~3-5s per question)
-  balanced  Question + ideal answer (default quality)
-  deep      Comprehensive answer + marking scheme
+  python aion.py "textbook.pdf" -e see
+  python aion.py "textbook.pdf" -e ia
+  python aion.py "folder/Module1.pdf" -e see -o questions.txt
 ==============================================================
         """,
     )
@@ -55,17 +28,23 @@ Modes:
     # ── Positional argument ───────────────────────────────────
     parser.add_argument(
         "path",
-        nargs="?",
         help="Path to PDF, TXT file, or directory (required)",
     )
 
     # ── Optional arguments ────────────────────────────────────
     parser.add_argument(
+        "-e", "--exam",
+        choices=["ia", "see"],
+        default="see",
+        help="Exam structure: ia (10-mark units) | see (20-mark units) (default: see)",
+    )
+
+    parser.add_argument(
         "-n", "--num",
         type=int,
         default=10,
         metavar="N",
-        help="Number of questions to generate (default: 10)",
+        help="Number of concepts limit (default: 10)",
     )
 
     parser.add_argument(
@@ -100,28 +79,17 @@ Modes:
     parser.add_argument(
         "-v", "--version",
         action="version",
-        version="AION v0.1 — Academic Question Generator",
+        version="AION v0.1 — VTU Academic Question Generator",
     )
 
     # ── Parse arguments ───────────────────────────────────────
     args = parser.parse_args()
 
     # ── Validate path ─────────────────────────────────────────
-    if not args.path:
-        parser.print_help()
-        print("\n[ERROR] No file or directory path provided.")
-        print("Usage: python aion.py <path_to_pdf_txt_or_directory>")
-        sys.exit(1)
-
     file_path = Path(args.path)
 
     if not file_path.exists():
         print(f"[ERROR] Path not found: {args.path}")
-        sys.exit(1)
-
-    if not file_path.is_dir() and not file_path.suffix.lower() in [".pdf", ".txt", ".md", ".docx", ".pptx"]:
-        print(f"[ERROR] Unsupported file type: {file_path.suffix}")
-        print("Supported: .pdf, .txt, .md, .docx, .pptx, or a directory of these files")
         sys.exit(1)
 
     # ── Setup environment ─────────────────────────────────────
@@ -140,11 +108,11 @@ Modes:
     if not args.quiet:
         print()
         print("+----------------------------------------------------------+")
-        print("|           AION - Academic Question Generator             |")
+        print("|      AION - VTU Academic Question Generator              |")
         print("+----------------------------------------------------------+")
         print(f"|  Path   : {file_path.name[:45]:<45} |")
+        print(f"|  Exam   : {args.exam.upper():<45} |")
         print(f"|  Mode   : {args.mode:<45} |")
-        print(f"|  Count  : {args.num:<45} |")
         print(f"|  Model  : {os.environ.get('AION_MODEL', 'qwen2.5:3b'):<45} |")
         print("+----------------------------------------------------------+")
         print()
@@ -157,11 +125,12 @@ Modes:
             str(file_path),
             max_concepts=args.num,
             mode=args.mode,
+            exam_type=args.exam
         )
 
         # ── Save to file if requested ─────────────────────────
         if args.output:
-            _save_output(accepted, rejected, args.output, args.mode)
+            _save_output(accepted, args.output, args.exam)
             print(f"\n[SAVED] Output written to: {args.output}")
 
         # ── Return code ───────────────────────────────────────
@@ -187,85 +156,52 @@ Modes:
         sys.exit(1)
 
 
-def _save_output(accepted, rejected, output_path, mode):
+def _save_output(paper, output_path, exam_type):
     """Save generated questions to a file."""
     from datetime import datetime
 
     lines = [
         "=" * 60,
-        "AION — Generated Question Paper",
+        f"AION — Generated VTU {exam_type.upper()} Question Paper",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"Mode: {mode}",
-        f"Total Questions: {len(accepted)}",
         "=" * 60,
         "",
     ]
 
-    for i, q in enumerate(accepted, 1):
-        lines.append(f"Q{i} [{q.marks} Marks | Bloom Level: {q.bloom_level}]")
-        lines.append("-" * 50)
-        lines.append(q.question_text)
+    for mod in paper:
+        lines.append(f"MODULE {mod['module_index']}: {mod['module_title'].upper()}")
+        lines.append("-" * 60)
+        
+        # Helper to format a main question block
+        def format_mq(mq):
+            mq_lines = []
+            prefix = f"Q{mq['mq_index']} "
+            bloom_tag = f" [Bloom Level {mq['bloom_level']}: {mq['bloom_name']}]"
+            
+            if len(mq["sub_questions"]) == 1:
+                sq = mq["sub_questions"][0]
+                mq_lines.append(f"{prefix}{sq['text']} ({sq['marks']} Marks){bloom_tag}")
+            else:
+                mq_lines.append(f"{prefix}Answer the following subquestions:{bloom_tag}")
+                for sq in mq["sub_questions"]:
+                    mq_lines.append(f"   ({sq['letter']}) {sq['text']} ({sq['marks']} Marks)")
+            return mq_lines
+
+        lines.extend(format_mq(mod["questions"][0]))
+        lines.append(f"{' '*30}[OR]")
+        lines.extend(format_mq(mod["questions"][1]))
+        
         lines.append("")
-
-        if q.ideal_answer:
-            lines.append("Ideal Answer:")
-            lines.append(q.ideal_answer)
-            lines.append("")
-
+        lines.append("· " * 30)
         lines.append("")
-
-    if rejected:
-        lines.append("=" * 60)
-        lines.append(f"REJECTED QUESTIONS: {len(rejected)}")
-        lines.append("=" * 60)
-        for q, reason in rejected[:5]:
-            lines.append(f"[{reason}] {q.question_text[:80]}...")
-            lines.append("")
+        
+        lines.extend(format_mq(mod["questions"][2]))
+        lines.append(f"{' '*30}[OR]")
+        lines.extend(format_mq(mod["questions"][3]))
+        lines.append("")
 
     Path(output_path).write_text("\n".join(lines), encoding="utf-8")
 
-
-# ─────────────────────────────────────────────────────────────
-# Shortcut functions for interactive use
-# ─────────────────────────────────────────────────────────────
-
-def run(path, n=10, mode="turbo"):
-    """
-    Quick run function for interactive Python sessions.
-
-    Usage:
-        from aion import run
-        run("path/to/file.pdf")
-        run("path/to/file.pdf", n=20, mode="balanced")
-    """
-    os.environ.setdefault("AION_MODEL", "qwen2.5:3b")
-
-    aion_dir = Path(__file__).parent.resolve()
-    os.chdir(aion_dir)
-    sys.path.insert(0, str(aion_dir))
-
-    from v0_1.main import run_pipeline
-    return run_pipeline(path, max_concepts=n, mode=mode)
-
-
-def turbo(path, n=10):
-    """Shortcut for turbo mode."""
-    return run(path, n=n, mode="turbo")
-
-
-def balanced(path, n=10):
-    """Shortcut for balanced mode."""
-    return run(path, n=n, mode="balanced")
-
-
-def deep(path, n=10):
-    """Shortcut for deep mode."""
-    return run(path, n=n, mode="deep")
-
-
-# ─────────────────────────────────────────────────────────────
-# Entry point
-# ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     main()

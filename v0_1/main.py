@@ -1,162 +1,40 @@
 """
 AION Module: Pipeline Orchestrator
-Maturity:    v0.1 — PURE SEQUENTIAL PIPELINE
-Upgrades to: Async EventBus Orchestrator with Fail-Safe Context Expansion Loops
-Contract:    Run pure pipeline matching AION Architecture Diagram.
+Maturity:    v0.1 — MODULE-BY-MODULE PARALLEL EXAM ORCHESTRATOR
 """
 
 import re
 import json
-import time
 import random
-import hashlib
-import pickle
+import time
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .uploader  import upload
+from .uploader import upload
 from .extractor import extract
-from .cleaner   import clean
-from .memory    import ConceptMemoryStore
-from .learner   import Learner
-from .generator import generate, generate_turbo, _is_valid_cs_question
-from .critic    import review
-from .schemas   import GeneratedQuestion
-
-
-# ─────────────────────────────────────────────────────────────
-# Turbo helpers (defined here so main.py is self-contained)
-# ─────────────────────────────────────────────────────────────
-
-_PREAMBLE = re.compile(
-    r"^(here('s| is)|sure|certainly|below is|absolutely)[^\n]*[:\n]+",
-    re.I,
-)
-_TRAILER = re.compile(
-    r"\n\s*(\*\*)?Note:?.*$|\n\s*\(Note:.*$",
-    re.S | re.I,
+from .cleaner import clean
+from .memory import ConceptMemoryStore
+from .learner import Learner
+from .schemas import GeneratedQuestion
+from .segmenter import segment_document, ModuleSegment
+from .generator import (
+    get_vtu_vibe_question, 
+    _is_valid_vtu_question, 
+    IA_PARTITIONS, 
+    SEE_PARTITIONS, 
+    get_bloom_level_name
 )
 
-
-
-def _wrap(text: str, width: int = 100, indent: str = "          ") -> str:
-    """Format question text cleanly without slicing or truncation."""
-    words   = text.split()
-    lines   = []
-    current = []
-    length  = 0
-    for word in words:
-        if length + len(word) + 1 > width and current:
-            lines.append(" ".join(current))
-            current = [word]
-            length  = len(word)
-        else:
-            current.append(word)
-            length += len(word) + 1
-    if current:
-        lines.append(" ".join(current))
-    return ("\n" + indent).join(lines)
-
-
-def _clean_turbo(raw: str) -> str:
-    """Clean turbo output without dropping multi-sentence or multi-part questions."""
-    t = raw.strip()
-    t = _PREAMBLE.sub("", t)
-    t = _TRAILER.sub("", t)
-    t = re.sub(r"^\**Question\**\s*:?\s*", "", t, flags=re.I)
-    t = re.sub(r"^\**Descriptive Exam Question\**\s*:?\s*", "", t, flags=re.I)
-    t = re.sub(r"^\**VTU Exam Question\**\s*:?\s*", "", t, flags=re.I)
-    t = re.sub(r"^Q\d*[.)]\s*", "", t)
-    t = re.sub(r"\*{1,2}", "", t)          # strip bold/italic markers
-    t = re.sub(r"\s*\(\d+\s*marks?\)", "", t, flags=re.I)  # strip "(5 marks)"
-    return t.strip()
-
-
-# ── Updated VTU verb pattern ──────────────────────────────────
-# Matches single verb at start — not a comma-separated list
-_VTU_VERB = re.compile(
-    r"^(\(?\d+\)?[.\s]*)?("
-    r"explain|compare|derive|analyse|analyze|illustrate|describe|"
-    r"define|discuss|evaluate|justify|design|examine|interpret|"
-    r"construct|apply|assess|investigate|demonstrate|identify|"
-    r"outline|summarize|classify|differentiate|formulate|"
-    r"elaborate|state|show|prove|calculate|determine|solve|"
-    r"implement|develop|create|build|propose|suggest|recommend|"
-    r"critique|review|reflect|predict|estimate|measure|test|"
-    r"verify|validate|simulate|model|represent|map|trace|"
-    r"what|how|why|when|where|which|who"  # question word starts
-    r")\b",
-    re.I,
-)
-
-# Leaked verb list pattern — these are prompt artifacts, not real questions
-_LEAKED_VERB_LIST = re.compile(
-    r"^(Analyse|Evaluate|Examine|Justify|Assess|Explain|Compare|Derive)"
-    r"\s*,\s*(Evaluate|Compare|Derive|Analyse|Illustrate|Discuss|"
-    r"Critically examine|Justify|Assess|Explain)",
-    re.I,
-)
-
-
-def _cheap_validate(question: str) -> bool:
-    """
-    Fast validation — no LLM needed.
-    Only rejects questions that are clearly broken.
-    """
-    q     = question.strip()
-    words = q.split()
-
-    # ── Length check ──────────────────────────────────────────
-    if len(words) < 8:
-        return False
-    if len(words) > 200:     # raised from 120 — multi-part questions can be long
-        return False
-
-    # ── Reject leaked verb lists ──────────────────────────────
-    # e.g. "Analyse, Evaluate, Critically examine, Justify, or Assess..."
-    if _LEAKED_VERB_LIST.match(q):
-        return False
-
-    # ── Must start with a VTU verb or question word ───────────
-    if not _VTU_VERB.match(q):
-        return False
-
-    # ── Must not still contain source references ──────────────
-    _SOURCE_REF = re.compile(
-        r"\b(as per the (source|material|text|notes|document)|"
-        r"from the (source|material|text|notes|document)|"
-        r"as described in the|as outlined in the|"
-        r"as mentioned in the|as stated in the|"
-        r"provided in the (source|material)|"
-        r"in the source material|"
-        r"s material\b)",   # catches the broken "decisionss material" artifact
-        re.I,
-    )
-    if _SOURCE_REF.search(q):
-        return False
-
-    return True
-
-
-def _grounded(question: str, chunk: str, min_overlap: int = 1) -> bool:
-    """Question must share key terms with source chunk."""
-    q_terms = {w.lower() for w in re.findall(r"[A-Za-z]{4,}", question)}
-    c_terms = {w.lower() for w in re.findall(r"[A-Za-z]{4,}", chunk)}
-    return len(q_terms & c_terms) >= min_overlap
-
-
 # ─────────────────────────────────────────────────────────────
-# Concept Caching
+# Modules Caching
 # ─────────────────────────────────────────────────────────────
-
 CACHE_DIR = Path("extracted_output") / ".cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-
-def _concept_cache_key(file_path: str) -> str:
-    """SHA256 of file path + file size + modified time (or contained files if directory)."""
-    p    = Path(file_path)
+def _modules_cache_key(file_path: str) -> str:
+    import hashlib
+    p = Path(file_path)
     try:
         if p.is_dir():
             suffixes = {".pdf", ".txt", ".md"}
@@ -176,61 +54,62 @@ def _concept_cache_key(file_path: str) -> str:
         raw  = f"{file_path}:0:0"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
-
-def _load_cached_concepts(file_path: str):
+def _load_cached_modules(file_path: str):
+    import pickle
     try:
-        key   = _concept_cache_key(file_path)
-        cache = CACHE_DIR / f"{key}.pkl"
+        key   = _modules_cache_key(file_path)
+        cache = CACHE_DIR / f"modules_{key}.pkl"
         if cache.exists():
             with open(cache, "rb") as f:
                 data = pickle.load(f)
-            print(f"[CACHE] Loaded {len(data['concepts'])} concepts from cache (skipping extraction)")
-            return data["concepts"], data["memory_stats"]
+            print(f"[CACHE] Loaded {len(data['modules'])} segmented modules from cache (skipping ingestion)")
+            return data["modules"]
     except Exception:
         pass
-    return None, None
+    return None
 
-
-def _save_cached_concepts(file_path: str, concepts, memory_stats):
+def _save_cached_modules(file_path: str, modules):
+    import pickle
     try:
-        key   = _concept_cache_key(file_path)
-        cache = CACHE_DIR / f"{key}.pkl"
+        key   = _modules_cache_key(file_path)
+        cache = CACHE_DIR / f"modules_{key}.pkl"
         with open(cache, "wb") as f:
-            pickle.dump({"concepts": concepts, "memory_stats": memory_stats}, f)
-        print(f"[CACHE] Saved {len(concepts)} concepts to cache")
+            pickle.dump({"modules": modules}, f)
+        print(f"[CACHE] Saved {len(modules)} segmented modules to cache")
     except Exception as e:
-        print(f"[CACHE] Could not save cache: {e}")
+        print(f"[CACHE] Could not save modules cache: {e}")
 
+# ─────────────────────────────────────────────────────────────
+# Pipeline Orchestrator
+# ─────────────────────────────────────────────────────────────
 
 def run_pipeline(
-    file_path:    str,
-    max_concepts: int = 10,
-    mode:         str = "balanced",
-) -> Tuple[List[GeneratedQuestion], List[Tuple[GeneratedQuestion, str]]]:
+    file_path: str, 
+    max_concepts: int = 10, 
+    mode: str = "turbo", 
+    exam_type: str = "see"
+) -> Tuple[List[dict], List[dict]]:
     """
-    Executes the end-to-end AION v0.1 ingestion & generation pipeline.
-
-    mode:
-      "turbo"    — question ONLY, no answer, no critic, ~3-5 s/question
-      "balanced" — question + answer, LLM critic, normal speed
-      "deep"     — question + answer + marking scheme, strict critic
+    Saves and generates an aligned VTU Question Paper grouped strictly by Module.
+    
+    Generates exactly 4 main questions per module:
+      - MQ1 & MQ2: Paired choice at same Bloom Level
+      - MQ3 & MQ4: Paired choice at same higher Bloom Level
     """
     print("=" * 60)
-    print(f"[START] AION v0.1 Ingestion & Generation Pipeline starting (Mode: {mode.upper()})...")
+    print(f"[START] AION Exam Generation Pipeline ({exam_type.upper()} Exam Mode)...")
     print("=" * 60 + "\n")
 
-    # ── 1 & 2: Try cache first ───────────────────────────────
-    cached_concepts, cached_stats = _load_cached_concepts(file_path)
-
-    if cached_concepts is not None:
-        concepts     = cached_concepts
-        memory_store = ConceptMemoryStore()
-        print(f"[GENOME] Concepts loaded from cache: {len(concepts)}")
-        print(f"   - Total Concepts in Memory Graph: {cached_stats.get('total_concepts', '?')}\n")
+    # Try cache first
+    cached_modules = _load_cached_modules(file_path)
+    if cached_modules is not None:
+        modules = cached_modules
     else:
-        # ── 1. Ingestion & Preprocessing ────────────────────────
+        # Ingestion & Segmentation
         validated_path = upload(file_path)
         p = Path(validated_path)
+        
+        modules = []
         if p.is_dir():
             suffixes = {".pdf", ".txt", ".md"}
             files = sorted(
@@ -239,219 +118,178 @@ def run_pipeline(
             )
             if not files:
                 raise FileNotFoundError(f"No PDF, TXT, or MD files found in directory: {file_path}")
-
+            
             print(f"[PIPELINE] Processing directory: {file_path} ({len(files)} files found)")
-
-            memory_store = ConceptMemoryStore()
-            learner      = Learner(memory_store=memory_store)
-            concepts     = []
-
             for file_item in files:
-                print(f"\n[PIPELINE] Processing file: {file_item.name} ...")
+                print(f"[PIPELINE] Ingesting file: {file_item.name} ...")
                 try:
                     val_file_path = upload(str(file_item))
-                    document      = extract(val_file_path)
-                    cleaned       = clean(document)
-
-                    report_path = Path("extracted_output") / "last_report.json"
-                    if report_path.exists():
-                        try:
-                            rpt = json.loads(report_path.read_text(encoding="utf-8"))
-                            print(f"  [DIAG] Method used: {rpt.get('method')}")
-                            kept    = rpt.get("kept_pages", [])
-                            print(f"  [DIAG] Kept pages ({len(kept)} total)")
-                        except Exception:
-                            pass
-
-                    print(f"  [DOCUMENT] Document Processed: {document.source_path}")
-                    print(f"     - Cleaned lines:      {cleaned.original_line_count - cleaned.removed_line_count}")
-
-                    file_concepts = learner.learn(cleaned)
-                    concepts.extend(file_concepts)
-                    print(f"  [GENOME] Concepts Extracted from {file_item.name}: {len(file_concepts)}")
+                    doc = extract(val_file_path)
+                    content = doc.raw_text.strip()
+                    words = len(content.split())
+                    modules.append(ModuleSegment(title=file_item.stem, content=content, word_count=words))
                 except Exception as e:
                     print(f"  [ERROR] Failed to process {file_item.name}: {e}")
-
-            print(f"\n[GENOME] All concepts Extracted & Synced to Memory. Combined concepts count: {len(concepts)}")
-            stats = memory_store.stats()
-            print(f"   - Total Concepts in Memory Graph: {stats['total_concepts']}\n")
-
-            # Save to cache for next run
-            _save_cached_concepts(file_path, concepts, stats)
         else:
-            document       = extract(validated_path)
-            cleaned        = clean(document)
+            raw_document = extract(validated_path)
+            # Segment document into Chapters/Modules
+            seg_result = segment_document(raw_document.raw_text, file_path=validated_path)
+            modules = seg_result.segments
 
-            # Diagnostic report
-            report_path = Path("extracted_output") / "last_report.json"
-            if report_path.exists():
-                try:
-                    rpt = json.loads(report_path.read_text(encoding="utf-8"))
-                    print(f"[DIAG] Method used: {rpt.get('method')}")
-                    print(f"[DIAG] TOC found: {rpt.get('toc_found')}")
-                    print(f"[DIAG] TOC entries: {len(rpt.get('toc_entries', []))}")
-                    kept    = rpt.get("kept_pages", [])
-                    dropped = rpt.get("dropped_pages", {})
-                    print(f"[DIAG] Kept pages ({len(kept)} total): {kept[:10]}...")
-                    print(f"[DIAG] Dropped breakdown: { {k: len(v) for k, v in dropped.items()} }\n")
-                except Exception as err:
-                    print(f"[DIAG] Could not read report: {err}")
+        # Save to cache
+        _save_cached_modules(file_path, modules)
 
-            print(f"[DOCUMENT] Document Processed: {document.source_path}")
-            print(f"   - Raw lines:          {cleaned.original_line_count}")
-            print(f"   - Noise lines removed:{cleaned.removed_line_count}")
-            print(f"   - Cleaned lines:      {cleaned.original_line_count - cleaned.removed_line_count}\n")
+    print(f"[SEGMENTER] Identified {len(modules)} Modules/Chapters in source material.")
 
-            # ── 2. Concept Learning & Knowledge Graph Sync ──────────
-            memory_store = ConceptMemoryStore()
-            learner      = Learner(memory_store=memory_store)
-            concepts     = learner.learn(cleaned)
+    target_partitions = SEE_PARTITIONS if exam_type.lower() == "see" else IA_PARTITIONS
+    target_marks = 20 if exam_type.lower() == "see" else 10
 
-            print(f"[GENOME] Concepts Extracted & Synced to Memory: {len(concepts)}")
-            stats = memory_store.stats()
-            print(f"   - Total Concepts in Memory Graph: {stats['total_concepts']}\n")
+    output_paper = []
+    
+    # Thread pool for ultra-fast parallel generation
+    executor = ThreadPoolExecutor(max_workers=6)
 
-            # Save to cache for next run
-            _save_cached_concepts(file_path, concepts, stats)
+    for mod_idx, mod in enumerate(modules, 1):
+        print(f"\n[MODULE {mod_idx}] Processing: '{mod.title}' ({mod.word_count} words)")
 
-    accepted: List[GeneratedQuestion]             = []
-    rejected: List[Tuple[GeneratedQuestion, str]] = []
+        if mod.word_count < 10:
+            print(f"[MODULE {mod_idx}] [WARNING] Skipping — insufficient content ({mod.word_count} words)")
+            continue
 
-    # ── 3a. TURBO — Question Only, No Answer, No LLM Critic ─
-    if mode == "turbo":
-        print("[TURBO] Question-Only Generation (No Ideal Answer · No Critic)...")
-        print(f"[TURBO] Generating {max_concepts} questions in parallel...\n")
+        preview = mod.content[:200].replace('\n', ' ')
+        print(f"[MODULE {mod_idx}] Content preview: {preview}...")
 
-        # Shuffle concepts so each run generates from different parts of the material
-        # Use time-based seed so it is different every run
-        random.seed(int(time.time()))
-        target_concepts = random.sample(
-            concepts[:max_concepts * 2],          # pool: 2x the required count
-            min(max_concepts, len(concepts))      # pick exactly max_concepts
-        )
+        # Extract small chunks/concepts from this module
+        mod_chunks = [c.strip() for c in re.split(r"\n\n+", mod.content) if len(c.split()) > 30]
+        if len(mod_chunks) < 4:
+            # Fallback split
+            mod_chunks = [mod.content[i:i+1500] for i in range(0, len(mod.content), 1200)]
 
-        def _generate_one(args):
-            idx, concept = args
-            try:
-                gq = generate_turbo(concept, marks=5)
-                return idx, gq, None
-            except Exception as e:
-                return idx, None, str(e)
+        # Determine Bloom pairs for the 4 questions
+        # Pair 1: Bloom Level 2 (Understand) or 3 (Apply)
+        # Pair 2: Bloom Level 4 (Analyze) or 5 (Evaluate)
+        pair1_bloom = random.choice([2, 3])
+        pair2_bloom = random.choice([4, 5])
+        bloom_levels = [pair1_bloom, pair1_bloom, pair2_bloom, pair2_bloom]
 
-        results = {}
-        # Use min(max_concepts, 4) workers (safe default for Ollama)
-        num_workers = min(len(target_concepts), 4) if len(target_concepts) > 0 else 1
+        module_questions = []
 
-        with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            futures = {
-                executor.submit(_generate_one, (idx, concept)): idx
-                for idx, concept in enumerate(target_concepts, 1)
-            }
-            for future in as_completed(futures):
-                idx, gq, error = future.result()
-                results[idx] = (gq, error)
+        # Threaded task submission
+        futures = []
+        for mq_idx in range(1, 5):
+            bloom = bloom_levels[mq_idx - 1]
+            partition = random.choice(target_partitions)
+            
+            # Select unique chunks for subquestions to avoid repetition
+            selected_chunks = random.sample(mod_chunks, min(len(partition), len(mod_chunks)))
+            if len(selected_chunks) < len(partition):
+                selected_chunks += [random.choice(mod_chunks) for _ in range(len(partition) - len(selected_chunks))]
 
-        # Process results in order
-        for idx in sorted(results.keys()):
-            gq, error = results[idx]
-            concept = target_concepts[idx-1]
-            chunk = getattr(concept, "content", "") or getattr(concept, "text", "") or ""
-
-            if error or gq is None:
-                print(f"  [Q{idx:02d}] [ERROR] {error}")
-                continue
-
-            question_text = gq.question_text
-            q = _clean_turbo(question_text)
-            gq.question_text = q
-
-            if _cheap_validate(q) and _grounded(q, chunk):
-                accepted.append(gq)
-                wrapped = _wrap(q)
-                print(f"  [Q{idx:02d}] [OK] {wrapped}\n")
-            else:
-                rejected.append((gq, "cheap_validate_failed"))
-                wrapped = _wrap(q)
-                print(f"  [Q{idx:02d}] [FAIL] Failed validation -\n          {wrapped}\n")
-
-    # ── 3b. BALANCED / DEEP — Full RAG² + LLM Critic ────────
-    else:
-        print(f"[RAG2] Running RAG^2 Answer-First Generation & Self-Critic Gate ({mode.upper()} Mode)...")
-        for concept in concepts[:max_concepts]:
-            question     = generate(concept, mode=mode)
-            ok, reason   = review(question)
-
-            if ok:
-                accepted.append(question)
-            else:
-                rejected.append((question, reason))
-
-    # ── 4. Audit Report ──────────────────────────────────────
-    print(f"\n{'='*60}")
-    print(f"[AUDIT] PIPELINE AUDIT REPORT")
-    print(f"{'='*60}")
-    print(f"[OK]       Accepted Questions : {len(accepted)}")
-    print(f"[REJECTED] Rejected Questions : {len(rejected)}\n")
-
-    if accepted:
-        print("-" * 60)
-        print("ACCEPTED QUESTIONS SAMPLE:")
-        print("-" * 60)
-        for i, q in enumerate(accepted[:3], 1):
-            ans_preview = (
-                "[Not generated in Turbo Mode]"
-                if q.ideal_answer is None
-                else (q.ideal_answer[:120] + "...")
+            futures.append(
+                executor.submit(
+                    _generate_main_question, 
+                    mq_idx, partition, bloom, selected_chunks, target_marks
+                )
             )
-            print(f"Q{i} [{q.marks} Marks | Bloom Level: {q.bloom_level}]:")
-            print(f"   {q.question_text}")
-            print(f"   Ideal Answer: {ans_preview}\n")
 
-    if rejected:
-        print("-" * 60)
-        print("REJECTED QUESTIONS REASON CODES:")
-        print("-" * 60)
-        for q, reason in rejected[:3]:
-            print(f"[FAIL] [{reason}]")
-            print(f"   Question: {q.question_text}\n")
+        for fut in as_completed(futures):
+            res = fut.result()
+            module_questions.append(res)
 
-    return accepted, rejected
+        # Sort questions MQ1 to MQ4
+        module_questions.sort(key=lambda x: x["mq_index"])
+        output_paper.append({
+            "module_index": mod_idx,
+            "module_title": mod.title,
+            "questions": module_questions
+        })
 
+    executor.shutdown()
 
-# ─────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────
+    # Print Beautiful Academic Output
+    _print_exam_paper(output_paper, exam_type.upper())
 
-def _marks_for_concept(concept) -> int:
-    """Derive marks from concept metadata, defaulting to 5."""
-    return getattr(concept, "marks", None) or 5
+    return output_paper, []
 
+def _generate_main_question(
+    mq_idx:       int, 
+    partition:    List[int], 
+    bloom:        int, 
+    chunks:       List[str], 
+    total_marks:  int
+) -> dict:
+    """Worker function to build a main question with diverse subquestions."""
+    sub_questions = []
+    sub_letters   = ["a", "b", "c", "d", "e"]
+    used_verbs    = set()
 
-def _bloom_for_concept(concept) -> int:
-    """Derive Bloom level from concept metadata, defaulting to 2."""
-    return getattr(concept, "bloom_dna", None) or getattr(concept, "bloom_level", None) or 2
-
-
-# ─────────────────────────────────────────────────────────────
-# CLI entry point
-# ─────────────────────────────────────────────────────────────
-
-if __name__ == "__main__":
-    import sys
-    sample_file = sys.argv[1] if len(sys.argv) > 1 else "v0_1/sample_lecture.txt"
-    sample_path = Path(sample_file)
-
-    if not sample_path.exists():
-        sample_path.parent.mkdir(parents=True, exist_ok=True)
-        sample_path.write_text(
-            "Artificial Intelligence is defined as the simulation of human intelligence "
-            "processes by machines, especially computer systems.\n"
-            "Machine Learning is a subset of artificial intelligence that provides systems "
-            "the ability to automatically learn and improve from experience.\n"
-            "Deep Learning is a specialized subfield of machine learning based on artificial "
-            "neural networks with representation learning.\n",
-            encoding="utf-8",
+    for idx, marks in enumerate(partition):
+        chunk  = chunks[idx % len(chunks)]
+        q_text = get_vtu_vibe_question(
+            chunk, marks, bloom, _used_verbs=used_verbs
         )
-        print(f"Created sample input file at: {sample_file}\n")
+        
+        first_word = q_text.split()[0] if q_text else ""
+        used_verbs.add(first_word)
 
-    run_pipeline(str(sample_path), mode="turbo")
+        # Validation retry
+        retry = 0
+        while not _is_valid_vtu_question(q_text) and retry < 2:
+            alt_chunk = random.choice(chunks)
+            q_text    = get_vtu_vibe_question(
+                alt_chunk, marks, bloom, _used_verbs=used_verbs
+            )
+            retry += 1
+
+        sub_questions.append({
+            "letter": sub_letters[idx] if len(partition) > 1 else None,
+            "text":   q_text,
+            "marks":  marks
+        })
+
+    return {
+        "mq_index":    mq_idx,
+        "bloom_level": bloom,
+        "bloom_name":  get_bloom_level_name(bloom),
+        "total_marks": total_marks,
+        "sub_questions": sub_questions
+    }
+
+def _print_exam_paper(paper: List[dict], exam_type: str):
+    """Prints the final generated VTU paper structured perfectly."""
+    print("\n" + "="*80)
+    print(f"                     VTU {exam_type} QUESTION PAPER")
+    print("="*80)
+
+    for mod in paper:
+        print(f"\nMODULE {mod['module_index']}: {mod['module_title'].upper()}")
+        print("-" * 80)
+
+        # Group into MQ1 vs MQ2 (OR) and MQ3 vs MQ4 (OR)
+        # MQ1 & MQ2 are Choice Pair 1
+        # MQ3 & MQ4 are Choice Pair 2
+        
+        # Choice 1
+        _print_mq(mod["questions"][0])
+        print(f"{' '*36}[OR]")
+        _print_mq(mod["questions"][1])
+        
+        print("\n" + "· " * 40 + "\n")
+        
+        # Choice 2
+        _print_mq(mod["questions"][2])
+        print(f"{' '*36}[OR]")
+        _print_mq(mod["questions"][3])
+        print()
+
+def _print_mq(mq: dict):
+    prefix = f"Q{mq['mq_index']} "
+    bloom_tag = f" [Bloom Level {mq['bloom_level']}: {mq['bloom_name']}]"
+    
+    if len(mq["sub_questions"]) == 1:
+        sq = mq["sub_questions"][0]
+        print(f"{prefix}{sq['text']} ({sq['marks']} Marks){bloom_tag}")
+    else:
+        print(f"{prefix}Answer the following subquestions:{bloom_tag}")
+        for sq in mq["sub_questions"]:
+            print(f"   ({sq['letter']}) {sq['text']} ({sq['marks']} Marks)")
