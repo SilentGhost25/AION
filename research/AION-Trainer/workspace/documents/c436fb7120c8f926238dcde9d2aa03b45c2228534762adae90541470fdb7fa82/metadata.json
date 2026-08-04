@@ -1,0 +1,27 @@
+{
+  "metadata": {
+    "title": "vtu_ai_notes",
+    "provider": "OpenDataLoader"
+  },
+  "json_structure": {},
+  "sections": [
+    {
+      "title": "vtu_ai_notes",
+      "content": "module 1. uninformed search and intelligent agents. time complexity BFS.",
+      "layout_type": "BodyText",
+      "page_range": null
+    }
+  ],
+  "tables": [],
+  "figures": [],
+  "formulas": [],
+  "toc": [
+    {
+      "level": 1,
+      "title": "vtu_ai_notes",
+      "page": 1
+    }
+  ],
+  "reading_order": [],
+  "page_map": {}
+}

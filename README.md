@@ -49,7 +49,7 @@ Stage 6: Faculty Review & Continual Learning (Streamlit Dashboard -> DPO Prefere
 
 ## Directory Overview
 
-* `v0_1/` - Working standalone evolution-ready prototype pipeline ([v0_1/main.py](file:///D:/AION/v0_1/main.py)).
+* `v0_1/` - Working standalone evolution-ready prototype pipeline ([v0_1/main.py](file:///c:/Users/Tarun%20J/OneDrive/Desktop/AION/v0_1/main.py)).
 * `configs/` - Centralized parameters for universities, departments, generation tasks, default models (`aion_config.yaml`), and runtime environments.
 * `core/` - The kernel, plug-in managers, registry engines, event bus, and the central SDK (`core/sdk/aom.py`).
 * `database/` - Production PostgreSQL DDL (`database/schema.sql`) and migrations (`database/migrations/001_integrated_schema.sql`).

@@ -1,0 +1,31 @@
+# Python / Cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ov_cache/
+
+# Databases & logs
+*.db
+*.db-shm
+*.db-wal
+*.log
+temp_tree.txt
+
+# Large Model Weights & Workspace Data
+models/
+checkpoints/
+workspace/uploads/
+extracted_output/
+*.bin
+*.xml
+*.onnx
+*.safetensors
+*.pt
+*.pth
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

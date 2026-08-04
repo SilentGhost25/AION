@@ -1,6 +1,7 @@
 """
 AION Module: Pipeline Orchestrator
 Maturity:    v0.1 — MODULE-BY-MODULE PARALLEL EXAM ORCHESTRATOR
+Integrated:  Custom Model, Difficulty System, Formula Extractor, Visual RAG
 """
 
 import re
@@ -19,11 +20,25 @@ from .learner import Learner
 from .schemas import GeneratedQuestion
 from .segmenter import segment_document, ModuleSegment
 from .generator import (
-    get_vtu_vibe_question, 
-    _is_valid_vtu_question, 
-    IA_PARTITIONS, 
-    SEE_PARTITIONS, 
+    get_vtu_vibe_question,
+    _is_valid,
+    IA_PARTITIONS,
+    SEE_PARTITIONS,
     get_bloom_level_name
+)
+from .difficulty import DifficultyManager, DifficultyLevel
+from .visual import (
+    safe_build_planner,
+    VisualQuestionGenerator,
+    ModuleVisualPlanner,
+    FigureRegistry,
+    _build_module_map
+)
+from .chunk_image_mapper import (
+    ChunkImageMapper,
+    QuestionImageSelector,
+    split_module_into_chunks,
+    TextChunk
 )
 
 # ─────────────────────────────────────────────────────────────
@@ -31,6 +46,7 @@ from .generator import (
 # ─────────────────────────────────────────────────────────────
 CACHE_DIR = Path("extracted_output") / ".cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def _modules_cache_key(file_path: str) -> str:
     import hashlib
@@ -54,6 +70,7 @@ def _modules_cache_key(file_path: str) -> str:
         raw  = f"{file_path}:0:0"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
+
 def _load_cached_modules(file_path: str):
     import pickle
     try:
@@ -68,6 +85,7 @@ def _load_cached_modules(file_path: str):
         pass
     return None
 
+
 def _save_cached_modules(file_path: str, modules):
     import pickle
     try:
@@ -79,36 +97,39 @@ def _save_cached_modules(file_path: str, modules):
     except Exception as e:
         print(f"[CACHE] Could not save modules cache: {e}")
 
+
 # ─────────────────────────────────────────────────────────────
 # Pipeline Orchestrator
 # ─────────────────────────────────────────────────────────────
 
 def run_pipeline(
-    file_path: str, 
-    max_concepts: int = 10, 
-    mode: str = "turbo", 
-    exam_type: str = "see"
+    file_path:      str,
+    max_concepts:   int  = 10,
+    mode:           str  = "turbo",
+    exam_type:      str  = "see",
+    difficulty:     str  = "mixed",
+    include_visual: bool = True,
 ) -> Tuple[List[dict], List[dict]]:
     """
     Saves and generates an aligned VTU Question Paper grouped strictly by Module.
-    
-    Generates exactly 4 main questions per module:
-      - MQ1 & MQ2: Paired choice at same Bloom Level
-      - MQ3 & MQ4: Paired choice at same higher Bloom Level
+    Generates exactly 4 main questions per module.
+    Sub-questions per main question are strictly capped to max 3.
     """
     print("=" * 60)
     print(f"[START] AION Exam Generation Pipeline ({exam_type.upper()} Exam Mode)...")
+    print(f"[CONFIG] Difficulty: {difficulty.upper()} | Visual RAG: {include_visual}")
     print("=" * 60 + "\n")
 
-    # Try cache first
+    diff_manager = DifficultyManager.from_string(difficulty)
+
+    # 1. Ingestion & Segmentation
     cached_modules = _load_cached_modules(file_path)
     if cached_modules is not None:
         modules = cached_modules
     else:
-        # Ingestion & Segmentation
         validated_path = upload(file_path)
         p = Path(validated_path)
-        
+
         modules = []
         if p.is_dir():
             suffixes = {".pdf", ".txt", ".md"}
@@ -118,7 +139,7 @@ def run_pipeline(
             )
             if not files:
                 raise FileNotFoundError(f"No PDF, TXT, or MD files found in directory: {file_path}")
-            
+
             print(f"[PIPELINE] Processing directory: {file_path} ({len(files)} files found)")
             for file_item in files:
                 print(f"[PIPELINE] Ingesting file: {file_item.name} ...")
@@ -132,63 +153,137 @@ def run_pipeline(
                     print(f"  [ERROR] Failed to process {file_item.name}: {e}")
         else:
             raw_document = extract(validated_path)
-            # Segment document into Chapters/Modules
             seg_result = segment_document(raw_document.raw_text, file_path=validated_path)
             modules = seg_result.segments
 
-        # Save to cache
         _save_cached_modules(file_path, modules)
 
     print(f"[SEGMENTER] Identified {len(modules)} Modules/Chapters in source material.")
 
-    target_partitions = SEE_PARTITIONS if exam_type.lower() == "see" else IA_PARTITIONS
-    target_marks = 20 if exam_type.lower() == "see" else 10
+    # 2. Extract Visual Figures & Build Proximity Chunk Map
+    mapper   = None
+    selector = None
+
+    if include_visual:
+        try:
+            doc_id   = FigureRegistry.make_document_id(file_path)
+            print("[VISUAL] Extracting figures (fast proximity mode)...")
+
+            # Extract figures separately (no VLM blocking)
+            from .visual.figure_extractor import extract_figures
+            figures = extract_figures(
+                file_path, 
+                doc_id=doc_id,
+                module_map=_build_module_map(modules),
+            )
+
+            # Mark all figures eligible by default (no VLM filtering)
+            for fig in figures:
+                fig.eligible = True
+
+            class MockRegistry:
+                def __init__(self, figs):
+                    self.figs = figs
+                def eligible_cards(self):
+                    return self.figs
+
+            # Build chunk-image map with mock registry
+            mapper = ChunkImageMapper(
+                registry        = MockRegistry(figures),
+                total_pages     = 200,
+                page_tolerance  = 3,
+            )
+            mapper.build(modules)
+            selector = QuestionImageSelector(mapper)
+
+            s = mapper.summary()
+            print(
+                f"[MAPPER] Coverage: "
+                f"{s['chunks_with_images']}/{s['total_chunks']} chunks "
+                f"({s['image_coverage_pct']}%)"
+            )
+
+        except Exception as e:
+            import traceback
+            print(f"[MAPPER] Setup failed: {e}")
+            traceback.print_exc()
+            mapper   = None
+            selector = None
+
+    # Validate partitions
+    target_marks      = 20 if exam_type.lower() == "see" else 10
+    raw_partitions    = SEE_PARTITIONS if exam_type.lower() == "see" else IA_PARTITIONS
+    target_partitions = [p for p in raw_partitions if len(p) <= 3 and sum(p) == target_marks]
+
+    if not target_partitions:
+        target_partitions = [[10, 10]] if target_marks == 20 else [[5, 5]]
 
     output_paper = []
-    
-    # Thread pool for ultra-fast parallel generation
-    executor = ThreadPoolExecutor(max_workers=6)
+    executor = ThreadPoolExecutor(max_workers=1)
 
     for mod_idx, mod in enumerate(modules, 1):
+        module_id = f"module_{mod_idx}"
         print(f"\n[MODULE {mod_idx}] Processing: '{mod.title}' ({mod.word_count} words)")
 
         if mod.word_count < 10:
-            print(f"[MODULE {mod_idx}] [WARNING] Skipping — insufficient content ({mod.word_count} words)")
+            print(f"[MODULE {mod_idx}] Skipping — too short")
             continue
 
-        preview = mod.content[:200].replace('\n', ' ')
-        print(f"[MODULE {mod_idx}] Content preview: {preview}...")
+        if mapper:
+            module_chunks = mapper.get_chunks_for_module(module_id)
+        else:
+            module_chunks = []
 
-        # Extract small chunks/concepts from this module
-        mod_chunks = [c.strip() for c in re.split(r"\n\n+", mod.content) if len(c.split()) > 30]
-        if len(mod_chunks) < 4:
-            # Fallback split
-            mod_chunks = [mod.content[i:i+1500] for i in range(0, len(mod.content), 1200)]
+        if not module_chunks:
+            raw_splits = [
+                c.strip()
+                for c in re.split(r"\n\n+", mod.content)
+                if len(c.split()) > 20
+            ]
+            module_chunks_text = raw_splits or [mod.content]
+        else:
+            module_chunks_text = [c.text for c in module_chunks]
 
-        # Determine Bloom pairs for the 4 questions
-        # Pair 1: Bloom Level 2 (Understand) or 3 (Apply)
-        # Pair 2: Bloom Level 4 (Analyze) or 5 (Evaluate)
         pair1_bloom = random.choice([2, 3])
         pair2_bloom = random.choice([4, 5])
         bloom_levels = [pair1_bloom, pair1_bloom, pair2_bloom, pair2_bloom]
 
-        module_questions = []
-
-        # Threaded task submission
+        used_chunk_ids: set[str] = set()
+        module_questions         = []
         futures = []
+
         for mq_idx in range(1, 5):
-            bloom = bloom_levels[mq_idx - 1]
+            bloom     = bloom_levels[mq_idx - 1]
             partition = random.choice(target_partitions)
-            
-            # Select unique chunks for subquestions to avoid repetition
-            selected_chunks = random.sample(mod_chunks, min(len(partition), len(mod_chunks)))
-            if len(selected_chunks) < len(partition):
-                selected_chunks += [random.choice(mod_chunks) for _ in range(len(partition) - len(selected_chunks))]
+
+            if mapper and module_chunks:
+                prefer_img = (mq_idx == 1)
+                best_tc    = mapper.get_best_chunk_for_question(
+                    module_id      = module_id,
+                    prefer_image   = prefer_img,
+                    used_chunk_ids = used_chunk_ids,
+                )
+                if best_tc:
+                    used_chunk_ids.add(best_tc.id)
+                    selected_chunks = [best_tc.text] * len(partition)
+                    best_chunk_obj  = best_tc
+                else:
+                    selected_chunks = [random.choice(module_chunks_text)] * len(partition)
+                    best_chunk_obj  = None
+            else:
+                selected_chunks = random.sample(
+                    module_chunks_text,
+                    min(len(partition), len(module_chunks_text))
+                )
+                while len(selected_chunks) < len(partition):
+                    selected_chunks.append(random.choice(module_chunks_text))
+                best_chunk_obj = None
 
             futures.append(
                 executor.submit(
-                    _generate_main_question, 
-                    mq_idx, partition, bloom, selected_chunks, target_marks
+                    _generate_main_question,
+                    mq_idx, partition, bloom, selected_chunks, target_marks,
+                    diff_manager, best_chunk_obj, selector, module_id
                 )
             )
 
@@ -196,7 +291,6 @@ def run_pipeline(
             res = fut.result()
             module_questions.append(res)
 
-        # Sort questions MQ1 to MQ4
         module_questions.sort(key=lambda x: x["mq_index"])
         output_paper.append({
             "module_index": mod_idx,
@@ -206,54 +300,113 @@ def run_pipeline(
 
     executor.shutdown()
 
-    # Print Beautiful Academic Output
+    if mapper:
+        print(f"\n[MAPPER] Final: {mapper.summary()}")
+
     _print_exam_paper(output_paper, exam_type.upper())
 
-    return output_paper, []
+    qa_report = {}
+    try:
+        from .qa_engine import QPGeneratorWithQA
+        qa_manager = QPGeneratorWithQA()
+        qa_report  = qa_manager.run_full_paper_qa(output_paper)
+        print(f"\n[QA ENGINE] Completed Paper QA Check | Quality Score: {qa_report['quality_score']}/100 | Total Issues: {qa_report['total_issues_found']}")
+    except Exception as e:
+        print(f"[QA ENGINE] Warning running paper QA check: {e}")
+
+    return output_paper, qa_report
+
 
 def _generate_main_question(
-    mq_idx:       int, 
-    partition:    List[int], 
-    bloom:        int, 
-    chunks:       List[str], 
-    total_marks:  int
+    mq_idx:         int,
+    partition:      List[int],
+    bloom:          int,
+    chunks:         List[str],
+    total_marks:    int,
+    diff_manager:   DifficultyManager = None,
+    chunk_obj:      TextChunk = None,
+    selector:       QuestionImageSelector = None,
+    module_id:      str  = "",
 ) -> dict:
-    """Worker function to build a main question with diverse subquestions."""
+    """Worker function to build a main question with max 3 subquestions."""
+    dm = diff_manager or DifficultyManager.from_string("mixed")
+
+    # HARD CLAMP: never more than 3 sub-questions
+    if len(partition) > 3:
+        partition = sorted(partition, reverse=True)
+        while len(partition) > 3:
+            smallest      = partition.pop()
+            partition[-1] += smallest
+        partition = sorted(partition, reverse=True)
+
     sub_questions = []
-    sub_letters   = ["a", "b", "c", "d", "e"]
-    used_verbs    = set()
+    sub_letters   = ["a", "b", "c"]
 
     for idx, marks in enumerate(partition):
-        chunk  = chunks[idx % len(chunks)]
-        q_text = get_vtu_vibe_question(
-            chunk, marks, bloom, _used_verbs=used_verbs
-        )
-        
-        first_word = q_text.split()[0] if q_text else ""
-        used_verbs.add(first_word)
+        chunk      = chunks[idx % len(chunks)]
+        difficulty = dm.assign_difficulty(idx, len(partition), marks)
+        sub_bloom  = dm.get_bloom_for_difficulty(difficulty)
 
-        # Validation retry
+        image_data = None
+        if selector and chunk_obj and idx == 0:
+            try:
+                image_data = selector.select(
+                    chunk     = chunk_obj,
+                    module_id = module_id,
+                    sub_index = idx,
+                )
+            except Exception as e:
+                print(f"[SELECTOR] Error: {e}")
+                image_data = None
+
+        q_text = get_vtu_vibe_question(
+            chunk        = chunk,
+            marks        = marks,
+            bloom        = sub_bloom,
+            difficulty   = difficulty,
+            diff_manager = dm,
+        )
         retry = 0
-        while not _is_valid_vtu_question(q_text) and retry < 2:
-            alt_chunk = random.choice(chunks)
-            q_text    = get_vtu_vibe_question(
-                alt_chunk, marks, bloom, _used_verbs=used_verbs
+        while not _is_valid(q_text) and retry < 2:
+            q_text = get_vtu_vibe_question(
+                chunk        = random.choice(chunks),
+                marks        = marks,
+                bloom        = sub_bloom,
+                difficulty   = difficulty,
+                diff_manager = dm,
             )
             retry += 1
 
+        if image_data:
+            if not re.search(
+                r"\b(figure|diagram|given|shown|refer|image|chart)\b",
+                q_text, re.I
+            ):
+                q_text = (
+                    "With reference to the given figure, "
+                    + q_text[0].lower()
+                    + q_text[1:]
+                )
+
         sub_questions.append({
-            "letter": sub_letters[idx] if len(partition) > 1 else None,
-            "text":   q_text,
-            "marks":  marks
+            "letter":     sub_letters[idx] if len(partition) > 1 else None,
+            "text":       q_text,
+            "marks":      marks,
+            "difficulty": difficulty,
+            "bloom":      sub_bloom,
+            "image":      image_data,
         })
 
+    actual_total = sum(sq["marks"] for sq in sub_questions)
+
     return {
-        "mq_index":    mq_idx,
-        "bloom_level": bloom,
-        "bloom_name":  get_bloom_level_name(bloom),
-        "total_marks": total_marks,
-        "sub_questions": sub_questions
+        "mq_index":      mq_idx,
+        "bloom_level":   bloom,
+        "bloom_name":    get_bloom_level_name(bloom),
+        "total_marks":   actual_total,
+        "sub_questions": sub_questions,
     }
+
 
 def _print_exam_paper(paper: List[dict], exam_type: str):
     """Prints the final generated VTU paper structured perfectly."""
@@ -265,31 +418,33 @@ def _print_exam_paper(paper: List[dict], exam_type: str):
         print(f"\nMODULE {mod['module_index']}: {mod['module_title'].upper()}")
         print("-" * 80)
 
-        # Group into MQ1 vs MQ2 (OR) and MQ3 vs MQ4 (OR)
-        # MQ1 & MQ2 are Choice Pair 1
-        # MQ3 & MQ4 are Choice Pair 2
-        
-        # Choice 1
         _print_mq(mod["questions"][0])
         print(f"{' '*36}[OR]")
         _print_mq(mod["questions"][1])
-        
+
         print("\n" + "· " * 40 + "\n")
-        
-        # Choice 2
+
         _print_mq(mod["questions"][2])
         print(f"{' '*36}[OR]")
         _print_mq(mod["questions"][3])
         print()
 
+
 def _print_mq(mq: dict):
     prefix = f"Q{mq['mq_index']} "
     bloom_tag = f" [Bloom Level {mq['bloom_level']}: {mq['bloom_name']}]"
-    
+
     if len(mq["sub_questions"]) == 1:
         sq = mq["sub_questions"][0]
-        print(f"{prefix}{sq['text']} ({sq['marks']} Marks){bloom_tag}")
+        diff_tag = f"[{sq.get('difficulty', '?').upper()}]"
+        img_tag  = " [IMG]" if sq.get("image") else ""
+        print(f"{prefix}{sq['text']} ({sq['marks']} Marks) {diff_tag}{img_tag}{bloom_tag}")
     else:
-        print(f"{prefix}Answer the following subquestions:{bloom_tag}")
+        print(f"{prefix}Answer the following:{bloom_tag}")
         for sq in mq["sub_questions"]:
-            print(f"   ({sq['letter']}) {sq['text']} ({sq['marks']} Marks)")
+            diff_tag = f"[{sq.get('difficulty', '?').upper()}]"
+            img_tag  = " [IMG]" if sq.get("image") else ""
+            print(
+                f"   ({sq['letter']}) {sq['text']} "
+                f"({sq['marks']} Marks) {diff_tag}{img_tag}"
+            )

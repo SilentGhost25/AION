@@ -11,6 +11,7 @@ import sys
 import json
 import uuid
 import threading
+import time
 import traceback
 from pathlib import Path
 from datetime import datetime
@@ -32,7 +33,46 @@ except ImportError:
 
 # ── App setup ─────────────────────────────────────────────────
 app = Flask(__name__)
-CORS(app, origins="*")
+
+# ✅ PERMANENT FIX 1: Allow ALL origins, ALL methods, ALL headers
+CORS(
+    app,
+    origins      = "*",
+    allow_headers= ["*"],
+    methods      = ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    supports_credentials = False,
+    send_wildcard= True,
+)
+
+# ✅ PERMANENT FIX 2: Force CORS headers on EVERY response
+@app.after_request
+def force_cors(response):
+    response.headers["Access-Control-Allow-Origin"]          = "*"
+    response.headers["Access-Control-Allow-Headers"]         = "*"
+    response.headers["Access-Control-Allow-Methods"]         = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    response.headers["Access-Control-Max-Age"]               = "86400"
+    response.headers["Vary"]                                 = "Origin"
+    return response
+
+# ✅ PERMANENT FIX 3: Handle ALL OPTIONS preflight requests globally
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = app.make_default_options_response()
+        response.headers["Access-Control-Allow-Origin"]          = "*"
+        response.headers["Access-Control-Allow-Headers"]         = "*"
+        response.headers["Access-Control-Allow-Methods"]         = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+        response.headers["Access-Control-Max-Age"]               = "86400"
+        return response
+
+# ── Visual Assets Route ───────────────────────────────────────
+try:
+    from v0_1.visual import register_asset_routes
+    register_asset_routes(app)
+except Exception as e:
+    print(f"[ASSET_SERVER] Asset route registration skipped: {e}")
 
 # ── Storage ───────────────────────────────────────────────────
 UPLOAD_DIR = ROOT / "workspace" / "uploads"
@@ -60,7 +100,10 @@ def warmup_model():
             "messages":   [{"role": "user", "content": "hi"}],
             "keep_alive": -1,
             "stream":     False,
-            "options":    {"num_predict": 1, "num_ctx": 512}
+            "options":    {
+                "num_predict": 1,
+                "num_ctx":     2048  # Force context on load
+            }
         }).encode("utf-8")
 
         import urllib.request
@@ -69,8 +112,8 @@ def warmup_model():
             data    = payload,
             headers = {"Content-Type": "application/json"}
         )
-        with urllib.request.urlopen(req, timeout=15) as r:
-            status = "OK [OK]" if r.status == 200 else f"status={r.status}"
+        with urllib.request.urlopen(req, timeout=30) as r:
+            status = "OK" if r.status == 200 else f"status={r.status}"
             print(f"[AION] Warmup {status}", flush=True)
 
     except Exception as e:
@@ -84,26 +127,41 @@ def warmup_model():
 
 @app.route("/api/health", methods=["GET"])
 def health():
+    """
+    Proper health check that tests Ollama,
+    not just Flask.
+    """
+    import requests as req
+
+    # Test Ollama
     ollama_ok = False
-    model = os.environ.get("AION_MODEL", "qwen2.5:3b")
+    ollama_detail = "not checked"
     try:
-        import urllib.request
-        with urllib.request.urlopen(
-            "http://localhost:11434/api/tags", timeout=3
-        ) as r:
-            data   = json.loads(r.read())
-            models = [m["name"] for m in data.get("models", [])]
-            ollama_ok = any(model in m for m in models)
-    except Exception:
-        pass
+        r = req.get(
+            "http://localhost:11434/api/tags",
+            timeout=3
+        )
+        ollama_ok = r.status_code == 200
+        models = [
+            m["name"]
+            for m in r.json().get("models", [])
+        ]
+        ollama_detail = f"{len(models)} models loaded"
+    except Exception as e:
+        ollama_detail = str(e)
+
+    overall = "ok" if ollama_ok else "degraded"
 
     return jsonify({
-        "status":  "ok" if ollama_ok else "degraded",
-        "ollama":  ollama_ok,
-        "model":   model,
-        "version": "0.1.0",
-        "uploads": len(file_registry),
-    })
+        "status":         overall,
+        "flask":          "ok",
+        "ollama":         "ok" if ollama_ok else "down",
+        "ollama_detail":  ollama_detail,
+        "model":          app.config.get(
+                              "MODEL", "qwen2.5:3b"
+                          ),
+        "timestamp":      time.time(),
+    }), 200 if overall == "ok" else 503
 
 
 # ─────────────────────────────────────────────────────────────
@@ -215,64 +273,91 @@ def generate_stream():
             }
         )
 
-    subject      = body.get("subject",      "Unknown")
-    exam_type    = body.get("examType",     "see")
-    mode         = body.get("mode",         "turbo")
-    max_concepts = int(body.get("maxConcepts", 10))
+    subject        = body.get("subject",        "Unknown")
+    exam_type      = body.get("examType",       "see")
+    mode           = body.get("mode",           "turbo")
+    difficulty     = body.get("difficulty",     "mixed")
+    max_concepts   = int(body.get("maxConcepts", 10))
+    include_visual = bool(body.get("includeVisual", True))
+
+    print(f"\n{'='*50}")
+    print(f"[STREAM] START: {file_id or file_path}")
+    print(f"[STREAM] Time: {datetime.now()}")
 
     def stream():
+        import time
+        import threading
+        start_time = time.time()
+
         try:
-            # ── 1. Notify frontend: started ───────────────────
             yield _sse("status", {
                 "status":  "started",
                 "message": f"Processing: {Path(file_path).name}",
             })
-
-            # ── 2. Notify: pipeline running ───────────────────
             yield _sse("log", {
-                "message": f"Running pipeline in {mode} mode..."
+                "message": f"Running pipeline in {mode} mode ({difficulty.upper()} difficulty)..."
             })
 
-            # ── 3. Run pipeline (blocking) ────────────────────
-            print(f"[STREAM] Starting pipeline for: {file_path}", flush=True)
+            pipeline_done = threading.Event()
+            result_holder = {"paper": None, "qa_report": None, "error": None, "trace": None}
 
-            try:
-                from v0_1.main import run_pipeline
-                paper, rejected = run_pipeline(
-                    file_path,
-                    max_concepts = max_concepts,
-                    mode         = mode,
-                    exam_type    = exam_type,
-                )
-                print(f"[STREAM] Pipeline done. Modules: {len(paper) if isinstance(paper, list) else 0}", flush=True)
+            def run_worker():
+                try:
+                    from v0_1.main import run_pipeline
+                    paper, qa_report = run_pipeline(
+                        file_path,
+                        max_concepts   = max_concepts,
+                        mode           = mode,
+                        exam_type      = exam_type,
+                        difficulty     = difficulty,
+                        include_visual = include_visual,
+                    )
+                    result_holder["paper"] = paper
+                    result_holder["qa_report"] = qa_report
+                except Exception as e:
+                    import traceback as tb
+                    result_holder["error"] = str(e)
+                    result_holder["trace"] = tb.format_exc()
+                finally:
+                    pipeline_done.set()
 
-            except ImportError as e:
-                print(f"[STREAM] Import error: {e}", flush=True)
+            pipeline_thread = threading.Thread(target=run_worker, daemon=True)
+            pipeline_thread.start()
+
+            last_keepalive = time.time()
+            KEEPALIVE_INTERVAL = 4
+
+            while not pipeline_done.is_set():
+                pipeline_done.wait(timeout=0.5)
+                now = time.time()
+                if now - last_keepalive >= KEEPALIVE_INTERVAL:
+                    yield _sse("log", {
+                        "message": f"Processing... ({int(now - start_time)}s elapsed)",
+                        "type": "keepalive",
+                    })
+                    last_keepalive = now
+
+            elapsed = time.time() - start_time
+
+            if result_holder["error"]:
                 yield _sse("error", {
-                    "message": f"Pipeline import failed: {str(e)}",
-                    "trace":   traceback.format_exc(),
+                    "message": f"Pipeline failed: {result_holder['error']}",
+                    "trace":   result_holder["trace"],
                 })
                 return
 
-            except Exception as e:
-                print(f"[STREAM] Pipeline error: {e}", flush=True)
-                yield _sse("error", {
-                    "message": f"Pipeline failed: {str(e)}",
-                    "trace":   traceback.format_exc(),
-                })
-                return
+            paper = result_holder["paper"]
+            qa_report = result_holder["qa_report"]
 
-            # ── 4. Validate pipeline output ───────────────────
             if not paper:
                 yield _sse("error", {
                     "message": "Pipeline returned empty result. Check your file content."
                 })
                 return
 
-            # ── 5. Format result ──────────────────────────────
             try:
-                result = _format_paper(paper, subject, exam_type, mode)
-                print(f"[STREAM] Formatted paper: {len(result.get('modules', []))} modules", flush=True)
+                result = _format_paper(paper, subject, exam_type, mode, qa_report=qa_report)
+                print(f"[STREAM] Formatted paper in {elapsed:.1f}s: {len(result.get('modules', []))} modules", flush=True)
             except Exception as e:
                 print(f"[STREAM] Format error: {e}", flush=True)
                 yield _sse("error", {
@@ -281,13 +366,9 @@ def generate_stream():
                 })
                 return
 
-            # ── 6. Send result to frontend ────────────────────
             yield _sse("result", result)
-            print(f"[STREAM] Result sent to frontend", flush=True)
-
-            # ── 7. Done ───────────────────────────────────────
-            yield _sse("done", {"status": "done"})
-            print(f"[STREAM] Done event sent", flush=True)
+            yield _sse("done", {"status": "done", "elapsed": elapsed})
+            print(f"[STREAM] Complete event sent in {elapsed:.1f}s", flush=True)
 
         except GeneratorExit:
             print("[STREAM] Client disconnected", flush=True)
@@ -346,17 +427,20 @@ def generate_async():
         job["status"] = "running"
         try:
             from v0_1.main import run_pipeline
-            paper, _ = run_pipeline(
+            paper, qa_report = run_pipeline(
                 file_path,
-                max_concepts = int(body.get("maxConcepts", 10)),
-                mode         = body.get("mode",     "turbo"),
-                exam_type    = body.get("examType", "see"),
+                max_concepts   = int(body.get("maxConcepts", 10)),
+                mode           = body.get("mode",           "turbo"),
+                exam_type      = body.get("examType",       "see"),
+                difficulty     = body.get("difficulty",     "mixed"),
+                include_visual = bool(body.get("includeVisual", True)),
             )
             job["result"]   = _format_paper(
                 paper,
                 body.get("subject",  ""),
                 body.get("examType", "see"),
                 body.get("mode",     "turbo"),
+                qa_report = qa_report,
             )
             job["status"]   = "done"
             job["progress"] = 1.0
@@ -382,11 +466,7 @@ def job_status(job_id):
     })
 
 
-# ─────────────────────────────────────────────────────────────
-# Format helper
-# ─────────────────────────────────────────────────────────────
-
-def _format_paper(paper, subject, exam_type, mode):
+def _format_paper(paper, subject, exam_type, mode, qa_report=None):
     modules     = []
     total_marks = 0
 
@@ -400,6 +480,7 @@ def _format_paper(paper, subject, exam_type, mode):
                         "letter": sq.get("letter"),
                         "text":   sq.get("text", ""),
                         "marks":  sq.get("marks", 5),
+                        "image":  sq.get("image"),
                     })
                     total_marks += sq.get("marks", 0)
 
@@ -425,7 +506,64 @@ def _format_paper(paper, subject, exam_type, mode):
         "modules":     modules,
         "generatedAt": datetime.now().isoformat(),
         "totalMarks":  total_marks,
+        "qaReport":    qa_report or {},
     }
+
+
+@app.route("/api/preview", methods=["POST"])
+def preview_paper():
+    from v0_1.paper_formatter import get_preview_html
+    data = request.get_json()
+    html = get_preview_html(data)
+    return Response(html, mimetype="text/html")
+
+
+@app.route("/api/download/pdf", methods=["POST"])
+def download_pdf():
+    from v0_1.paper_formatter import export_pdf
+    from flask import send_file
+    data = request.get_json()
+    try:
+        out_path = export_pdf(data)
+        return send_file(str(out_path), mimetype="application/pdf", as_attachment=True)
+    except Exception as e:
+        print(f"[ERROR] PDF Generation failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/generate/emergency", methods=["POST"])
+def generate_emergency():
+    """
+    Emergency generation endpoint.
+    Ultra-fast local generation bypassing heavy pipelines.
+    """
+    data = request.get_json() or {}
+    file_path = data.get("file_path")
+    n_questions = int(data.get("n_questions", 5))
+
+    if not file_path or not Path(file_path).exists():
+        return jsonify({"error": "File not found"}), 404
+
+    try:
+        from v0_1.minimal_pipeline import emergency_pipeline
+        result = emergency_pipeline(
+            pdf_path=file_path,
+            n_questions=n_questions
+        )
+
+        return jsonify({
+            "status":    "success",
+            "mode":      "emergency",
+            "data":      result,
+            "timestamp": time.time(),
+        }), 200
+
+    except Exception as e:
+        import traceback
+        return jsonify({
+            "error": str(e),
+            "trace": traceback.format_exc(),
+        }), 500
 
 
 # ─────────────────────────────────────────────────────────────

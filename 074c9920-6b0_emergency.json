@@ -1,0 +1,11 @@
+{
+  "questions": [],
+  "metadata": {
+    "source": "074c9920-6b0.pdf",
+    "total_words": 1975,
+    "chunks": 7,
+    "generated": 0,
+    "mode": "emergency",
+    "model": "qwen2.5:1.5b"
+  }
+}

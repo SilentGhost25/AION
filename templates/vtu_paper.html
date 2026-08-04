@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VTU Question Paper</title>
+<style>
+  @page {
+    size: A4;
+    margin: 2cm 2.5cm;
+    @top-center {
+      content: "VISVESVARAYA TECHNOLOGICAL UNIVERSITY, BELAGAVI";
+      font-size: 11pt; font-weight: bold;
+    }
+    @bottom-center {
+      content: "Page " counter(page) " of " counter(pages);
+      font-size: 9pt; color: #555;
+    }
+  }
+
+  body {
+    font-family: "Times New Roman", serif;
+    font-size: 12pt;
+    line-height: 1.5;
+    color: #000;
+  }
+
+  .paper-header {
+    text-align: center;
+    border-bottom: 2px solid #000;
+    padding-bottom: 8px;
+    margin-bottom: 12px;
+  }
+  .paper-header h2 { margin: 4px 0; font-size: 14pt; }
+  .paper-meta {
+    display: flex; justify-content: space-between;
+    font-size: 11pt; margin-bottom: 10px;
+  }
+  .instructions {
+    font-size: 10.5pt; font-style: italic;
+    margin-bottom: 16px; padding: 6px;
+    border: 1px dashed #888; background: #fafafa;
+  }
+
+  .module-section { break-before: page; margin-top: 18px; }
+  .module-title {
+    font-size: 13pt; font-weight: bold;
+    border-bottom: 1px solid #333;
+    padding-bottom: 4px; margin-bottom: 10px;
+  }
+
+  .question-block {
+    break-inside: avoid;
+    margin-bottom: 14px;
+    display: flow-root;
+  }
+  .q-number { font-weight: bold; margin-right: 6px; }
+  .q-text { display: inline; }
+  .marks { float: right; font-weight: bold; color: #333; }
+
+  .sub-question { margin-left: 18px; margin-top: 6px; }
+  .sub-letter { font-weight: bold; margin-right: 4px; }
+
+  .q-image {
+    max-width: 45%;
+    float: right;
+    margin: 4px 0 8px 12px;
+    border: 1px solid #ccc;
+    padding: 4px;
+    background: #fff;
+  }
+  .q-image img { width: 100%; height: auto; display: block; }
+  .q-image figcaption {
+    font-size: 9pt; text-align: center;
+    margin-top: 4px; color: #555; font-style: italic;
+  }
+
+  .or-divider {
+    text-align: center; font-weight: bold;
+    margin: 10px 0; letter-spacing: 2px;
+  }
+
+  .bloom-tag, .diff-tag {
+    font-size: 8.5pt; color: #666;
+    background: #eee; padding: 1px 5px;
+    border-radius: 3px; margin-left: 6px;
+  }
+</style>
+</head>
+<body>
+
+<div class="paper-header">
+  <h2>SEMESTER END EXAMINATION</h2>
+  <div class="paper-meta">
+    <span>Course: {{ subject }}</span>
+    <span>Time: 3 Hours</span>
+    <span>Max Marks: 100</span>
+  </div>
+</div>
+
+<div class="instructions">
+  <strong>Instructions:</strong> 1. Answer any FIVE full questions. 
+  2. Each question carries 20 marks. 
+  3. Assume suitable data if necessary.
+</div>
+
+{% for module in modules %}
+<div class="module-section">
+  <div class="module-title">MODULE {{ module.moduleIndex }}: {{ module.moduleTitle | upper }}</div>
+
+  {% for mq in module.questions %}
+  <div class="question-block">
+    <span class="q-number">Q{{ mq.mqIndex }}.</span>
+    {% if mq.subQuestions | length == 1 %}
+      <span class="q-text">{{ mq.subQuestions[0].text }}</span>
+      <span class="marks">({{ mq.subQuestions[0].marks }} Marks)</span>
+      {% if mq.subQuestions[0].image %}
+        <figure class="q-image">
+          <img src="{{ mq.subQuestions[0].image.url }}" alt="Figure">
+          <figcaption>{{ mq.subQuestions[0].image.caption }}</figcaption>
+        </figure>
+      {% endif %}
+    {% else %}
+      <span class="q-text">Answer the following:</span>
+      <span class="marks">({{ mq.totalMarks }} Marks)</span>
+      {% for sq in mq.subQuestions %}
+      <div class="sub-question">
+        <span class="sub-letter">({{ sq.letter }})</span>
+        <span>{{ sq.text }}</span>
+        <span class="marks">({{ sq.marks }})</span>
+        {% if sq.image %}
+          <figure class="q-image">
+            <img src="{{ sq.image.url }}" alt="Figure">
+            <figcaption>{{ sq.image.caption }}</figcaption>
+          </figure>
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% endif %}
+  </div>
+
+  {% if loop.index is odd and loop.index < module.questions | length %}
+    <div class="or-divider">[ OR ]</div>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endfor %}
+
+</body>
+</html>

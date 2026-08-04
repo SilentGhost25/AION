@@ -1,0 +1,27 @@
+{
+  "metadata": {
+    "title": "ai_book",
+    "provider": "OpenDataLoader"
+  },
+  "json_structure": {},
+  "sections": [
+    {
+      "title": "ai_book",
+      "content": "Chapter 1: Introduction to uninformed search. Rational agent structure.",
+      "layout_type": "BodyText",
+      "page_range": null
+    }
+  ],
+  "tables": [],
+  "figures": [],
+  "formulas": [],
+  "toc": [
+    {
+      "level": 1,
+      "title": "ai_book",
+      "page": 1
+    }
+  ],
+  "reading_order": [],
+  "page_map": {}
+}

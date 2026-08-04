@@ -86,7 +86,7 @@ An invisible gatekeeper ensemble that validates every generated question prior t
 
 ## 4. Academic Object Model (AOM) Schemas
 
-All systems exchange data strictly using the schemas defined in [core/sdk/aom.py](file:///d:/AION/core/sdk/aom.py).
+All systems exchange data strictly using the schemas defined in [core/sdk/aom.py](file:///c:/Users/Tarun%20J/OneDrive/Desktop/AION/core/sdk/aom.py).
 
 ### 4.1 KnowledgeGene (Academic DNA Unit)
 The primary unit of memory in AION representing a concept. It contains:

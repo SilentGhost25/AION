@@ -1,7 +1,8 @@
 """
 AION Module: Question Generator
-Maturity:    v0.1 — RAG² (REVERSE ASSESSMENT GENERATION) ENGINE
-Contract:    concept: Concept -> GeneratedQuestion (see schemas.py)
+Integrates: difficulty levels, formula inclusion,
+            visual questions, custom modelfile.
+Max 3 sub-questions per main question.
 """
 
 from __future__ import annotations
@@ -10,187 +11,191 @@ import os
 import re
 import random
 import time
-from typing import Optional, List, Tuple
-from .schemas import Concept, GeneratedQuestion
+from typing import Optional, List
+
+from .schemas           import Concept, GeneratedQuestion
 from .content_validator import validate_chunk, clean_chunk
-from .llm import get_llm
+from .llm               import get_llm
+from .difficulty        import DifficultyManager, DifficultyLevel
+from .formula_extractor import find_formulas_in_chunk, format_formula_for_prompt
 
 # ─────────────────────────────────────────────────────────────
-# VTU Standard Partitions (Ensures min >= 4 and max <= 10)
+# VTU Standard Partitions — MAX 3 sub-questions
 # ─────────────────────────────────────────────────────────────
+
+# IA = 10 marks total
 IA_PARTITIONS = [
-    [10],
-    [5, 5],
-    [4, 6],
-    [6, 4]
+    [10],          # 1 sub-question
+    [5, 5],        # 2 sub-questions
+    [4, 6],        # 2 sub-questions
+    [6, 4],        # 2 sub-questions
+    [4, 3, 3],     # 3 sub-questions
+    [3, 3, 4],     # 3 sub-questions
+    [5, 3, 2],     # 3 sub-questions
+    [2, 4, 4],     # 3 sub-questions
 ]
 
+# SEE = 20 marks total
 SEE_PARTITIONS = [
-    [10, 10],
-    [8, 8, 4],
-    [6, 6, 8],
-    [5, 5, 10],
-    [4, 8, 8],
-    [5, 5, 5, 5],
-    [4, 4, 6, 6]
+    [10, 10],      # 2 sub-questions
+    [8, 8, 4],     # 3 sub-questions
+    [6, 6, 8],     # 3 sub-questions
+    [5, 5, 10],    # 3 sub-questions
+    [4, 8, 8],     # 3 sub-questions
+    [7, 7, 6],     # 3 sub-questions
+    [6, 7, 7],     # 3 sub-questions
+    [10, 6, 4],    # 3 sub-questions
+    [8, 6, 6],     # 3 sub-questions
+    [5, 7, 8],     # 3 sub-questions
 ]
 
 # ─────────────────────────────────────────────────────────────
-# Prompt Templates (Stripped of meta references)
+# Prompt Templates
 # ─────────────────────────────────────────────────────────────
-_TURBO_PROMPTS = [
-    """\
-You are a senior VTU university examiner setting a semester exam paper.
 
+_TEXT_PROMPT = """\
 SOURCE MATERIAL:
 \"\"\"{chunk}\"\"\"
 
-Generate ONE complete, standalone exam question worth {marks} marks at Bloom Level {bloom}.
+{formula_section}
+TASK: Generate ONE exam question worth {marks} marks.
+Bloom Level: {bloom} ({bloom_name})
+Difficulty: {difficulty}
+Difficulty hint: {difficulty_hint}
 
-MANDATORY RULES:
-- Start immediately with ONE of these verbs: Explain, Compare, Derive, Analyse, Illustrate, Describe, Define, Discuss, Evaluate, Justify, Design.
-- Do NOT use phrases like "as described in the text", "per the notes", "from the source", "in the textbook".
-- Do NOT mention any author, researcher, or book names.
-- Output ONLY the question text. No answers, no notes, no markdown bold (**).
+Start with the verb: {verb}
 
-Question:""",
-
-    """\
-You are a VTU exam paper setter.
-
-SOURCE MATERIAL:
-\"\"\"{chunk}\"\"\"
-
-Write ONE descriptive exam question worth {marks} marks at Bloom Level {bloom} based on the concept.
-
-MANDATORY RULES:
-- Start with a strong verb: Differentiate, Compare, Analyse, Discuss, Design, Evaluate.
-- Write a clean, self-contained question for an exam answer sheet.
-- Do NOT reference any external source, notes, or chapter.
-- No meta text, no warnings, no markdown formatting. Output ONLY the raw question.
+Rules:
+- Output ONLY the question text
+- No answers, notes, or explanations
+- No source references or author names
+- Include formula/expression in question if provided above
 
 Question:"""
-]
 
-_TURBO_STOP = [
-    "Ideal Answer", "Ideal answer", "ideal answer",
-    "Marking Scheme", "marking scheme",
-    "Note:", "note:", "Answer:", "Explanation:",
-    "Here is", "Here's", "here is", "here's",
-    "Q2)", "Q2.", "Q3)", "---", "===", "```",
-    "as described in", "from the material", "according to the"
+
+_VISUAL_PROMPT = """\
+A figure is provided showing:
+{facts}
+
+Visual type: {visual_type}
+{formula_section}
+
+TASK: Generate ONE exam question worth {marks} marks \
+that REQUIRES examining the provided figure.
+Bloom Level: {bloom} ({bloom_name})
+Difficulty: {difficulty}
+
+Start with the verb: {verb}
+Include the phrase "with reference to the given figure" or \
+"using the figure shown" in the question.
+
+Output ONLY the question text.
+
+Question:"""
+
+
+# ─────────────────────────────────────────────────────────────
+# Stop sequences
+# ─────────────────────────────────────────────────────────────
+
+_STOP = [
+    "Ideal Answer", "ideal answer", "Answer:", "answer:",
+    "Marking Scheme", "Note:", "Explanation:",
+    "Here is", "Here's", "Q2)", "---", "===", "```",
+    "as described in", "from the material", "according to",
 ]
 
 # ─────────────────────────────────────────────────────────────
-# Domain & Quality Guards
+# Off-domain guard
 # ─────────────────────────────────────────────────────────────
-_OFF_DOMAIN_TERMS = re.compile(
-    r"\b(transformer|resistor|capacitor|inductor|voltage|current|watt|ampere|"
-    r"kva|kw|kwh|ohm|circuit|diode|transistor|rectifier|inverter|lathe|forge)\b",
-    re.I
+
+_OFF_DOMAIN = re.compile(
+    r"\b(resistor|capacitor|inductor|voltage|watt|"
+    r"ampere|ohm|diode|rectifier|lathe|forge)\b",
+    re.I,
 )
 
-def _is_valid_vtu_question(q: str) -> bool:
-    """Fast validation to protect against hallucinations and off-domain drift."""
-    words = q.split()
-    if len(words) < 5 or len(words) > 150:
+
+def _is_valid(q: str) -> bool:
+    if len(q.split()) < 6 or len(q.split()) > 160:
         return False
-    if _OFF_DOMAIN_TERMS.search(q):
+    if _OFF_DOMAIN.search(q):
         return False
     return True
 
-def _post_clean(text: str) -> str:
-    """Post-generation cleanser to ensure pristine formatting."""
+
+def _clean(text: str) -> str:
     t = text.strip()
+    for pat in [
+        r"\n.*?Ideal Answer.*", r"\n.*?Note\s*:.*",
+        r",?\s*as (described|outlined|mentioned) in the.*",
+        r",?\s*per the (source|notes|textbook).*",
+        r",?\s*from the (source|notes|material).*",
+    ]:
+        t = re.sub(pat, "", t, flags=re.S | re.I).strip()
 
-    # Cut off answers or notes
-    for pat in [r"\n.*?Ideal Answer.*", r"\n.*?Marking Scheme.*", r"\n.*?Note\s*:.*", r"\n.*?Answer\s*:.*", r"\n.*?Explanation\s*:.*", r"\n.*?---.*"]:
-        t = re.sub(pat, "", t, flags=re.S|re.I).strip()
-
-    # Remove academic meta-references
-    source_refs = [
-        r",?\s*as (described|outlined|mentioned|stated|discussed|defined|shown|noted|explained) in the (source|given|provided|above|following)?\s*(material|text|passage|document|textbook|notes|reading|context)",
-        r",?\s*per the (source|material|text|notes|textbook|document)",
-        r",?\s*from the (source|material|text|notes|textbook|document)",
-        r",?\s*\(refer to the (source|material|text|notes|textbook)\)",
-        r",?\s*as (described|outlined|shown) above",
-        # Strips author names completely
-        r",?\s*by\s+[A-Z][a-z]+(\s+[A-Z][a-z]+)*",
-        r"\b(Russell|Norvig|Knuth|Brooks|Turing|Dijkstra|Cormen|Sedgewick|Balagurusamy|Reema)'?s?\b"
-    ]
-    for pat in source_refs:
-        t = re.sub(pat, "", t, flags=re.I).strip()
-
-    # Strip clean punctuation
+    t = re.sub(r"\*+", "", t)
     t = re.sub(r"\s{2,}", " ", t)
     t = re.sub(r"\s+([.,;:?!])", r"\1", t)
-    t = re.sub(r"\*{1,2}([^*]+)\*{1,2}", r"\1", t)
-    t = re.sub(r"\*+", "", t)
-
     t = t.strip().rstrip(",:;")
     if t and t[-1] not in ".?!":
         t += "."
     return t
 
-# ─────────────────────────────────────────────────────────────
-# Dynamic Marks & Bloom Mapper
-# ─────────────────────────────────────────────────────────────
+
 def get_bloom_level_name(level: int) -> str:
     return {
-        1: "Remember",
-        2: "Understand",
-        3: "Apply",
-        4: "Analyze",
-        5: "Evaluate",
-        6: "Create"
+        1: "Remember", 2: "Understand", 3: "Apply",
+        4: "Analyse",  5: "Evaluate",   6: "Create",
     }.get(level, "Understand")
 
-BLOOM_VERBS = {
-    1: ["Define", "List", "State", "Recall", "Identify", "Name"],
-    2: ["Explain", "Describe", "Summarize", "Interpret", "Classify"],
-    3: ["Apply", "Illustrate", "Demonstrate", "Solve", "Implement"],
-    4: ["Analyze", "Compare", "Differentiate", "Examine", "Breakdown"],
-    5: ["Evaluate", "Justify", "Assess", "Critique", "Argue"],
-    6: ["Design", "Create", "Develop", "Formulate", "Construct"],
-}
+
+# ─────────────────────────────────────────────────────────────
+# Core question generators
+# ─────────────────────────────────────────────────────────────
 
 def get_vtu_vibe_question(
     chunk:       str,
     marks:       int,
     bloom:       int,
-    _used_verbs: Optional[set] = None
+    difficulty:  DifficultyLevel = "medium",
+    diff_manager: Optional[DifficultyManager] = None,
 ) -> str:
-    """Generates a single question matching target marks and Bloom level."""
-    available_verbs = BLOOM_VERBS.get(bloom, ["Explain"])
-    if _used_verbs:
-        fresh = [v for v in available_verbs if v not in _used_verbs]
-        verb_hint = fresh[0] if fresh else available_verbs[0]
-    else:
-        verb_hint = random.choice(available_verbs)
+    """
+    Generate a single text-based question.
+    Automatically detects and includes formulas from chunk.
+    """
+    dm   = diff_manager or DifficultyManager.from_string(difficulty)
+    verb = dm.get_verb(difficulty, bloom)
+    hint = dm.get_hint(difficulty)
 
-    prompt = f"""\
-You are a senior VTU university examiner.
+    formulas = find_formulas_in_chunk(chunk)
+    formula_section = ""
+    if formulas:
+        best = max(formulas, key=lambda f: len(f.raw))
+        formula_section = (
+            f"FORMULA/EXPRESSION TO INCLUDE:\n"
+            f"{format_formula_for_prompt(best)}\n\n"
+        )
 
-SOURCE MATERIAL:
-\"\"\"{chunk[:1200]}\"\"\"
-
-Generate ONE exam question worth {marks} marks at Bloom Level {bloom}.
-
-STRICT RULES:
-- Start with the verb: {verb_hint}
-- Focus on a SPECIFIC concept from the source material above
-- Do NOT write a generic or vague question
-- Do NOT use phrases like "as described", "from the text", "per the notes"
-- Output ONLY the question. No answers, no notes, no markdown.
-
-Question:"""
+    prompt = _TEXT_PROMPT.format(
+        chunk            = chunk[:1000],
+        formula_section  = formula_section,
+        marks            = marks,
+        bloom            = bloom,
+        bloom_name       = get_bloom_level_name(bloom),
+        difficulty       = difficulty.upper(),
+        difficulty_hint  = hint,
+        verb             = verb,
+    )
 
     options = {
-        "temperature": round(random.uniform(0.7, 0.9), 2),
-        "num_predict": 120,
+        "temperature": _temp_for_difficulty(difficulty),
+        "num_predict": _tokens_for_marks(marks),
         "num_ctx":     2048,
         "top_p":       0.92,
-        "stop":        _TURBO_STOP,
+        "stop":        _STOP,
         "seed":        int(time.time() * 1000) % 2**31,
     }
 
@@ -198,12 +203,112 @@ Question:"""
     try:
         raw = get_llm().generate(prompt, options=options)
     except Exception as e:
-        print(f"[GENERATOR] LLM error: {e}")
+        print(f"[GEN] LLM error: {e}")
 
     if not raw or len(raw.split()) < 5:
-        raw = f"{verb_hint} the key concepts and principles covered in this module."
+        raw = f"{verb} the key principles and applications of the given concept."
 
-    return _post_clean(raw)
+    cleaned = _clean(raw)
+
+    try:
+        from .qa_engine import QuestionCompletenessChecker, BloomsTaxonomyValidator
+        completeness = QuestionCompletenessChecker()
+        blooms_val   = BloomsTaxonomyValidator()
+
+        cleaned = completeness.auto_fix_truncation(cleaned)
+        cleaned = blooms_val.auto_correct_blooms_level(cleaned, bloom)
+    except Exception as e:
+        print(f"[GEN] QA inline check warning: {e}")
+
+    return cleaned
+
+
+def get_visual_question(
+    card,                          # FigureCard
+    marks:       int,
+    bloom:       int,
+    difficulty:  DifficultyLevel  = "medium",
+    diff_manager: Optional[DifficultyManager] = None,
+    chunk:       str = "",         # Source text for formula detection
+) -> Optional[str]:
+    """
+    Generate a question that requires examining a figure.
+    Returns None if generation fails verification.
+    """
+    dm   = diff_manager or DifficultyManager.from_string(difficulty)
+    verb = dm.get_verb(difficulty, bloom)
+
+    facts_text = "\n".join(
+        f"- {f.text}"
+        for f in card.facts
+        if f.confidence >= 0.45
+    )
+    if not facts_text:
+        return None
+
+    formula_section = ""
+    if chunk:
+        formulas = find_formulas_in_chunk(chunk)
+        if formulas:
+            best = max(formulas, key=lambda f: len(f.raw))
+            formula_section = (
+                f"RELATED FORMULA:\n"
+                f"{format_formula_for_prompt(best)}\n"
+            )
+
+    prompt = _VISUAL_PROMPT.format(
+        facts           = facts_text,
+        visual_type     = card.visual_type,
+        formula_section = formula_section,
+        marks           = marks,
+        bloom           = bloom,
+        bloom_name      = get_bloom_level_name(bloom),
+        difficulty      = difficulty.upper(),
+        verb            = verb,
+    )
+
+    options = {
+        "temperature": 0.5,
+        "num_predict": _tokens_for_marks(marks),
+        "num_ctx":     2048,
+        "stop":        _STOP,
+    }
+
+    raw = ""
+    try:
+        raw = get_llm().generate(
+            prompt,
+            system=(
+                "You are a VTU exam setter. "
+                "Generate questions that require examining the figure."
+            ),
+            options=options,
+        )
+    except Exception as e:
+        print(f"[GEN-VIS] LLM error: {e}")
+
+    if not raw or len(raw.split()) < 6:
+        return None
+
+    cleaned = _clean(raw)
+
+    fig_refs = re.compile(
+        r"\b(figure|diagram|given|shown|above|refer|image|chart|graph)\b",
+        re.I
+    )
+    if not fig_refs.search(cleaned):
+        cleaned = f"With reference to the given figure, {cleaned[0].lower()}{cleaned[1:]}"
+
+    return cleaned
+
+
+def _temp_for_difficulty(d: DifficultyLevel) -> float:
+    return {"easy": 0.55, "medium": 0.72, "hard": 0.85}.get(d, 0.72)
+
+
+def _tokens_for_marks(marks: int) -> int:
+    return 50  # Strictly capped at 50 tokens for fast local CPU generation
+
 
 def generate_turbo(concept, marks: int = 5) -> GeneratedQuestion:
     """Legacy backward compatibility wrapper."""
@@ -217,6 +322,15 @@ def generate_turbo(concept, marks: int = 5) -> GeneratedQuestion:
         bloom_level=2
     )
 
+
 def generate(concept: Concept, mode: str = "balanced") -> GeneratedQuestion:
-    """Legacy RAG² generator placeholder."""
-    return generate_turbo(concept, marks=10)
+    """Full question object generator."""
+    chunk = getattr(concept, "content", "") or getattr(concept, "canonical_definition", "")
+    q = get_vtu_vibe_question(chunk, 10, 3)
+    return GeneratedQuestion(
+        concept_id=getattr(concept, "concept_id", "gen_1"),
+        ideal_answer=None,
+        question_text=q,
+        marks=10,
+        bloom_level=3
+    )

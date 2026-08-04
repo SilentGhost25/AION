@@ -26,6 +26,7 @@ class Document:
     raw_text: str
     file_type: str
     uploaded_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    formulas: List[str] = field(default_factory=list)
 
 
 @dataclass

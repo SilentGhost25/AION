@@ -1,0 +1,27 @@
+{
+  "metadata": {
+    "title": "vtu_syllabus",
+    "provider": "OpenDataLoader"
+  },
+  "json_structure": {},
+  "sections": [
+    {
+      "title": "vtu_syllabus",
+      "content": "syllabus for BAI401. module 1: uninformed search. module 2: heuristic search.",
+      "layout_type": "BodyText",
+      "page_range": null
+    }
+  ],
+  "tables": [],
+  "figures": [],
+  "formulas": [],
+  "toc": [
+    {
+      "level": 1,
+      "title": "vtu_syllabus",
+      "page": 1
+    }
+  ],
+  "reading_order": [],
+  "page_map": {}
+}

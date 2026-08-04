@@ -1,11 +1,17 @@
 """
 AION Module: Segmenter
-Maturity:    v0.1 — Document Segmenter
+Enhanced: RobustSegmenter with multi-strategy segmentation pipeline.
+Strategies:
+1. Explicit module/chapter markers
+2. Heading detection (ALL CAPS, 1.1 Heading, Title Case)
+3. Paragraph density analysis
+4. Sentence boundary split
+5. Sentence-aware equal split (never splits mid-sentence)
 """
 
 import re
 from dataclasses import dataclass
-from typing import List
+from typing import List, Dict, Any
 
 
 @dataclass
@@ -22,88 +28,200 @@ class SegmentResult:
 
 def _clean_pdf_artifacts(text: str) -> str:
     """Remove PDF extraction artifacts from text."""
-    # Remove [PDF p.N] markers
     text = re.sub(r'\[PDF\s+p\.?\s*\d+\]', '', text)
-    # Remove page number lines
     text = re.sub(r'^\s*\d+\s*$', '', text, flags=re.MULTILINE)
-    # Remove excessive whitespace
     text = re.sub(r'\n{3,}', '\n\n', text)
     text = re.sub(r'[ \t]{2,}', ' ', text)
     return text.strip()
 
 
+class RobustSegmenter:
+    """
+    Multi-strategy segmenter.
+    Tries 4 strategies before falling back to sentence-aware equal splits.
+    """
+
+    EXPLICIT_PATTERNS = [
+        r'(?i)^module\s*[-–:]?\s*\d+',
+        r'(?i)^chapter\s*\d+',
+        r'(?i)^unit\s*\d+',
+        r'(?i)^\d+\.\s+[A-Z][a-z]',
+        r'(?i)^part\s+[IVX]+',
+        r'(?i)^section\s+\d+',
+    ]
+
+    HEADING_PATTERNS = [
+        r'^[A-Z][A-Z\s]{8,}$',
+        r'^\d+\.\d*\s+[A-Z]',
+        r'^[A-Z][a-z]+(?:\s[A-Z][a-z]+){1,4}$',
+    ]
+
+    def segment(self, text: str, target_n: int = 5, min_words: int = 50) -> List[ModuleSegment]:
+        text = _clean_pdf_artifacts(text)
+        if not text:
+            return []
+
+        # Strategy 1: Explicit markers
+        segments = self._by_explicit_markers(text, target_n)
+        if self._is_valid(segments, min_words):
+            print(f"[SEGMENTER] Strategy: explicit markers → {len(segments)} segments")
+            return segments
+
+        # Strategy 2: Heading detection
+        segments = self._by_headings(text, target_n)
+        if self._is_valid(segments, min_words):
+            print(f"[SEGMENTER] Strategy: heading detection → {len(segments)} segments")
+            return segments
+
+        # Strategy 3: Paragraph density analysis
+        segments = self._by_paragraph_density(text, target_n)
+        if self._is_valid(segments, min_words):
+            print(f"[SEGMENTER] Strategy: paragraph density → {len(segments)} segments")
+            return segments
+
+        # Strategy 4: Sentence boundary split
+        segments = self._by_sentence_boundaries(text, target_n)
+        if self._is_valid(segments, min_words):
+            print(f"[SEGMENTER] Strategy: sentence boundary → {len(segments)} segments")
+            return segments
+
+        # Final fallback: sentence-aware equal split
+        print(f"[SEGMENTER] Strategy: sentence-aware equal split → {target_n} segments")
+        return self._by_sentence_aware_equal(text, target_n)
+
+    def _by_explicit_markers(self, text: str, target_n: int) -> List[ModuleSegment]:
+        lines = text.split('\n')
+        splits = []
+
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            for pat in self.EXPLICIT_PATTERNS:
+                if re.match(pat, stripped):
+                    splits.append({"line_idx": i, "title": stripped})
+                    break
+
+        return self._build_segments(lines, splits, "Module")
+
+    def _by_headings(self, text: str, target_n: int) -> List[ModuleSegment]:
+        lines = text.split('\n')
+        splits = []
+
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if len(stripped) < 5:
+                continue
+            for pat in self.HEADING_PATTERNS:
+                if re.match(pat, stripped):
+                    splits.append({"line_idx": i, "title": stripped[:60]})
+                    break
+
+        return self._build_segments(lines, splits, "Section")
+
+    def _by_paragraph_density(self, text: str, target_n: int) -> List[ModuleSegment]:
+        paragraphs = re.split(r'\n\s*\n', text)
+        paragraphs = [p.strip() for p in paragraphs if len(p.strip()) > 30]
+
+        if len(paragraphs) < target_n:
+            return []
+
+        group_size = len(paragraphs) // target_n
+        segments = []
+
+        for i in range(target_n):
+            start = i * group_size
+            end = (i + 1) * group_size if i < target_n - 1 else len(paragraphs)
+            content = "\n\n".join(paragraphs[start:end])
+            wc = len(content.split())
+            if wc > 0:
+                segments.append(ModuleSegment(
+                    title=f"Module {i+1}",
+                    content=content,
+                    word_count=wc
+                ))
+
+        return segments
+
+    def _by_sentence_boundaries(self, text: str, target_n: int) -> List[ModuleSegment]:
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        total_words = len(text.split())
+        target_words = max(1, total_words // target_n)
+
+        segments = []
+        current_sentences = []
+        current_words = 0
+
+        for sent in sentences:
+            current_sentences.append(sent)
+            current_words += len(sent.split())
+
+            if current_words >= target_words and len(segments) < target_n - 1:
+                content = " ".join(current_sentences)
+                segments.append(ModuleSegment(
+                    title=f"Module {len(segments)+1}",
+                    content=content,
+                    word_count=len(content.split())
+                ))
+                current_sentences = []
+                current_words = 0
+
+        if current_sentences:
+            content = " ".join(current_sentences)
+            segments.append(ModuleSegment(
+                title=f"Module {len(segments)+1}",
+                content=content,
+                word_count=len(content.split())
+            ))
+
+        return segments
+
+    def _by_sentence_aware_equal(self, text: str, target_n: int) -> List[ModuleSegment]:
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        total = len(sentences)
+        group = max(1, total // target_n)
+        segments = []
+
+        for i in range(target_n):
+            start = i * group
+            end = (i + 1) * group if i < target_n - 1 else total
+            content = " ".join(sentences[start:end])
+            wc = len(content.split())
+            if wc > 0:
+                segments.append(ModuleSegment(
+                    title=f"Module {i+1}",
+                    content=content,
+                    word_count=wc
+                ))
+
+        return segments
+
+    def _build_segments(self, lines: List[str], splits: List[Dict[str, Any]], prefix: str) -> List[ModuleSegment]:
+        if not splits:
+            return []
+
+        segments = []
+        for i, split in enumerate(splits):
+            start_line = split["line_idx"]
+            end_line = splits[i+1]["line_idx"] if i + 1 < len(splits) else len(lines)
+            content = "\n".join(lines[start_line:end_line]).strip()
+            wc = len(content.split())
+            if wc > 10:
+                segments.append(ModuleSegment(
+                    title=f"{prefix} {i+1}: {split['title'][:40]}",
+                    content=content,
+                    word_count=wc
+                ))
+
+        return segments
+
+    def _is_valid(self, segments: List[ModuleSegment], min_words: int) -> bool:
+        if not segments or len(segments) < 2:
+            return False
+        return all(s.word_count >= min_words for s in segments)
+
+
 def segment_document(text: str, file_path: str = "") -> SegmentResult:
-    # Step 1: Clean PDF artifacts first
-    text = _clean_pdf_artifacts(text)
-    text = text.strip()
-
-    if not text:
-        return SegmentResult(segments=[])
-
-    print(f"[SEGMENTER] Total text length: {len(text)} chars, {len(text.split())} words")
-
-    # Step 2: Try module/chapter markers
-    pattern = re.compile(
-        r"(?:^|\n)\s*"
-        r"(MODULE\s+\d+|MODULE\s+[IVXLCDM]+"
-        r"|CHAPTER\s+\d+|CHAPTER\s+[IVXLCDM]+"
-        r"|Module\s+\d+|Module\s+[IVXLCDM]+"
-        r"|Chapter\s+\d+|Chapter\s+[IVXLCDM]+)"
-        r"([^\n]*)",
-        re.I
-    )
-
-    matches = list(pattern.finditer(text))
-    print(f"[SEGMENTER] Found {len(matches)} module/chapter markers")
-
-    segments = []
-
-    if matches:
-        for i, match in enumerate(matches):
-            content_start = match.end()
-            content_end   = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-
-            base_title  = match.group(1).strip()
-            rest_line   = match.group(2).strip().lstrip(":-– ")
-            title = f"{base_title}: {rest_line}" if rest_line else base_title
-
-            content    = text[content_start:content_end].strip()
-            word_count = len(content.split())
-
-            print(f"[SEGMENTER] Segment '{title}': {word_count} words")
-
-            if word_count < 10:
-                print(f"[SEGMENTER] [WARNING] Skipping '{title}' — too short ({word_count} words)")
-                continue
-
-            segments.append(ModuleSegment(
-                title      = title,
-                content    = content,
-                word_count = word_count
-            ))
-
-    # Step 3: Fallback — split into equal parts
-    if not segments:
-        print("[SEGMENTER] No markers found — splitting into equal parts")
-        words      = text.split()
-        total      = len(words)
-        chunk_size = max(1, total // 5)
-
-        for i in range(min(5, max(1, total))):
-            start   = i * chunk_size
-            end     = (i + 1) * chunk_size if i < 4 else total
-            content = " ".join(words[start:end])
-            wc      = len(content.split())
-
-            if wc == 0:
-                continue
-
-            segments.append(ModuleSegment(
-                title      = f"Module {i + 1}",
-                content    = content,
-                word_count = wc
-            ))
-            print(f"[SEGMENTER] Fallback segment 'Module {i+1}': {wc} words")
-
-    print(f"[SEGMENTER] Final: {len(segments)} valid segments")
+    segmenter = RobustSegmenter()
+    segments = segmenter.segment(text, target_n=5)
     return SegmentResult(segments=segments)
