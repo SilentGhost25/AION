@@ -1,0 +1,59 @@
+{
+  "dataset_name": "AION Academic Reasoning Dataset",
+  "version": "1.0",
+  "schema_version": "1.0",
+  "created_at": "2026-08-04T15:55:04.730510+00:00",
+  "statistics": {
+    "total_samples": 2,
+    "by_task_type": {
+      "NEGATIVE_CORRECTION": 1,
+      "QUESTION_GENERATION": 1
+    },
+    "by_exam_type": {
+      "IA": 2
+    },
+    "by_department": {
+      "ECE": 2
+    },
+    "by_bloom_level": {
+      "L1": 0,
+      "L2": 0,
+      "L3": 2,
+      "L4": 0,
+      "L5": 0,
+      "L6": 0
+    },
+    "by_review_status": {
+      "approved": 2,
+      "pending": 0,
+      "rejected": 0,
+      "flagged": 0
+    },
+    "average_critic_score": 0.667,
+    "negative_samples": 1
+  },
+  "splits": {
+    "train": {
+      "samples": 1,
+      "path": "exports/train.jsonl"
+    },
+    "val": {
+      "samples": 0,
+      "path": "exports/val.jsonl"
+    },
+    "test": {
+      "samples": 1,
+      "path": "exports/test.jsonl"
+    }
+  },
+  "checksums": {
+    "train.jsonl": "2c93aea4da67b219d551fc3c0aa9a69cca83ad56eb3bd9e05887c306a2f646cf",
+    "val.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "test.jsonl": "d1b0c7773796911ca4c5803e686fca882c7caacecda5ed0cecca35b74330a5f3"
+  },
+  "filtering_applied": {
+    "min_critic_score": 0.85,
+    "exclude_flagged": true,
+    "exclude_pending": true
+  }
+}

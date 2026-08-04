@@ -1,0 +1,245 @@
+{
+  "provenance": {
+    "sample_id": "ARD_v1_SATCOM_M3_TDMA_001_NG_001",
+    "concept_id": "SATCOM_M3_TDMA_001",
+    "task_type": "NEGATIVE_CORRECTION",
+    "dataset_version": "1.0",
+    "schema_version": "1.0",
+    "generated_by": "aion_pipeline",
+    "generator_model": "qwen2.5:7b",
+    "reviewer": "PROF_ECE_VTU_001",
+    "review_date": "2026-08-04",
+    "review_status": "approved",
+    "revision_count": 0,
+    "previous_sample_id": null,
+    "created_at": "2026-08-04T13:10:00Z",
+    "pipeline_stage": "critic → negative_correction",
+    "linked_samples": {
+      "concept_extraction": "ARD_v1_SATCOM_M3_TDMA_001_CE_001",
+      "expected_answer":    "ARD_v1_SATCOM_M3_TDMA_001_EA_001",
+      "blueprint":          "ARD_v1_SATCOM_M3_TDMA_001_BP_001",
+      "question":           "ARD_v1_SATCOM_M3_TDMA_001_QG_001",
+      "grounding":          "ARD_v1_SATCOM_M3_TDMA_001_GR_001",
+      "critic":             "ARD_v1_SATCOM_M3_TDMA_001_CR_001",
+      "negative":           "ARD_v1_SATCOM_M3_TDMA_001_NG_001",
+      "style":              null,
+      "numerical":          null
+    }
+  },
+  "metadata": {
+    "department": "ECE",
+    "subject": "Satellite Communication",
+    "subject_code": "BEC601",
+    "module": 3,
+    "chapter": "Multiple Access Techniques",
+    "topic": "Time Division Multiple Access",
+    "difficulty": "Medium",
+    "bloom_level": "L3",
+    "exam_type": "IA",
+    "credits": 4,
+    "university": "VTU",
+    "curriculum_year": "2021"
+  },
+  "task": {
+    "task_type": "NEGATIVE_CORRECTION",
+    "task_version": "1.0",
+    "system_prompt": "You are AION Critic. You will be shown a bad exam question, a detailed failure analysis, and a corrected version. Learn why the bad question fails and how the corrected version satisfies all constraints.",
+    "user_prompt_template": "The following question was REJECTED by the academic critic.\n\nBAD QUESTION:\n{bad_question}\n\nFAILURE ANALYSIS:\n{failure_analysis}\n\nCORRECTED QUESTION:\n{corrected_question}\n\nCORRECTION REASONING:\n{correction_reasoning}",
+    "assistant_response": "The bad question fails because it introduces GPS satellites and atmospheric attenuation, which are not part of Module 3 content on Multiple Access Techniques. This is a concept drift violation (RC-04) and hallucination violation (RC-05). The corrected question compares TDMA with FDMA, both of which are defined in Module 3, using parameters (bandwidth utilization, synchronization requirements) that are explicitly covered in the academic content."
+  },
+  "constraints": {
+    "exam_rules": {
+      "exam_type": "IA",
+      "total_marks": 50,
+      "modules": 5,
+      "questions_per_module": 4,
+      "sub_questions_max": 3,
+      "question_marks": 10
+    },
+    "marks_per_question": 10,
+    "max_subquestions": 3,
+    "diagram_optional": true,
+    "diagram_required": false,
+    "allow_numerical_generation": false,
+    "allow_external_grounding": false,
+    "question_style": ["Compare", "Analyze"],
+    "professor_style_weights": {
+      "comparison_frequency": 0.12,
+      "diagram_frequency": 0.28,
+      "numerical_frequency": 0.18,
+      "definition_frequency": 0.06
+    }
+  },
+  "input": {
+    "academic_content": "Time Division Multiple Access (TDMA) divides the channel by time. Frequency Division Multiple Access (FDMA) divides the channel by frequency. TDMA requires strict synchronization. FDMA requires guard bands between frequency slots. TDMA has higher bandwidth efficiency when traffic is bursty. FDMA is simpler to implement but wastes bandwidth when users are idle.",
+    "expected_answer": "TDMA vs FDMA comparison: TDMA divides time, FDMA divides frequency. TDMA needs synchronization, FDMA needs guard bands. TDMA is bandwidth efficient for bursty traffic. FDMA is simpler. Tabular comparison preferred.",
+    "keywords": ["TDMA", "FDMA", "Bandwidth Efficiency", "Synchronization", "Guard Band"],
+    "concept_graph": [
+      { "node": "TDMA", "relation": "compared_with", "target": "FDMA" },
+      { "node": "TDMA", "relation": "divides",        "target": "Time" },
+      { "node": "FDMA", "relation": "divides",        "target": "Frequency" },
+      { "node": "TDMA", "relation": "requires",       "target": "Synchronization" },
+      { "node": "FDMA", "relation": "requires",       "target": "Guard Band" }
+    ],
+    "figures": [],
+    "numerical_parameters": null
+  },
+  "blueprint": {
+    "reasoning_trace": [
+      "This is a NEGATIVE_CORRECTION sample. The blueprint reflects what was incorrectly generated before correction.",
+      "The bad question introduced GPS satellites (not in Module 3) and atmospheric attenuation (not in academic content), triggering RC-04 (concept drift) and RC-05 (hallucination).",
+      "The corrected blueprint restricts comparison to TDMA vs FDMA using only parameters present in academic content.",
+      "Compare maps to L4 (Analyze/Differentiate). Two concepts with three explicit parameters → 5+5 split is appropriate.",
+      "Professor style requires tabular comparison for L4 compare questions."
+    ],
+    "question_type": "Comparison + Analysis",
+    "bloom_dominant": "L4",
+    "command_verbs": ["Compare"],
+    "marks_distribution": [
+      { "part": "a", "marks": 5, "focus": "Tabular comparison of TDMA and FDMA", "bloom": "L4" },
+      { "part": "b", "marks": 5, "focus": "Analysis of suitability for satellite links", "bloom": "L4" }
+    ],
+    "requires_diagram": false,
+    "requires_formula": false,
+    "requires_comparison": true,
+    "requires_numerical": false,
+    "comparison_parameters": [
+      "Bandwidth utilization",
+      "Synchronization requirements",
+      "Guard requirements",
+      "Suitability for bursty traffic"
+    ],
+    "diagram_spec": null
+  },
+  "expected_output": {
+    "question": "Compare TDMA and FDMA with respect to bandwidth utilization, synchronization requirements, and guard requirements. Tabulate your answer and analyze which technique is more suitable for satellite links carrying bursty traffic.",
+    "sub_questions": [
+      {
+        "part": "a",
+        "marks": 5,
+        "focus": "Tabular comparison across four parameters",
+        "bloom": "L4",
+        "command_verb": "Compare",
+        "text": "Compare TDMA and FDMA with respect to bandwidth utilization, synchronization requirements, and guard requirements. Tabulate your answer."
+      },
+      {
+        "part": "b",
+        "marks": 5,
+        "focus": "Analysis of suitability for satellite bursty traffic",
+        "bloom": "L4",
+        "command_verb": "Analyze",
+        "text": "Analyze which multiple access technique is more suitable for satellite links carrying bursty traffic. Justify your answer."
+      }
+    ],
+    "answer_key": {
+      "outline": "Tabulate TDMA vs FDMA across bandwidth efficiency, synchronization, guard requirements, bursty traffic suitability. Conclude TDMA is preferred for bursty traffic due to dynamic slot reallocation.",
+      "key_points": [
+        "TDMA divides channel by time; FDMA divides by frequency",
+        "TDMA requires synchronization; FDMA does not",
+        "FDMA requires guard bands; TDMA requires guard times",
+        "TDMA more efficient for bursty traffic",
+        "FDMA simpler to implement"
+      ],
+      "diagram_required": false,
+      "formula_required": false
+    }
+  },
+  "grounding": {
+    "primary_source": {
+      "type": "textbook",
+      "title": "Satellite Communications",
+      "author": "Timothy Pratt",
+      "edition": "3rd",
+      "pages": [119, 120, 121],
+      "confidence": 0.95
+    },
+    "supporting_sources": [],
+    "conflict_detected": false,
+    "conflict_description": null,
+    "conflict_resolution": null,
+    "external_knowledge_used": false,
+    "grounding_coverage": 0.95
+  },
+  "professor_style": {
+    "professor_id": "PROF_ECE_VTU_001",
+    "department": "ECE",
+    "style_profile": {
+      "preferred_openings": ["Compare... with respect to...", "Tabulate and analyze..."],
+      "sub_question_pattern": "(5+5) split for pure comparison questions.",
+      "comparison_style": "Always lists explicit parameters. Ends with 'Tabulate your answer'.",
+      "linguistic_register": "Formal academic imperative.",
+      "frequency_profile": {
+        "comparison": 0.12,
+        "diagram": 0.28,
+        "numerical": 0.18,
+        "definition": 0.06
+      },
+      "exemplars": []
+    },
+    "signature_phrases_used": ["Tabulate your answer", "with respect to"],
+    "style_match_score": 0.91
+  },
+  "critic": {
+    "verdict": "REJECTED",
+    "confidence": 0.99,
+    "scores": {
+      "grammar": {
+        "pass": true,
+        "score": 0.96,
+        "reason": "Bad question is grammatically correct but academically invalid."
+      },
+      "bloom_alignment": {
+        "pass": false,
+        "score": 0.31,
+        "reason": "Bad question requests L4 comparison but compares TDMA with GPS satellites — unrelated concepts. True cognitive demand is L1 (recall of disconnected facts). Bloom target L4 is not satisfied."
+      },
+      "marks_alignment": {
+        "pass": true,
+        "score": 1.00,
+        "reason": "Marks structure is correct. Failure is conceptual, not structural."
+      },
+      "hallucination": {
+        "pass": false,
+        "score": 0.71,
+        "reason": "GPS satellites and atmospheric attenuation are not present in academic_content for SATCOM_M3_TDMA_001. Question introduces out-of-scope concepts. RC-05 triggered."
+      },
+      "concept_grounding": {
+        "pass": false,
+        "score": 0.18,
+        "reason": "Concept drift detected. GPS satellites are not taught in Module 3 Multiple Access Techniques. Question tests knowledge outside declared chapter scope. RC-04 triggered."
+      },
+      "professor_style": {
+        "pass": false,
+        "score": 0.42,
+        "reason": "PROF_ECE_VTU_001 comparison style requires explicit parameters listed in question. Bad question does not list parameters. Also introduces out-of-syllabus content which violates examiner norms."
+      },
+      "structural_validity": {
+        "pass": true,
+        "score": 0.95,
+        "reason": "Sub-question count and marks are structurally valid. Rejection is content-based."
+      }
+    },
+    "overall_score": 0.36,
+    "reason_codes": ["RC-04", "RC-05"],
+    "human_override": null
+  },
+  "negative": {
+    "is_negative_sample": true,
+    "negative_type": "SEMANTIC_FAILURE",
+    "bad_question": "Compare TDMA with GPS satellites in terms of atmospheric attenuation.",
+    "failure_analysis": {
+      "violated_constraints": [
+        "allow_external_grounding: false",
+        "question_style: [Compare, Analyze] — comparison must be between concepts in the same module"
+      ],
+      "violated_reason_codes": ["RC-04", "RC-05"],
+      "concept_drift_detected": true,
+      "drift_explanation": "GPS satellites and atmospheric attenuation are not present in Module 3 content on Multiple Access Techniques. The question compares a multiple access protocol (TDMA) with a satellite type (GPS), which have no academic relationship in this context.",
+      "bloom_requested": "L4",
+      "bloom_actual": "L1",
+      "bloom_explanation": "Comparing two unrelated concepts requires only factual recall of disconnected definitions (L1). No analysis (L4) is possible without a valid academic relationship between the concepts."
+    },
+    "corrected_question": "Compare TDMA and FDMA with respect to bandwidth utilization, synchronization requirements, and guard requirements. Tabulate your answer and analyze which technique is more suitable for satellite links carrying bursty traffic.",
+    "correction_reasoning": "TDMA and FDMA are both defined in Module 3. All comparison parameters (bandwidth utilization, synchronization, guard requirements, bursty traffic) are explicitly covered in academic_content. The verb Compare maps to L4. The (5+5) split matches professor style for comparison questions. 'Tabulate your answer' matches PROF_ECE_VTU_001 signature phrase."
+  }
+}
