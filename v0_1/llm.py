@@ -31,7 +31,7 @@ class RobustLLMCaller:
         self,
         primary_model:  Optional[str] = None,
         fallback_models: Optional[list[str]] = None,
-        timeout_sec:    int = 120,
+        timeout_sec:    int = 300,
         max_retries:    int = 2,
         ollama_url:     str = "http://localhost:11434",
     ):
@@ -75,7 +75,7 @@ class RobustLLMCaller:
                     return result
 
                 print(f"[LLM] {model} failed (attempt {attempt+1}/{self.max_retries})")
-                time.sleep(2 ** attempt)
+                time.sleep(1)
 
         self._consecutive_failures += 1
         if self._consecutive_failures >= self.MAX_CONSECUTIVE_FAILURES:
@@ -104,8 +104,16 @@ class RobustLLMCaller:
                         "messages": [{"role": "user", "content": prompt}],
                         "stream": False,
                         "options": {
-                            "num_predict": max_tokens,
-                            "temperature": 0.3,
+                            "num_predict":    min(max_tokens, 1024),
+                            "temperature":    0.1,
+                            "top_p":          0.9,
+                            "top_k":          40,
+                            "repeat_penalty": 1.1,
+                            "num_thread":     14,
+                            "num_batch":      512,
+                            "num_gpu":        1,
+                            "low_vram":       False,
+                            "f16_kv":         True,
                         },
                     },
                     timeout=timeout,
@@ -172,3 +180,4 @@ def get_llm(model: Optional[str] = None) -> AIONLLM:
     if _default_llm is None or (model and _default_llm.preferred_model != model):
         _default_llm = AIONLLM(model=model)
     return _default_llm
+

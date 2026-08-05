@@ -15,12 +15,13 @@ import time
 import traceback
 from pathlib import Path
 from datetime import datetime
+import requests
 
 # ── Path setup ────────────────────────────────────────────────
 ROOT = Path(__file__).parent.resolve()
 os.chdir(ROOT)
 sys.path.insert(0, str(ROOT))
-os.environ.setdefault("AION_MODEL", "qwen2.5:3b")
+os.environ.setdefault("AION_MODEL", "aion-exam")
 
 # ── Flask imports ─────────────────────────────────────────────
 try:
@@ -35,14 +36,16 @@ except ImportError:
 app = Flask(__name__)
 
 # ✅ PERMANENT FIX 1: Allow ALL origins, ALL methods, ALL headers
-CORS(
-    app,
-    origins      = "*",
-    allow_headers= ["*"],
-    methods      = ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    supports_credentials = False,
-    send_wildcard= True,
-)
+CORS(app, resources={
+    r"/api/*": {
+        "origins": [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+    }
+})
 
 # ✅ PERMANENT FIX 2: Force CORS headers on EVERY response
 @app.after_request
@@ -67,12 +70,37 @@ def handle_preflight():
         response.headers["Access-Control-Max-Age"]               = "86400"
         return response
 
-# ── Visual Assets Route ───────────────────────────────────────
+# ── API v1 Blueprint ──────────────────────────────────────────
 try:
-    from v0_1.visual import register_asset_routes
-    register_asset_routes(app)
+    from api.v1 import api_v1_bp
+    app.register_blueprint(api_v1_bp)
+    print("[API] Successfully registered /api/v1 adapter layer.")
 except Exception as e:
-    print(f"[ASSET_SERVER] Asset route registration skipped: {e}")
+    print(f"[API ERROR] Failed to register /api/v1 blueprint: {e}")
+
+
+@app.route("/api/v1", methods=["GET"])
+@app.route("/api/v1/", methods=["GET"])
+def api_v1_root():
+    return jsonify({
+        "name": "AION API Gateway",
+        "version": "v1.0",
+        "status": "online",
+        "documentation": "AION Intelligence & Backend REST API v1",
+        "workspaces": {
+            "health": "/api/v1/health",
+            "diagnostics": "/api/v1/diagnostics",
+            "dashboard": "/api/v1/dashboard/summary",
+            "uploads": "/api/v1/uploads",
+            "training": "/api/v1/training/analyze",
+            "question_forge": "/api/v1/questions/generate",
+            "paper_forge": "/api/v1/papers/generate",
+            "critic": "/api/v1/critic/evaluate",
+            "datasets": "/api/v1/datasets",
+            "models": "/api/v1/models",
+            "knowledge": "/api/v1/knowledge/subjects",
+        },
+    })
 
 # ── Storage ───────────────────────────────────────────────────
 UPLOAD_DIR = ROOT / "workspace" / "uploads"
@@ -91,7 +119,7 @@ def warmup_model():
     import time
     time.sleep(2)  # Let Flask start first
 
-    model = os.environ.get("AION_MODEL", "qwen2.5:3b")
+    model = os.environ.get("AION_MODEL", "aion-exam")
     print(f"[AION] Warming up '{model}'...", flush=True)
 
     try:
@@ -124,6 +152,15 @@ def warmup_model():
 # ─────────────────────────────────────────────────────────────
 # Health
 # ─────────────────────────────────────────────────────────────
+
+@app.route("/api/tags", methods=["GET"])
+def get_tags():
+    try:
+        r = requests.get(f"{OLLAMA_URL.rstrip('/')}/api/tags", timeout=3)
+        return jsonify(r.json() if r.status_code == 200 else {"models": []})
+    except Exception as e:
+        return jsonify({"models": [], "error": str(e)})
+
 
 @app.route("/api/health", methods=["GET"])
 def health():
@@ -580,6 +617,7 @@ if __name__ == "__main__":
     print(f"  Model : {os.environ.get('AION_MODEL', 'qwen2.5:3b')}")
     print("==================================================")
     print("  GET  /api/health")
+    print("  GET  /api/tags")
     print("  POST /api/upload")
     print("  GET  /api/files")
     print("  POST /api/generate/stream    (SSE)")
@@ -597,3 +635,4 @@ if __name__ == "__main__":
         debug    = False,
         threaded = True,
     )
+
