@@ -501,10 +501,153 @@ with get_db() as db:
     total_q = db.execute("SELECT COUNT(*) FROM questions").fetchone()[0]
 st.sidebar.metric("📚 Questions Learned", total_q)
 
-page = st.sidebar.radio("Navigate", ["📤 Upload & Learn", "📝 Generate VTU Paper", "🔍 Instant Search", "📊 Dashboard", "🎓 Train Model"])
+def generate_module_questions_simple(mod_num: int, concepts: List[str]) -> List[str]:
+    bloom_choices = ["remember", "understand", "apply", "analyze", "evaluate", "create"]
+    
+    q_num_1 = 2 * mod_num - 1
+    q_num_2 = 2 * mod_num
+    
+    # Q1
+    bloom_1a = random.choice(["remember", "understand"])
+    bloom_1b = random.choice(["apply", "analyze"])
+    q_1a = DynamicSynthesizer.generate_question(bloom_1a, concepts, 5)
+    q_1b = DynamicSynthesizer.generate_question(bloom_1b, concepts, 5)
+    
+    # Q2
+    bloom_2a = random.choice(["remember", "understand"])
+    bloom_2b = random.choice(["apply", "analyze"])
+    q_2a = DynamicSynthesizer.generate_question(bloom_2a, concepts, 5)
+    q_2b = DynamicSynthesizer.generate_question(bloom_2b, concepts, 5)
+    
+    # Format according to continuous VTU layout
+    q_block = []
+    q_block.append(f"Q.{q_num_1}  a) {q_1a} [5 Marks] ({BLOOM_MAP.get(bloom_1a, 'L2')})")
+    q_block.append(f"       b) {q_1b} [5 Marks] ({BLOOM_MAP.get(bloom_1b, 'L3')})")
+    q_block.append(f"                  OR")
+    q_block.append(f"Q.{q_num_2}  a) {q_2a} [5 Marks] ({BLOOM_MAP.get(bloom_2a, 'L2')})")
+    q_block.append(f"       b) {q_2b} [5 Marks] ({BLOOM_MAP.get(bloom_2b, 'L3')})")
+    
+    return q_block
+
+page = st.sidebar.radio("Navigate", ["✨ Simple Generation Mode", "📤 Upload & Learn", "📝 Generate VTU Paper", "🔍 Instant Search", "📊 Dashboard", "🎓 Train Model"])
+
+# ── SIMPLE GENERATION MODE ──────────────────────────────────────────────────
+if page == "✨ Simple Generation Mode":
+    st.title("✨ Simple Question Paper Generation Mode")
+    st.markdown("Generate a high-quality, continuous, module-by-module VTU question paper by sequentially uploading materials.")
+    
+    # Initialize states
+    if "simple_step" not in st.session_state:
+        st.session_state.simple_step = 1
+    if "simple_paper_questions" not in st.session_state:
+        st.session_state.simple_paper_questions = {}
+    if "simple_subject_name" not in st.session_state:
+        st.session_state.simple_subject_name = "AI & Machine Learning"
+    if "current_gen_questions" not in st.session_state:
+        st.session_state.current_gen_questions = None
+
+    # Reset button
+    if st.sidebar.button("🔄 Reset Simple Mode", type="secondary", use_container_width=True):
+        st.session_state.simple_step = 1
+        st.session_state.simple_paper_questions = {}
+        st.session_state.current_gen_questions = None
+        st.rerun()
+
+    # If all 5 modules are complete, show the final compiled paper
+    if st.session_state.simple_step > 5:
+        st.balloons()
+        st.success("🎉 All 5 Modules Completed! Here is your compiled 100-Mark Question Paper in strict continuity:")
+        
+        final_paper = [
+            "VISVESVARAYA TECHNOLOGICAL UNIVERSITY",
+            "Model Question Paper (Continuous Simple Generation Mode)",
+            f"Subject: {st.session_state.simple_subject_name.upper()}",
+            "Max Marks: 100",
+            "Time: 3 Hours",
+            "Note: Answer FIVE full questions, selecting ONE full question from each module.",
+            "="*70
+        ]
+        
+        for m in range(1, 6):
+            final_paper.append(f"\nMODULE - {m}\n")
+            final_paper.extend(st.session_state.simple_paper_questions[m])
+            
+        final_paper.append("\n" + "="*70)
+        final_paper_str = "\n".join(final_paper)
+        
+        st.code(final_paper_str, language="text")
+        st.download_button("📥 Download Compiled Paper (.txt)", final_paper_str, f"VTU_{st.session_state.simple_subject_name.replace(' ', '_')}_Simple_Paper.txt", use_container_width=True)
+        
+        if st.button("🆕 Start a New Question Paper", type="primary", use_container_width=True):
+            st.session_state.simple_step = 1
+            st.session_state.simple_paper_questions = {}
+            st.session_state.current_gen_questions = None
+            st.rerun()
+            
+        st.stop()
+
+    current_module = st.session_state.simple_step
+    
+    st.subheader(f"Step {current_module} of 5: Generate Questions for Module {current_module}")
+    st.info(f"Please add reference materials for **Module {current_module}** to begin.")
+    
+    # Form fields
+    if current_module == 1:
+        st.session_state.simple_subject_name = st.text_input("Enter Subject Name / Code:", value=st.session_state.simple_subject_name)
+        
+    material_type = st.selectbox("Select Material Type:", ["Notes", "Textbook"])
+    
+    uploaded_material = st.file_uploader(f"Upload Module {current_module} {material_type} (.txt):", type=["txt"], key=f"uploader_{current_module}")
+    pasted_material = st.text_area(f"Or paste Module {current_module} {material_type} text below:", height=200, key=f"pasted_{current_module}")
+    
+    if st.button(f"🧠 Generate Module {current_module} Questions", type="primary", use_container_width=True):
+        raw_material = uploaded_material.read().decode("utf-8", errors="ignore") if uploaded_material else pasted_material
+        if not raw_material.strip():
+            st.error("Please upload or paste some material to extract concepts!")
+        else:
+            with st.spinner("Extracting concepts and generating continuous questions..."):
+                # Extract concepts
+                concepts = extract_technical_concepts_legacy([raw_material])
+                if not concepts:
+                    concepts = ["System Design", "Module Architecture", "Data Flow", "Optimized Integration"]
+                
+                # Generate
+                q_block = generate_module_questions_simple(current_module, concepts)
+                st.session_state.current_gen_questions = q_block
+                
+    if st.session_state.current_gen_questions:
+        st.subheader("📋 Generated Questions for Your Review:")
+        q_text_block = "\n".join(st.session_state.current_gen_questions)
+        st.code(q_text_block, language="text")
+        
+        # Approve questions and advance
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ Approve & Proceed to Next Module", type="primary", use_container_width=True):
+                st.session_state.simple_paper_questions[current_module] = st.session_state.current_gen_questions
+                st.session_state.current_gen_questions = None
+                st.session_state.simple_step += 1
+                st.success(f"Module {current_module} questions saved in continuity!")
+                time.sleep(1)
+                st.rerun()
+        with col2:
+            if st.button("🔄 Regenerate Questions", type="secondary", use_container_width=True):
+                st.session_state.current_gen_questions = None
+                st.rerun()
+                
+    # Sidebar progress
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📍 Generation Progress")
+    for m in range(1, 6):
+        if m < st.session_state.simple_step:
+            st.sidebar.write(f"Module {m}: ✅ Generated & Approved")
+        elif m == st.session_state.simple_step:
+            st.sidebar.write(f"Module {m}: 📍 Active Step")
+        else:
+            st.sidebar.write(f"Module {m}: ⏳ Pending")
 
 # ── UPLOAD & LEARN ──────────────────────────────────────────────────────────
-if page == "📤 Upload & Learn":
+elif page == "📤 Upload & Learn":
     st.title("📤 Upload VTU Question Paper")
     col1, col2 = st.columns([3, 1])
     with col2:
