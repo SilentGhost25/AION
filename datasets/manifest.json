@@ -2,39 +2,39 @@
   "dataset_name": "AION Academic Reasoning Dataset",
   "version": "1.0",
   "schema_version": "1.0",
-  "created_at": "2026-08-04T15:55:04.730510+00:00",
+  "created_at": "2026-08-05T03:32:24.502021+00:00",
   "statistics": {
-    "total_samples": 2,
+    "total_samples": 4,
     "by_task_type": {
       "NEGATIVE_CORRECTION": 1,
-      "QUESTION_GENERATION": 1
+      "QUESTION_GENERATION": 3
     },
     "by_exam_type": {
-      "IA": 2
+      "IA": 4
     },
     "by_department": {
-      "ECE": 2
+      "ECE": 4
     },
     "by_bloom_level": {
       "L1": 0,
-      "L2": 0,
-      "L3": 2,
+      "L2": 1,
+      "L3": 3,
       "L4": 0,
       "L5": 0,
       "L6": 0
     },
     "by_review_status": {
-      "approved": 2,
+      "approved": 4,
       "pending": 0,
       "rejected": 0,
       "flagged": 0
     },
-    "average_critic_score": 0.667,
+    "average_critic_score": 0.7835,
     "negative_samples": 1
   },
   "splits": {
     "train": {
-      "samples": 1,
+      "samples": 3,
       "path": "exports/train.jsonl"
     },
     "val": {
@@ -47,7 +47,7 @@
     }
   },
   "checksums": {
-    "train.jsonl": "2c93aea4da67b219d551fc3c0aa9a69cca83ad56eb3bd9e05887c306a2f646cf",
+    "train.jsonl": "c3be2829a726743a2c7c7497fa510d81a37c1c3a44f17c380ddbdaea34375392",
     "val.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "test.jsonl": "d1b0c7773796911ca4c5803e686fca882c7caacecda5ed0cecca35b74330a5f3"
   },
