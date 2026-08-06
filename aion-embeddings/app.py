@@ -113,6 +113,57 @@ def detect_bloom(text: str) -> str:
         if regex.search(text): return level
     return "understand"
 
+def extract_text_from_uploaded_file(uploaded_file, pasted_text: str = "") -> str:
+    """Robust PDF and Text extractor supporting .pdf, .txt, .md for Streamlit uploaders."""
+    if uploaded_file is not None:
+        filename = uploaded_file.name.lower()
+        file_bytes = uploaded_file.read()
+        
+        if filename.endswith(".pdf"):
+            # 1. Primary: PyMuPDF (fitz)
+            try:
+                import fitz
+                doc = fitz.open(stream=file_bytes, filetype="pdf")
+                pages = [page.get_text() for page in doc]
+                text = "\n\n".join(pages).strip()
+                if text:
+                    return text
+            except Exception as e:
+                print(f"[PDF Extractor] PyMuPDF failed: {e}")
+
+            # 2. Secondary: PyPDF2
+            try:
+                import io
+                from PyPDF2 import PdfReader
+                reader = PdfReader(io.BytesIO(file_bytes))
+                pages = [page.extract_text() for page in reader.pages if page.extract_text()]
+                text = "\n\n".join(pages).strip()
+                if text:
+                    return text
+            except Exception as e:
+                print(f"[PDF Extractor] PyPDF2 failed: {e}")
+
+            # 3. Fallback: Native AION Document Parser
+            try:
+                import tempfile
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                    tmp.write(file_bytes)
+                    tmp_path = tmp.name
+                from v0_1.document_parser import parse_document
+                parsed = parse_document(tmp_path)
+                os.unlink(tmp_path)
+                return parsed.full_text_with_tables()
+            except Exception as e:
+                print(f"[PDF Extractor] Fallback parser failed: {e}")
+                
+        else:
+            try:
+                return file_bytes.decode("utf-8")
+            except Exception:
+                return file_bytes.decode("latin-1", errors="ignore")
+                
+    return pasted_text.strip()
+
 def parse_questions(text: str, subject: str = "general") -> List[Dict]:
     questions = []
     current_module = "1"
@@ -308,92 +359,167 @@ class SemanticRetriever:
                 
         return list(concepts)
 
-def extract_technical_concepts_legacy(texts: List[str]) -> List[str]:
-    """Fallback NLP-based concept extraction that doesn't rely on capitalization."""
-    stop_words = {"the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-                  "have", "has", "had", "do", "does", "did", "will", "would", "could",
-                  "should", "may", "might", "shall", "can", "of", "in", "to", "for",
-                  "with", "on", "at", "from", "by", "about", "as", "into", "through",
-                  "during", "before", "after", "and", "but", "or", "nor", "not", "so",
-                  "yet", "both", "either", "neither", "each", "every", "all", "any",
-                  "few", "more", "most", "other", "some", "such", "no", "only", "own",
-                  "same", "than", "too", "very", "just", "because", "explain", "write",
-                  "short", "note", "between", "differentiate", "derive", "expression",
-                  "what", "how", "why", "when", "where", "which", "who", "whom", "its", "following"}
-    
-    # Fallback concepts if DB is empty
-    concepts = {"Virtual Memory", "Paging", "Segmentation", "Deadlock", "CPU Scheduling",
-                "Normalization", "SQL", "Transaction Management", "OSI Model", "TCP/IP",
-                "Neural Networks", "Backpropagation", "Gradient Descent", "Binary Trees",
-                "Graph Traversal", "Sorting Algorithms", "Dynamic Programming", "Process Control Block"}
+ACADEMIC_TERMS_CATALOG = [
+    "Turing Test Approach", "Intelligent Agents", "Rationality & Agent Performance", "Environment & Actuators",
+    "State Space Search", "Heuristic Search Strategies", "A* Search Algorithm", "Knowledge Representation",
+    "First Order Predicate Logic", "Semaphores & Synchronization", "CPU Scheduling Algorithms", "Virtual Memory Management",
+    "Deadlock Prevention & Avoidance", "Boyce-Codd Normal Form (BCNF)", "Time Division Multiple Access (TDMA)",
+    "Convolutional Neural Networks", "Process Control Block (PCB)", "OSI Reference Model", "TCP/IP Architecture",
+    "Binary Search Trees", "Gradient Descent", "Backpropagation Algorithm", "ARM Cortex Microcontrollers",
+    "Relational Algebra", "Database Normalization", "Subnet Masking & CIDR", "Satellite Communication Systems",
+    "TDMA Frame Structure", "FDMA & CDMA Techniques", "Interrupt Vector Table", "Direct Memory Access (DMA)",
+    "Page Replacement Algorithms", "Cache Coherence Protocols", "Pipeline Hazards & Resolution",
+    "Instruction Set Architecture (ISA)", "Convolutional & Recurrent Layers", "Transformers & Attention Mechanism",
+    "Constraint Satisfaction Problems (CSP)", "Minimax Algorithm & Alpha-Beta Pruning"
+]
 
-    for text in texts:
-        clean = re.sub(r'[^\w\s]', ' ', text.lower())
-        words = clean.split()
-        # Extract 1, 2, and 3-word technical phrases
-        for n in [1, 2, 3]:
-            for i in range(len(words) - n + 1):
-                gram = words[i:i+n]
-                if not all(w in stop_words for w in gram):
-                    concept = " ".join(gram).title()
-                    if len(concept) > 3 and not concept.startswith("And ") and not concept.endswith(" And"):
-                        concepts.add(concept)
-    return list(concepts)
+COMMON_ENGLISH_STOPWORDS = {
+    "a", "about", "above", "across", "after", "afterwards", "again", "against", "all", "almost",
+    "alone", "along", "already", "also", "although", "always", "am", "among", "amongst", "amoungst",
+    "amount", "an", "and", "another", "any", "anyhow", "anyone", "anything", "anyway", "anywhere",
+    "are", "around", "as", "at", "back", "be", "became", "because", "become", "becomes",
+    "becoming", "been", "before", "beforehand", "behind", "being", "below", "beside", "besides",
+    "between", "beyond", "bill", "both", "bottom", "but", "by", "call", "can", "cannot",
+    "cant", "co", "con", "could", "couldnt", "cry", "de", "describe", "detail", "do", "does",
+    "done", "down", "due", "during", "each", "eg", "eight", "either", "eleven", "else",
+    "elsewhere", "empty", "enough", "etc", "even", "ever", "every", "everyone", "everything",
+    "everywhere", "except", "few", "fifteen", "fify", "fill", "find", "fire", "first", "five",
+    "for", "former", "formerly", "forty", "found", "four", "from", "front", "full", "further",
+    "get", "give", "go", "had", "has", "hasnt", "have", "he", "hence", "her", "here",
+    "hereafter", "hereby", "herein", "hereupon", "hers", "herself", "him", "himself", "his",
+    "how", "however", "hundred", "i", "ie", "if", "in", "inc", "indeed", "interest", "into",
+    "is", "it", "its", "itself", "keep", "key", "last", "latter", "latterly", "least", "less",
+    "like", "limit", "line", "list", "ltd", "made", "many", "may", "me", "meanwhile", "might",
+    "mill", "mine", "more", "moreover", "most", "mostly", "move", "much", "must", "my", "myself",
+    "name", "namely", "neither", "never", "nevertheless", "next", "nine", "no", "nobody", "none",
+    "noone", "nor", "not", "nothing", "now", "nowhere", "of", "off", "often", "on", "once",
+    "one", "only", "onto", "or", "other", "others", "otherwise", "our", "ours", "ourselves",
+    "out", "over", "own", "part", "per", "perform", "perhaps", "please", "put", "rather", "re",
+    "same", "see", "seem", "seemed", "seeming", "seems", "serious", "several", "she", "should",
+    "show", "side", "since", "sincere", "six", "sixty", "so", "some", "somehow", "someone",
+    "something", "sometime", "sometimes", "somewhere", "state", "still", "such", "system", "take",
+    "ten", "than", "that", "the", "their", "them", "themselves", "then", "thence", "there",
+    "thereafter", "thereby", "therefore", "therein", "thereupon", "these", "they", "thick",
+    "thin", "third", "this", "those", "though", "three", "through", "throughout", "thru", "thus",
+    "to", "together", "too", "top", "toward", "towards", "twelve", "twenty", "two", "un", "under",
+    "until", "up", "upon", "us", "use", "used", "using", "various", "very", "via", "was",
+    "we", "well", "were", "what", "whatever", "when", "whence", "whenever", "where", "whereafter",
+    "whereas", "whereby", "wherein", "whereupon", "wherever", "whether", "which", "while", "whither",
+    "who", "whoever", "whole", "whom", "whose", "why", "will", "with", "within", "without", "would",
+    "yet", "you", "your", "yours", "yourself", "yourselves"
+}
+
+def extract_technical_concepts_legacy(texts: List[str]) -> List[str]:
+    """Strict academic concept extraction grounded exclusively in catalog and real technical terms."""
+    combined_text = " ".join(texts).lower()
+    matched = []
+
+    # 1. Direct match against trusted academic terms
+    for term in ACADEMIC_TERMS_CATALOG:
+        if any(word.lower() in combined_text for word in term.split() if len(word) > 4):
+            matched.append(term)
+
+    # De-duplicate while preserving order
+    seen = set()
+    unique_matched = []
+    for m in matched:
+        if m not in seen:
+            seen.add(m)
+            unique_matched.append(m)
+
+    if len(unique_matched) >= 3:
+        return unique_matched[:6]
+
+    # Fill remaining from catalog if less than 4 terms
+    for fallback_term in ACADEMIC_TERMS_CATALOG:
+        if fallback_term not in unique_matched:
+            unique_matched.append(fallback_term)
+        if len(unique_matched) >= 6:
+            break
+
+    return unique_matched
+
+def query_ollama_question(prompt_text: str, model_name: str = "aion") -> Optional[str]:
+    """Directly query local Ollama LLM for authentic question generation."""
+    try:
+        import requests
+        r = requests.post(
+            "http://127.0.0.1:11434/api/generate",
+            json={
+                "model": model_name,
+                "prompt": prompt_text,
+                "stream": False,
+                "options": {
+                    "num_predict": 128,
+                    "temperature": 0.2,
+                    "num_thread": 14
+                }
+            },
+            timeout=15
+        )
+        if r.status_code == 200:
+            resp = r.json().get("response", "").strip()
+            if resp and len(resp) > 10:
+                cleaned = re.sub(r'^(?:Question:\s*|Q\d+[\.\)]\s*)', '', resp, flags=re.IGNORECASE).strip()
+                return cleaned
+    except Exception:
+        pass
+    return None
 
 class DynamicSynthesizer:
-    """100% Local Combinatorial NLP Engine for truly dynamic questions."""
-    
+    """Combines LLM generation with grounded template fallbacks."""
+
     BLOOM_VERBS = {
         "remember": ["Define", "State", "List the key properties of", "Describe the basic structure of", "What is"],
-        "understand": ["Explain the working of", "Discuss the architecture of", "Illustrate the concept of", "Summarize the role of", "Write a detailed note on", "Elaborate on"],
-        "apply": ["Demonstrate how to use", "Apply the principles of {C1} to solve a problem involving {C2}", "Show the execution of", "Develop an algorithm using", "How would you implement"],
-        "analyze": ["Differentiate between {C1} and {C2}", "Compare the performance of {C1} against {C2}", "Analyze the impact of {C1} on", "Examine the core components of", "Outline the critical differences between {C1} and {C2}"],
-        "evaluate": ["Evaluate the efficiency of", "Critique the use of", "Justify the need for", "Assess the advantages and limitations of"],
-        "create": ["Design a system using", "Formulate a strategy for", "Propose a solution utilizing", "Construct a model for"]
+        "understand": ["Explain the working of", "Discuss the architecture of", "Illustrate the concept of", "Summarize the role of", "Elaborate on"],
+        "apply": ["Demonstrate how to use", "Apply the principles of {C1} to solve a problem involving {C2}", "Show the execution of", "How would you implement"],
+        "analyze": ["Differentiate between {C1} and {C2}", "Compare the performance of {C1} against {C2}", "Examine the core components of", "Outline the critical differences between {C1} and {C2}"],
+        "evaluate": ["Evaluate the efficiency of", "Justify the need for", "Assess the advantages and limitations of"],
+        "create": ["Design a system using", "Formulate a strategy for", "Propose a solution utilizing"]
     }
-    
+
     SCENARIOS = [
         "in a modern enterprise environment.",
         "for a high-performance system.",
         "with a neat block diagram.",
         "using a real-world example.",
         "and mention its primary applications.",
-        "highlighting its key advantages.",
-        "with appropriate mathematical formulations.",
-        "and discuss its significance in this domain.",
-        "under worst-case scenarios.",
-        "step-by-step."
+        "highlighting its key advantages."
     ]
 
     @staticmethod
     def generate_question(bloom_level: str, concepts: List[str], marks: int) -> str:
-        if not concepts:
-            return f"Explain the core concepts of this module for {marks} marks."
-            
+        concept = random.choice(concepts) if concepts else "System Architecture"
+
+        # Try LLM generation first (aion model)
+        llm_prompt = (
+            f"Generate ONE academic VTU exam question worth {marks} marks for Bloom Level {bloom_level.upper()}.\n"
+            f"Concept: {concept}\n"
+            f"Rules: Output ONLY the question text. High academic standard. No conversational filler.\n"
+            f"Question:"
+        )
+        llm_q = query_ollama_question(llm_prompt, "aion")
+        if llm_q:
+            return llm_q
+
+        # Fallback to grounded synthesizer
         verbs = DynamicSynthesizer.BLOOM_VERBS.get(bloom_level.lower(), DynamicSynthesizer.BLOOM_VERBS["understand"])
         verb_phrase = random.choice(verbs)
-        
-        # Select concepts safely
-        c1 = random.choice(concepts)
-        c2 = random.choice(concepts)
-        while c2 == c1 and len(concepts) > 1:
-            c2 = random.choice(concepts)
-            
-        # Handle explicitly marked concept slots
+
+        c1 = concept
+        c2 = random.choice(concepts) if len(concepts) > 1 else "Data Processing"
+
         if "{C1}" in verb_phrase:
             base = verb_phrase.replace("{C1}", c1).replace("{C2}", c2)
         else:
             base = f"{verb_phrase} {c1}"
-                
-        # Add dynamic scenario/context
-        if marks >= 6 and random.random() > 0.4:
+
+        if marks >= 6:
             base += f" {random.choice(DynamicSynthesizer.SCENARIOS)}"
         else:
             base += "."
-            
-        # Fix grammar capitalization
-        base = base[0].upper() + base[1:]
-        return base
+
+        return base[0].upper() + base[1:]
 
 def generate_vtu_paper(subject: str, module: str = "All") -> str:
     """Generates a strict VTU CBCS 100-Mark Model Question Paper."""
@@ -597,11 +723,11 @@ if page == "✨ Simple Generation Mode":
         
     material_type = st.selectbox("Select Material Type:", ["Notes", "Textbook"])
     
-    uploaded_material = st.file_uploader(f"Upload Module {current_module} {material_type} (.txt):", type=["txt"], key=f"uploader_{current_module}")
+    uploaded_material = st.file_uploader(f"Upload Module {current_module} {material_type} (.pdf, .txt, .md):", type=["pdf", "txt", "md"], key=f"uploader_{current_module}")
     pasted_material = st.text_area(f"Or paste Module {current_module} {material_type} text below:", height=200, key=f"pasted_{current_module}")
     
     if st.button(f"🧠 Generate Module {current_module} Questions", type="primary", use_container_width=True):
-        raw_material = uploaded_material.read().decode("utf-8", errors="ignore") if uploaded_material else pasted_material
+        raw_material = extract_text_from_uploaded_file(uploaded_material, pasted_material)
         if not raw_material.strip():
             st.error("Please upload or paste some material to extract concepts!")
         else:
@@ -654,11 +780,11 @@ elif page == "📤 Upload & Learn":
         subject = st.selectbox("Subject", ["general", "os", "dbms", "cn", "ai", "dsa", "math"])
         auto_train = st.checkbox("Auto-train (Fast)", value=True)
     with col1:
-        uploaded_file = st.file_uploader("Upload .txt", type=["txt"])
+        uploaded_file = st.file_uploader("Upload Document (.pdf, .txt, .md)", type=["pdf", "txt", "md"])
         pasted_text = st.text_area("Or paste text:", height=200)
 
     if st.button("🚀 Process Instantly", type="primary", use_container_width=True):
-        raw_text = uploaded_file.read().decode("utf-8", errors="ignore") if uploaded_file else pasted_text
+        raw_text = extract_text_from_uploaded_file(uploaded_file, pasted_text)
         if not raw_text.strip(): st.error("No text provided!"); st.stop()
         
         with get_db() as db:

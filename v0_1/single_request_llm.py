@@ -26,7 +26,7 @@ class SingleRequestLLM:
     Production model only.
     """
 
-    def __init__(self, model: str | None = None, base_url: str = "http://localhost:11434"):
+    def __init__(self, model: str = "qwen2.5:1.5b", base_url: str = "http://127.0.0.1:11434"):
         self.base_url = base_url.rstrip("/")
         self.model = model or os.environ.get("AION_MODEL", PRODUCTION_MODEL)
         self._lock = threading.Lock()
@@ -131,4 +131,5 @@ class SingleRequestLLM:
             pass
 
 
-llm = SingleRequestLLM(model=PRODUCTION_MODEL)
+llm = SingleRequestLLM()
+

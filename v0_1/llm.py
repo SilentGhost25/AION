@@ -41,26 +41,12 @@ class RobustLLMCaller:
         self,
         primary_model:  Optional[str] = None,
         fallback_models: Optional[list[str]] = None,
-        timeout_sec:    int = 300,
+        timeout_sec:    int = 180,
         max_retries:    int = 2,
-        ollama_url:     str = "http://localhost:11434",
-        allow_fallback: bool = False,
+        ollama_url:     str = "http://127.0.0.1:11434",
     ):
-        # Enforce production model as single source of truth
-        requested = primary_model or os.environ.get("AION_MODEL", PRODUCTION_MODEL)
-        if requested != PRODUCTION_MODEL:
-            # Fail loud — do not silently switch. Caller must explicitly allow fallback.
-            if not allow_fallback:
-                print(f"[LLM] WARNING: Requested model '{requested}' differs from production '{PRODUCTION_MODEL}'. "
-                      f"Using production model. Pass allow_fallback=True to override.")
-                requested = PRODUCTION_MODEL
-        self.primary_model  = get_production_model() if requested == PRODUCTION_MODEL else requested
-        # By default NO fallback. Silent downgrade is disabled per AION Development Context.
-        if fallback_models is None:
-            self.fallback_models = []  # No silent fallback
-        else:
-            self.fallback_models = [m for m in fallback_models if m != self.primary_model]
-        self.allow_fallback = allow_fallback
+        self.primary_model  = primary_model or os.environ.get("AION_MODEL", "qwen2.5:3b")
+        self.fallback_models = []
         self.timeout_sec    = timeout_sec
         self.max_retries    = max_retries
         self.ollama_url     = ollama_url.rstrip("/")
@@ -127,16 +113,13 @@ class RobustLLMCaller:
                         "messages": [{"role": "user", "content": prompt}],
                         "stream": False,
                         "options": {
-                            "num_predict":    min(max_tokens, 1024),
-                            "temperature":    0.3,
+                            "num_predict":    min(max_tokens, 350),
+                            "temperature":    0.1,
                             "top_p":          0.9,
                             "top_k":          40,
                             "repeat_penalty": 1.1,
                             "num_thread":     14,
                             "num_batch":      512,
-                            "num_gpu":        1,
-                            "low_vram":       False,
-                            "f16_kv":         True,
                         },
                     },
                     timeout=timeout,
@@ -151,8 +134,8 @@ class RobustLLMCaller:
                     print(f"[LLM] HTTP {r.status_code}: {r.text[:200]}")
                     result_queue.put(None)
 
-            except requests.Timeout:
-                print(f"[LLM] {model} timed out after {timeout}s")
+            except requests.Timeout as e:
+                print(f"[LLM] {model} timed out after {timeout}s: {e}")
                 result_queue.put(None)
             except Exception as e:
                 print(f"[LLM] {model} error: {e}")
@@ -175,12 +158,8 @@ class RobustLLMCaller:
 class AIONLLM:
     """Wrapper around RobustLLMCaller providing generate() interface."""
 
-    def __init__(self, model: Optional[str] = None, host: str = "http://localhost:11434"):
-        # Enforce centralized production model
-        requested = model or os.environ.get("AION_MODEL", PRODUCTION_MODEL)
-        self.preferred_model = get_production_model() if requested in (None, PRODUCTION_MODEL) else requested
-        if self.preferred_model != PRODUCTION_MODEL:
-            print(f"[LLM] AIONLLM using requested '{self.preferred_model}' (production is '{PRODUCTION_MODEL}')")
+    def __init__(self, model: Optional[str] = None, host: str = "http://127.0.0.1:11434"):
+        self.preferred_model = model or os.environ.get("AION_MODEL", "qwen2.5:7b")
         self.caller = RobustLLMCaller(primary_model=self.preferred_model, ollama_url=host)
 
     def generate(
@@ -208,3 +187,5 @@ def get_llm(model: Optional[str] = None) -> AIONLLM:
     if _default_llm is None or (model and _default_llm.preferred_model != model):
         _default_llm = AIONLLM(model=model)
     return _default_llm
+
+
