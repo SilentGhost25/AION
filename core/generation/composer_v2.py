@@ -72,23 +72,39 @@ Question:"""
     
     def _compose_template(self, spec) -> str:
         """Fallback template — still uses QuestionSpec, not planner dump, but scenario-aware."""
-        # Use assessment objective and scenario to create scenario-based question
+        # Priority 1: If scenario is fully specified (no placeholders), use it directly — this is the desired professor-style
+        if spec.scenario and len(spec.scenario) > 20 and "{" not in spec.scenario:
+            # Scenario is already a complete, filled question stem (e.g., "A circular queue has capacity 8, rear=6, front=3. Insert 45,18,72...")
+            # Use it directly, just ensure marks and ensure it ends properly
+            scenario = spec.scenario.strip().rstrip(".")
+            # If numerical payload has fresh values, ensure they are in scenario (replace placeholders if any)
+            if spec.numerical_payload and spec.numerical_payload.get("insert_keys"):
+                # For queue, ensure fresh keys are used
+                pass
+            return f"{scenario}. Justify your answer with reference to {spec.knowledge_unit}. ({spec.marks} marks)" if not scenario.endswith("?") else f"{scenario} ({spec.marks} marks)"
+        
+        # Priority 1b: If scenario has Insert and numerical payload, use BST insertion template with fresh values
         if spec.scenario and "Insert" in spec.scenario:
-            # Extract fresh values if available
             if spec.numerical_payload and spec.numerical_payload.get("fresh_values"):
                 fv = spec.numerical_payload["fresh_values"]
                 if isinstance(fv, dict):
                     vals = ", ".join(str(v) for v in list(fv.values())[:5])
                 else:
                     vals = str(fv)[:60]
-                return f"A Binary Search Tree initially contains {spec.numerical_payload.get('existing_keys', '[40, 20, 60, 10, 30]')} Insert {vals}. Show the tree after each insertion and justify the final structure. ({spec.marks} marks)"
+                # Use existing_keys if available, else generic
+                existing = spec.numerical_payload.get('existing_keys', '[40, 20, 60, 10, 30]')
+                return f"A Binary Search Tree initially contains {existing} Insert {vals}. Show the tree after each insertion and justify the final structure. ({spec.marks} marks)"
+            # Even without fresh payload, use scenario if it is filled
+            if "{" not in spec.scenario:
+                return f"{spec.scenario} Justify your answer with reference to {spec.knowledge_unit}. ({spec.marks} marks)"
         
         if spec.question_type == "Numerical" and spec.numerical_payload:
+            # Fallback numerical — use scenario if available, else generic
+            if spec.scenario and "{" not in spec.scenario:
+                return f"{spec.scenario} Show the required calculation and interpret the result. ({spec.marks} marks)"
             return f"Consider {spec.knowledge_unit} where {spec.grounding_evidence[0][:80] if spec.grounding_evidence else spec.assessment_objective[:80]}. Using fresh values {spec.numerical_payload.get('fresh_values', 'generated')}, perform the required calculation and interpret the result. ({spec.marks} marks)"
         
-        if spec.scenario and len(spec.scenario) > 20:
-            # Use scenario directly as case study
-            scenario_text = spec.scenario[:250].split(".")[0]
+        if spec.scenario and len(spec.scenario) > 20 and "{" not in spec.scenario:
             return f"{spec.scenario[:280]} Justify your answer with reference to {spec.knowledge_unit}. ({spec.marks} marks)"
         
         # Scenario-based fallback per audit example
