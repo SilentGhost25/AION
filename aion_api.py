@@ -21,7 +21,12 @@ import requests
 ROOT = Path(__file__).parent.resolve()
 os.chdir(ROOT)
 sys.path.insert(0, str(ROOT))
-os.environ.setdefault("AION_MODEL", "aion-exam")
+# Production model — single source of truth
+try:
+    from core.config.production_model import PRODUCTION_MODEL
+except ImportError:
+    PRODUCTION_MODEL = "qwen2.5:7b"
+os.environ.setdefault("AION_MODEL", PRODUCTION_MODEL)
 
 # ── Flask imports ─────────────────────────────────────────────
 try:
@@ -119,7 +124,11 @@ def warmup_model():
     import time
     time.sleep(2)  # Let Flask start first
 
-    model = os.environ.get("AION_MODEL", "aion-exam")
+    try:
+        from core.config.production_model import get_production_model
+        model = get_production_model()
+    except ImportError:
+        model = os.environ.get("AION_MODEL", "qwen2.5:7b")
     print(f"[AION] Warming up '{model}'...", flush=True)
 
     try:

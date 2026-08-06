@@ -80,6 +80,14 @@ class ConceptValidator:
             reasons.append(f"{url_count} URLs — web tutorial noise")
             score -= 0.30
 
+        # Check 6: Header/section title contamination (MODULE 5, etc.)
+        is_header = self._is_header_concept(concept)
+        checks["is_header"] = is_header
+        if is_header:
+            reasons.append("header/section title, not concept")
+            score -= 0.50
+            is_noise = True
+
         # Final
         score = max(0.05, min(0.98, round(score, 2)))
         is_valid = (not is_noise) and score >= self.min_confidence and not reasons or score >= 0.55
@@ -140,3 +148,20 @@ class ConceptValidator:
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
         toc_like = sum(1 for ln in lines if re.search(r"\.{3,}\s*\d+\s*$", ln) or re.search(r"^(chapter|unit|module)\s+\d+\s*$", ln, re.I))
         return toc_like >= max(2, len(lines) // 3) and len(lines) >= 4
+
+    def _is_header_concept(self, concept: ExtractedConcept) -> bool:
+        name = concept.concept_name.strip()
+        evidence = concept.supporting_evidence.strip()
+        # Name is just MODULE/CHAPTER/UNIT header
+        if re.match(r"^\s*(MODULE|CHAPTER|UNIT|SECTION)\s*\d+.*", name, re.I):
+            # Check if evidence is short or just header + section numbers
+            wc = len(evidence.split())
+            if wc < 80 or re.match(r"^\s*MODULE\s*\d+", evidence, re.I):
+                return True
+        # Evidence is mostly section numbers
+        if re.match(r"^\s*MODULE\s*\d+\s*[–\-:]", evidence, re.I) and len(evidence.split()) < 100:
+            return True
+        # Concept name is very short header-like and evidence lacks definition signal
+        if len(name.split()) <= 4 and name.isupper() and len(evidence.split()) < 60:
+            return True
+        return False

@@ -128,17 +128,18 @@ class AcademicSemanticsVerifier:
                         f"Hallucination: '{forbidden}' in question not grounded in evidence — {rule['reason']}"
                     )
 
-        # 2. Domain lexicon contamination
-        # Detect domain of evidence
+        # 2. Domain lexicon contamination — use word boundaries, whitelist scenario terms
+        scenario_whitelist = {"vehicle", "technician", "student", "scenario", "case", "study", "diagnostic", "diagnosis", "probable", "cause", "sequence", "justify", "evaluate", "identify"}
         evidence_domain = self._detect_domain(ev_low)
         question_domains = self._detect_domains_in_text(q_low)
         for q_domain in question_domains:
             if q_domain != evidence_domain and evidence_domain != "unknown" and q_domain != "unknown":
-                # Check if lexicon terms from q_domain appear in question but NOT in evidence
                 lex = self.DOMAIN_LEXICONS.get(q_domain, set())
                 for term in lex:
-                    if term.lower() in q_low and term.lower() not in ev_low:
-                        # Only violation if evidence domain lexicon does NOT alsocontain term
+                    if term.lower() in scenario_whitelist:
+                        continue
+                    # Use word boundary to avoid substring false positives (e.g., "osi" inside "diagnosis")
+                    if re.search(r"\b" + re.escape(term.lower()) + r"\b", q_low) and not re.search(r"\b" + re.escape(term.lower()) + r"\b", ev_low):
                         ev_lex = self.DOMAIN_LEXICONS.get(evidence_domain, set())
                         if term.lower() not in ev_lex:
                             warnings.append(
@@ -167,14 +168,17 @@ class AcademicSemanticsVerifier:
             if coverage < 0.4:
                 violations.append(f"Low grounding — only {coverage:.0%} of question terms in evidence")
 
-        # 4. Numeric/formula grounding
+        # 4. Numeric/formula grounding — whitelist scenario numbers and fresh payload
         nums_in_q = set(re.findall(r"\b\d+(?:\.\d+)?\b", question_text))
         nums_in_ev = set(re.findall(r"\b\d+(?:\.\d+)?\b", evidence))
-        # Allow fresh numerical payload numbers even if not in evidence — handled elsewhere
-        # Here we just warn if numbers appear but none in evidence and not numerical type
-        if nums_in_q and not nums_in_ev:
-            # Check if question is supposed to be numerical — if not, this is hallucination
-            warnings.append(f"Numbers {nums_in_q} in question but none in evidence (possible hallucination)")
+        # Scenario marks numbers like "8 marks" are whitelisted elsewhere; here check only non-marks
+        marks_nums = set(re.findall(r"(\d+)\s*marks?", question_text, re.I))
+        nums_q_non_marks = nums_in_q - marks_nums
+        if nums_q_non_marks and not nums_in_ev:
+            # If question is scenario/numerical type, don't warn for fresh values
+            is_scenario = any(kw in q_low for kw in ["vehicle", "dtc", "technician", "scenario", "fresh values", "using fresh"])
+            if not is_scenario:
+                warnings.append(f"Numbers {nums_q_non_marks} in question but none in evidence (possible hallucination)")
 
         is_valid = len(violations) == 0
         confidence = 0.95 if is_valid and not warnings else 0.75 if is_valid else 0.35

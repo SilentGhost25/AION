@@ -25,6 +25,14 @@ from typing import Optional, List, Dict, Any
 
 from core.planning.question_planner import QuestionPlan
 
+# New: KnowledgeUnit + ReasoningIntent aware composer (separated planning)
+try:
+    from core.knowledge.knowledge_unit import KnowledgeUnit
+    from core.reasoning.reasoning_engine import ReasoningIntent
+    HAS_KU = True
+except ImportError:
+    HAS_KU = False
+
 @dataclass
 class ComposedQuestion:
     question_text: str
@@ -117,6 +125,158 @@ class QuestionComposer:
 
     def compose_batch(self, plans: List[QuestionPlan]) -> List[ComposedQuestion]:
         return [self.compose(p) for p in plans]
+
+    # ── Knowledge-Unit aware composition (planner intent only, no raw chunk) ──
+    def compose_from_ku(self, ku: "KnowledgeUnit", intent: "ReasoningIntent", plan: QuestionPlan) -> ComposedQuestion:
+        """
+        Composer that sees ONLY:
+          - KnowledgeUnit (canonical concept, definition, procedure, misconceptions, numerical_template)
+          - ReasoningIntent (scenario, misconception_target, operations, bloom_target)
+          - QuestionPlan (marks, difficulty, constraints)
+        It does NOT see raw evidence chunk — ensures planner did all reasoning.
+        """
+        # Numerical via KU
+        numerical_payload = None
+        if intent.intent_type == "numerical" and ku.numerical_template:
+            try:
+                from core.numerical.generator import NumericalEngine
+                engine = NumericalEngine()
+                numerical_payload = engine.generate_fresh_instance(ku.evidence, ku.definition)
+            except Exception:
+                numerical_payload = intent.numerical_transform
+
+        # Build LLM prompt from KU + intent only (no raw evidence dump)
+        if self.use_llm and self._llm and HAS_KU:
+            question_text = self._compose_with_ku_llm(ku, intent, plan, numerical_payload)
+        else:
+            question_text = self._compose_from_ku_template(ku, intent, plan, numerical_payload)
+
+        question_text = self._post_process(question_text, plan)
+
+        # Enforce diagram phrase if intent requires
+        if intent.intent_type in ("diagram",) and not re.search(r"figure|diagram|given", question_text, re.I):
+            question_text = f"With reference to the given figure, {question_text[0].lower() + question_text[1:]}"
+
+        grounding = {
+            "concept_id": ku.ku_id,
+            "raw_concept": ku.raw_concept,
+            "source_hash": ku.source_hash,
+            "evidence_snippet": ku.evidence[:200].replace("\n", " "),
+            "expected_answer": ku.expected_answer_canonical,
+            "bloom_level": intent.bloom_target,
+            "marks": plan.marks,
+            "numerical_payload": numerical_payload,
+            "question_type": intent.intent_type,
+            "intent": intent.to_dict(),
+        }
+
+        return ComposedQuestion(
+            question_text=question_text,
+            plan_id=plan.plan_id,
+            concept_id=ku.ku_id,
+            source_hash=ku.source_hash,
+            marks=plan.marks,
+            bloom_level=intent.bloom_target,
+            bloom_label={1:"Remember",2:"Understand",3:"Apply",4:"Analyse",5:"Evaluate",6:"Create"}.get(intent.bloom_target, "Understand"),
+            question_type=intent.intent_type,
+            expected_answer=ku.expected_answer_canonical,
+            confidence=ku.confidence,
+            grounding=grounding,
+            composer_metadata={
+                "verb": plan.action_verb,
+                "difficulty": ku.difficulty,
+                "requires_diagram": plan.requires_diagram,
+                "requires_formula": bool(ku.formula),
+                "used_llm": self.use_llm,
+                "ku_concept": ku.concept,
+                "intent_type": intent.intent_type,
+            },
+        )
+
+    def _compose_with_ku_llm(self, ku: "KnowledgeUnit", intent: "ReasoningIntent", plan: QuestionPlan, numerical_payload) -> str:
+        # Prompt contains ONLY planner output, not raw chunk
+        scenario = intent.scenario_prompt or ""
+        miscon = f"Misconception to expose: {intent.misconception_target}" if intent.misconception_target else ""
+        numerical_line = ""
+        if numerical_payload and numerical_payload.get("fresh_values"):
+            numerical_line = f"Fresh values (do NOT copy): {numerical_payload['fresh_values']}"
+        diagram_line = "Include 'with reference to the given figure'." if intent.intent_type == "diagram" else ""
+
+        prompt = f"""You are AION exam composer. Write ONE VTU professor-level exam question.
+
+KNOWLEDGE UNIT:
+Concept: {ku.concept}
+Definition: {ku.definition}
+Procedure: {ku.procedure or 'N/A'}
+Formula: {ku.formula or 'N/A'}
+Diagram: {ku.diagram_ref or 'N/A'}
+Applications: {', '.join(ku.applications) or 'N/A'}
+Relationships: {ku.relationships}
+Misconceptions: {ku.misconceptions}
+Expected Canonical Answer: {ku.expected_answer_canonical}
+
+REASONING INTENT:
+Type: {intent.intent_type} | Bloom L{intent.bloom_target} | Pattern: {intent.examiner_pattern}
+Operations: {intent.reasoning_operations}
+Scenario: {scenario}
+{miscon}
+{diagram_line}
+{numerical_line}
+
+CONSTRAINTS:
+- Start with verb '{plan.action_verb}' (Bloom L{intent.bloom_target})
+- {plan.marks} marks | Difficulty {ku.difficulty}
+- Scenario-based professor style (not generic Explain/Describe)
+- Only question text, no answer, 1-2 sentences, end with . or ?
+- Ground strictly to Knowledge Unit above
+
+Question:"""
+        try:
+            raw = self._llm.generate(prompt, options={"num_predict": 140, "temperature": 0.35, "stop": ["Ideal Answer","Marking Scheme","Explanation:","Note:"]})
+            if raw and len(raw.split()) >= 8:
+                return raw.strip()
+        except Exception as e:
+            print(f"[COMPOSER-KU] LLM error: {e}")
+        return self._compose_from_ku_template(ku, intent, plan, numerical_payload)
+
+    def _compose_from_ku_template(self, ku: "KnowledgeUnit", intent: "ReasoningIntent", plan: QuestionPlan, numerical_payload) -> str:
+        verb = plan.action_verb
+        concept = ku.concept  # canonical normalized
+        marks = plan.marks
+
+        # Scenario-based templates — professor style, not generic Discuss
+        if intent.intent_type == "scenario" and intent.scenario_prompt:
+            # Use scenario directly as case study question
+            # Ensure starts with verb
+            scen = intent.scenario_prompt.strip().rstrip(".")
+            # Take first sentence as scenario, second as task
+            if ". " in scen:
+                scenario_part, task_part = scen.split(". ", 1)
+                return f"{verb} the scenario where {scenario_part.lower()}. {task_part} ({marks} marks)."
+            return f"{verb} the following scenario: {scen}. Provide diagnostic sequence with justification for {marks} marks."
+
+        if intent.intent_type == "misconception" and intent.misconception_target:
+            return f"{verb} the case where {intent.scenario_prompt[:120] if intent.scenario_prompt else ku.concept} — a student incorrectly assumes {intent.misconception_target.lower().split('—')[0][:60]}. Explain the correct interpretation and evaluate the consequence for {marks} marks."
+
+        if intent.intent_type == "numerical" and numerical_payload and numerical_payload.get("fresh_values"):
+            fv = numerical_payload["fresh_values"]
+            vals = ", ".join(str(v) for v in (fv.values() if isinstance(fv, dict) else fv)) if isinstance(fv, (dict, list)) else str(fv)
+            return f"{verb} {concept} using fresh values {vals} — {ku.definition[:80]}. Show step-by-step calculation and interpret the result for {marks} marks."
+
+        if intent.intent_type == "procedure":
+            return f"{verb} the diagnostic procedure for {concept} ({ku.procedure[:80] if ku.procedure else ku.definition[:60]}). Outline the scan-tool sequence including PIDs and expected values, and justify the order for {marks} marks."
+
+        if intent.intent_type == "relationship":
+            rel = intent.relationship_focus or ku.relationships[0] if ku.relationships else {"target": "ECU", "relation": "monitors"}
+            return f"{verb} the relationship between {concept} and {rel['target']} ({rel['relation']}). How does failure of {concept} manifest in {rel['target']} data? Support with {ku.definition[:60]} for {marks} marks."
+
+        if intent.intent_type == "diagram":
+            return f"{verb} {concept} with reference to the given figure ({ku.diagram_ref or ku.definition[:60]}). Explain the signal flow and interpret the diagnostic implication for {marks} marks."
+
+        # Default recall but enriched with misconception
+        if ku.misconceptions:
+            return f"{verb} {concept} — {ku.definition[:90]}. Address the common misconception that {ku.misconceptions[0][:70].lower()} and clarify the correct principle for {marks} marks."
+        return f"{verb} {concept} where {ku.definition[:100]} for {marks} marks."
 
     # ── LLM Composition ──────────────────────────────────────
 
