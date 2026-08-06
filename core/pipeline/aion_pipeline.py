@@ -54,6 +54,12 @@ from core.planning.question_planner import QuestionPlanner, PlannerConfig, Quest
 from core.generation.question_composer import QuestionComposer, ComposedQuestion
 from core.validation.pipeline import MultiStageValidator, ValidationReport
 from core.confidence.recovery import ConfidenceRecoveryEngine
+from core.education.educational_reasoner import EducationalReasoner
+from core.education.variation_engine import VariationEngine
+from core.document.structure_classifier import StructureClassifier
+from core.numerical.deterministic_engine import DeterministicNumericalEngine
+from core.spec.question_spec import QuestionSpec
+from core.generation.composer_v2 import ComposerV2
 
 # New layers per audit
 try:
@@ -178,11 +184,16 @@ class AionUniversalPipeline:
         self.validator = MultiStageValidator(strict=True)
         self.recovery_engine = ConfidenceRecoveryEngine(allow_external=allow_external)
 
-        # New layers
+        # New layers per 9→10 roadmap
         self.preprocessor = DocumentPreprocessor() if HAS_PREPROCESSOR else None
         self.ku_builder = KnowledgeUnitBuilder() if HAS_KU else None
         self.reasoning_engine = ReasoningEngine() if HAS_REASONING else None
         self.self_critic = SelfCritic() if HAS_CRITIC else None
+        self.educational_reasoner = EducationalReasoner()
+        self.variation_engine = VariationEngine()
+        self.structure_classifier = StructureClassifier()
+        self.deterministic_numerical = DeterministicNumericalEngine()
+        self.composer_v2 = ComposerV2(use_llm=use_llm)
 
     def run(
         self,
@@ -571,10 +582,18 @@ class AionUniversalPipeline:
         metrics.hallucination_rate = 0.0 if not validations else round(
             sum(1 for v in validations if any("hallucination" in c.lower() or "RC-01" in c for c in v.reason_codes)) / len(validations), 3
         )
-        # Overall confidence: weighted avg of components
+        # Overall confidence: minimum of critical stages (audit: Extraction 100, Grounding 100, Audit 20 should not be 73%)
+        critical_scores = [component_conf.extraction, component_conf.grounding, component_conf.auditing]
+        # Use minimum of critical, weighted with others
+        min_critical = min(critical_scores) if critical_scores else 0.0
         weights = {"extraction": 0.15, "preprocessing": 0.10, "concept": 0.15, "grounding": 0.20, "reasoning": 0.15, "planning": 0.05, "composition": 0.10, "auditing": 0.10}
-        overall = sum(getattr(component_conf, k) * w for k, w in weights.items())
+        weighted = sum(getattr(component_conf, k) * w for k, w in weights.items())
+        # Final is min of weighted and min_critical (strict)
+        overall = min(weighted, min_critical) if min_critical < 0.7 else weighted
         component_conf.overall = round(overall, 2)
+        # Strict publishing gate: grounding <70% cannot publish
+        if component_conf.grounding < 0.7 or min_critical < 0.5:
+            print(f"[STRICT GATE] Grounding {component_conf.grounding:.0%} or critical {min_critical:.0%} <70% — would block publishing in production")
         metrics.component_confidence = component_conf
         metrics.total_ms = round((time.time() - t0) * 1000, 1)
 
