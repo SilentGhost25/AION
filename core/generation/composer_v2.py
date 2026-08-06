@@ -70,6 +70,79 @@ Question:"""
         
         return self._compose_template(spec)
     
+    # Compatibility for old pipeline that expects compose_from_ku(ku, intent, plan) -> ComposedQuestion
+    def compose_from_ku(self, ku, intent, plan):
+        """Compatibility wrapper: KU + Intent + Plan -> QuestionSpec -> ComposedQuestion"""
+        from core.spec.question_spec import QuestionSpec
+        from core.generation.question_composer import ComposedQuestion
+        # Build QuestionSpec from KU + intent + plan
+        spec = QuestionSpec(
+            subject=getattr(self, '_subject', 'Data Structures'),
+            subject_code=getattr(self, '_subject_code', 'CSE'),
+            module=getattr(plan, 'constraints', {}).get('module', 'Module 3: Trees') if hasattr(plan, 'constraints') else 'Module 3: Trees',
+            knowledge_unit=ku.concept,
+            knowledge_unit_id=ku.ku_id,
+            assessment_objective=getattr(intent, 'scenario_prompt', '') or ku.expected_answer_canonical[:100],
+            student_ability=f"can {intent.reasoning_operations[0] if intent.reasoning_operations else 'explain'} {ku.concept}",
+            question_type=intent.intent_type,
+            assessment_type=intent.examiner_pattern,
+            expected_reasoning=", ".join(intent.reasoning_operations),
+            bloom=f"L{intent.bloom_target}",
+            bloom_level=intent.bloom_target,
+            marks=plan.marks,
+            requires_diagram=plan.requires_diagram,
+            requires_numerical=bool(ku.numerical_template),
+            formula_required=bool(ku.formula),
+            expected_answer_type="Stepwise" if intent.intent_type in ["Numerical", "Procedure"] else "Descriptive",
+            difficulty=ku.difficulty,
+            grounding_evidence=[ku.evidence[:500]],
+            allowed_entities=[],
+            forbidden_entities=[],
+            source_hash=ku.source_hash,
+            confidence=ku.confidence,
+            scenario=intent.scenario_prompt,
+            numerical_payload=getattr(intent, 'numerical_transform', None) or ku.numerical_template,
+            required_operations=intent.reasoning_operations,
+        )
+        # Store subject for later
+        self._subject = spec.subject
+        self._subject_code = spec.subject_code
+        question_text = self.compose(spec)
+        # Wrap as ComposedQuestion
+        return ComposedQuestion(
+            question_text=question_text,
+            plan_id=plan.plan_id,
+            concept_id=ku.ku_id,
+            source_hash=ku.source_hash,
+            marks=plan.marks,
+            bloom_level=intent.bloom_target,
+            bloom_label={1:"Remember",2:"Understand",3:"Apply",4:"Analyse",5:"Evaluate",6:"Create"}.get(intent.bloom_target, "Understand"),
+            question_type=intent.intent_type,
+            expected_answer=ku.expected_answer_canonical,
+            confidence=ku.confidence,
+            grounding={
+                "concept_id": ku.ku_id,
+                "raw_concept": ku.raw_concept,
+                "source_hash": ku.source_hash,
+                "evidence_snippet": ku.evidence[:200],
+                "expected_answer": ku.expected_answer_canonical,
+                "bloom_level": intent.bloom_target,
+                "marks": plan.marks,
+                "numerical_payload": spec.numerical_payload,
+                "question_type": intent.intent_type,
+                "intent": intent.to_dict() if hasattr(intent, 'to_dict') else {},
+            },
+            composer_metadata={
+                "verb": plan.action_verb,
+                "difficulty": ku.difficulty,
+                "requires_diagram": plan.requires_diagram,
+                "requires_formula": bool(ku.formula),
+                "used_llm": self.use_llm,
+                "ku_concept": ku.concept,
+                "intent_type": intent.intent_type,
+            },
+        )
+
     def _compose_template(self, spec) -> str:
         """Fallback template — still uses QuestionSpec, not planner dump, but scenario-aware."""
         # Priority 1: If scenario is fully specified (no placeholders), use it directly — this is the desired professor-style

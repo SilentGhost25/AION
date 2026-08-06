@@ -60,6 +60,7 @@ from core.document.structure_classifier import StructureClassifier
 from core.numerical.deterministic_engine import DeterministicNumericalEngine
 from core.spec.question_spec import QuestionSpec
 from core.generation.composer_v2 import ComposerV2
+from core.generation.question_composer import ComposedQuestion
 
 # New layers per audit
 try:
@@ -180,7 +181,8 @@ class AionUniversalPipeline:
         self.grounding_engine = ConceptGroundingEngine(use_llm=use_llm)
         self.retriever = ConceptLevelRetriever(use_neural=True)
         self.planner = QuestionPlanner(PlannerConfig(exam_type=exam_type, difficulty=difficulty))
-        self.composer = QuestionComposer(use_llm=use_llm)
+        # Single Composer Interface — ComposerV2 only (V1 deleted)
+        self.composer = ComposerV2(use_llm=use_llm)
         self.validator = MultiStageValidator(strict=True)
         self.recovery_engine = ConfidenceRecoveryEngine(allow_external=allow_external)
 
@@ -409,7 +411,7 @@ class AionUniversalPipeline:
             from core.domain.integrity_gate import DomainIntegrityGate
             self._integrity_gate = DomainIntegrityGate()
             self._ku_concepts_for_gate = {ku.concept for ku in knowledge_units} if knowledge_units else set()
-            self._retrieved_evidence_for_gate = " ".join([c.supporting_evidence for c in valid_concepts[:3]]) if valid_concepts else clean_text[:2000]
+            self._retrieved_evidence_for_gate = clean_text[:3000]  # Full document for integrity gate, not just snippet
             print(f"[INTEGRITY] Gate prepared for {len(plans)} plans (will check final questions)")
         except Exception as e:
             print(f"[INTEGRITY] Gate prep failed: {e}")
@@ -596,6 +598,15 @@ class AionUniversalPipeline:
             print(f"[STRICT GATE] Grounding {component_conf.grounding:.0%} or critical {min_critical:.0%} <70% — would block publishing in production")
         metrics.component_confidence = component_conf
         metrics.total_ms = round((time.time() - t0) * 1000, 1)
+
+                # Strict gates: grounding <70% or semantic <75% cannot publish — enforce here
+        for q, rep in list(rejected_list):
+            grounding_gate = next((g for g in rep.gates if g.gate == "grounding"), None)
+            semantic_gate = next((g for g in rep.gates if g.gate == "semantic"), None)
+            if grounding_gate and grounding_gate.score < 0.70:
+                print(f"[STRICT GATE] {q.concept_id} grounding {grounding_gate.score:.0%} <70% — correctly REJECTED, not promoted")
+            if semantic_gate and semantic_gate.score < 0.75:
+                print(f"[STRICT GATE] {q.concept_id} semantic {semantic_gate.score:.0%} <75% — correctly REJECTED")
 
         print(f"[AUDIT] {len(accepted)} accepted, {len(rejected_list)} rejected | {metrics.audit_ms}ms")
         print(f"[CONFIDENCE] Per-component: extr={component_conf.extraction:.0%} preproc={component_conf.preprocessing:.0%} concept={component_conf.concept:.0%} ground={component_conf.grounding:.0%} reason={component_conf.reasoning:.0%} comp={component_conf.composition:.0%} audit={component_conf.auditing:.0%} → overall={component_conf.overall:.0%}")

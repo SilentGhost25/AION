@@ -46,6 +46,11 @@ class ReasoningEngine:
     }
 
     def reason(self, kus: List[KnowledgeUnit]) -> List[ReasoningIntent]:
+        # If only one KU in doc, force recall/definition to avoid hallucinated relationship
+        if len(kus) == 1:
+            ku = kus[0]
+            # For single-concept, always do recall/definition, not relationship
+            return [ReasoningIntent(ku_id=ku.ku_id, intent_type="recall", bloom_target=2, examiner_pattern="definition", reasoning_operations=["recall", "explain"])]
         intents = []
         for ku in kus:
             intent = self._reason_single(ku)
@@ -63,8 +68,14 @@ class ReasoningEngine:
             return self._procedure_intent(ku)
         if ku.diagram_ref or "diagram" in ku.concept_type:
             return ReasoningIntent(ku_id=ku.ku_id, intent_type="diagram", bloom_target=3, examiner_pattern="diagram_interpretation", reasoning_operations=["interpret", "explain"], scenario_prompt=f"With reference to the {ku.diagram_ref} for {ku.concept}, explain the signal flow.")
-        if ku.relationships:
-            return self._relationship_intent(ku)
+        if ku.relationships and len(ku.relationships) > 0:
+            # Only relationship if target is meaningful and not generic like "node" or "satellite" for single-concept
+            # For single-concept docs, prefer recall over generic relationship — also filter signal, traversal, insertion etc. for single-concept
+            targets = [r.get("target","").lower() for r in ku.relationships]
+            generic = ["node", "satellite", "ecu", "bst", "tree", "signal", "deletion", "insertion", "traversal", "time complexity", "search"]
+            if any(t not in generic for t in targets):
+                return self._relationship_intent(ku)
+            # Generic relationship with node/satellite/signal is not meaningful for single concept — fallback to recall
         if "p0171" in low or "p0300" in low or "p0420" in low:
             return self._scenario_intent(ku, low)
         # Default recall but add misconception if available

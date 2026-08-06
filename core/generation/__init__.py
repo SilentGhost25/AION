@@ -1,7 +1,6 @@
-"""
-AION Generation Package — Composer writes English from Planner's intent
-"""
+"""AION Generation Package — Single Composer Interface (V2 only, V1 deprecated)"""
 
-from .question_composer import QuestionComposer, ComposedQuestion
+from .composer_v2 import ComposerV2
+from .question_composer import ComposedQuestion  # Keep type for compatibility
 
-__all__ = ["QuestionComposer", "ComposedQuestion"]
+__all__ = ["ComposerV2", "ComposedQuestion"]

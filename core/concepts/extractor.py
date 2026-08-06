@@ -238,14 +238,25 @@ class ConceptExtractor:
         return None, None
 
     def _fallback_name(self, chunk: str) -> str:
-        # First noun phrase heuristic: first 4-6 words capitalized
+        # First noun phrase heuristic: first 4-6 words capitalized — but ensure atomic
         words = chunk.split()
-        # Take first meaningful phrase
-        candidate = " ".join(words[:6])
+        # If chunk is "Stack applications include expression evaluation..." — take atomic "Stack Applications"
+        # Detect and split long phrases
+        raw = " ".join(words[:8])
+        # If raw contains "Include" and is long, take only first 2 words as atomic concept
+        if "include" in raw.lower() and len(raw.split()) > 4:
+            # e.g., "Stack Applications Include Expression Evaluation" -> "Stack Applications"
+            candidate = " ".join(words[:2])
+        else:
+            candidate = " ".join(words[:4])
         # Clean trailing punctuation
         candidate = re.sub(r"[^A-Za-z0-9\s\-]", "", candidate).strip()
-        # Title case
-        return candidate[:60].title() if candidate else "General Concept"
+        # Title case, but atomic
+        result = candidate[:40].title() if candidate else "General Concept"
+        # Ensure not too generic
+        if len(result.split()) > 4:
+            result = " ".join(result.split()[:3])
+        return result
 
     # ── Classification ───────────────────────────────────────
 
