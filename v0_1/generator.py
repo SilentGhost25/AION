@@ -18,6 +18,9 @@ from .content_validator import validate_chunk, clean_chunk
 from .llm               import get_llm
 from .difficulty        import DifficultyManager, DifficultyLevel
 from .formula_extractor import find_formulas_in_chunk, format_formula_for_prompt
+from .semantic_enforcer import SemanticEnforcer, get_enforcer
+
+_enforcer = get_enforcer(strict=False)  # auto-repair mode
 
 # ─────────────────────────────────────────────────────────────
 # VTU Standard Partitions — MAX 3 sub-questions

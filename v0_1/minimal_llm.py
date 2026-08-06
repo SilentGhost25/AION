@@ -18,7 +18,7 @@ class MinimalLLM:
     If it fails, it fails FAST and LOUD.
     """
 
-    def __init__(self, model: str = "qwen2.5:1.5b", base_url: str = "http://localhost:11434"):
+    def __init__(self, model: str = "qwen2.5:1.5b", base_url: str = "http://127.0.0.1:11434"):
         self.base_url = base_url.rstrip("/")
         self.model = model
 
@@ -150,3 +150,4 @@ class MinimalLLM:
 
 # Singleton instance
 llm = MinimalLLM()
+
