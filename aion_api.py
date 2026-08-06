@@ -21,7 +21,7 @@ import requests
 ROOT = Path(__file__).parent.resolve()
 os.chdir(ROOT)
 sys.path.insert(0, str(ROOT))
-os.environ.setdefault("AION_MODEL", "aion-exam")
+os.environ.setdefault("AION_MODEL", "aion")
 
 # ── Flask imports ─────────────────────────────────────────────
 try:
@@ -601,6 +601,72 @@ def generate_emergency():
             "error": str(e),
             "trace": traceback.format_exc(),
         }), 500
+
+
+# ─────────────────────────────────────────────────────────────
+# Compatibility Routes for Frontend Artifacts
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/api/health", methods=["GET"])
+@app.route("/health", methods=["GET"])
+def health_endpoint():
+    return jsonify({
+        "status": "ok",
+        "service": "AION Intelligence API Server",
+        "model": os.environ.get("AION_MODEL", "qwen2.5:3b"),
+        "timestamp": datetime.now().isoformat()
+    }), 200
+
+@app.route("/api/paper/generate", methods=["POST"])
+@app.route("/api/v1/paper/generate", methods=["POST"])
+def paper_generate_compat():
+    body = request.get_json(silent=True) or {}
+    config = body.get("config", {})
+    sections = body.get("sections", [])
+
+    subject = config.get("subjectName", "Satellite Communication")
+    exam_type = config.get("examType", "SEE")
+
+    questions_out = []
+    q_counter = 1
+    for sec in sections:
+        q_text = sec.get("notesText", "").strip()
+        if not q_text:
+            q_text = f"Explain the principle and system architecture of {subject} concepts."
+        questions_out.append({
+            "id": f"q_{q_counter}",
+            "questionNumber": q_counter,
+            "sectionNumber": sec.get("sectionNumber", 1),
+            "marks": sec.get("marks", 10),
+            "text": q_text[:120] if len(q_text) > 120 else q_text,
+            "bloom": "L3",
+            "co": f"CO{min(q_counter, 5)}"
+        })
+        q_counter += 1
+
+    return jsonify({
+        "status": "success",
+        "paper": {
+            "title": f"{subject} ({config.get('subjectCode', 'BEC601')})",
+            "examType": exam_type,
+            "questions": questions_out
+        }
+    }), 200
+
+@app.route("/api/question/generate", methods=["POST"])
+@app.route("/api/v1/question/generate", methods=["POST"])
+def question_generate_compat():
+    body = request.get_json(silent=True) or {}
+    prompt = body.get("prompt", "Generate 1 VTU exam question.")
+    
+    from v0_1.llm import RobustLLMCaller
+    caller = RobustLLMCaller()
+    result = caller.call(prompt, max_tokens=300)
+    
+    return jsonify({
+        "status": "success",
+        "question": result or "Define the key concepts and illustrate with a block diagram."
+    }), 200
 
 
 # ─────────────────────────────────────────────────────────────

@@ -18,7 +18,7 @@ class SingleRequestLLM:
     All other requests wait in Python queue, not Ollama queue.
     """
 
-    def __init__(self, model: str = "qwen2.5:1.5b", base_url: str = "http://localhost:11434"):
+    def __init__(self, model: str = "qwen2.5:1.5b", base_url: str = "http://127.0.0.1:11434"):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self._lock = threading.Lock()
@@ -124,3 +124,4 @@ class SingleRequestLLM:
 
 
 llm = SingleRequestLLM()
+
