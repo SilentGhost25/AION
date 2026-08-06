@@ -59,7 +59,7 @@ Examples:
         type=str,
         default=None,
         metavar="MODEL",
-        help="Ollama model to use (default: qwen2.5:3b)",
+        help="Ollama model to use (default: qwen2.5:7b)",
     )
 
     parser.add_argument(
@@ -102,7 +102,7 @@ Examples:
     if args.model:
         os.environ["AION_MODEL"] = args.model
     elif "AION_MODEL" not in os.environ:
-        os.environ["AION_MODEL"] = "qwen2.5:3b"
+        os.environ["AION_MODEL"] = "qwen2.5:7b"
 
     # ── Print banner ──────────────────────────────────────────
     if not args.quiet:
@@ -113,7 +113,7 @@ Examples:
         print(f"|  Path   : {file_path.name[:45]:<45} |")
         print(f"|  Exam   : {args.exam.upper():<45} |")
         print(f"|  Mode   : {args.mode:<45} |")
-        print(f"|  Model  : {os.environ.get('AION_MODEL', 'qwen2.5:3b'):<45} |")
+        print(f"|  Model  : {os.environ.get('AION_MODEL', 'qwen2.5:7b'):<45} |")
         print("+----------------------------------------------------------+")
         print()
 

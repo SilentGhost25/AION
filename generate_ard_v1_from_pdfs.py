@@ -176,13 +176,12 @@ Output JSON format strictly:
             if response.status_code != 200:
                 err_msg = response.text
                 print(f"  [OLLAMA ERROR] {response.status_code}: {err_msg}")
-                # Fallback to qwen2.5:3b if memory allocation failed
-                if "requires more system memory" in err_msg and self.model != "qwen2.5:3b":
-                    print(f"  [FALLBACK] Switching model to qwen2.5:3b due to system memory limit...")
-                    self.model = "qwen2.5:3b"
-                    return self.generate_sample(
-                        academic_content, subject, module, chapter, topic, bloom_level, exam_type, department, subject_code
-                    )
+                # No silent fallback — production model is qwen2.5:7b
+                # If memory error, report clearly and abort; operator must provision adequate resources
+                if "requires more system memory" in err_msg:
+                    print(f"  [ERROR] Production model {self.model} requires more system memory.")
+                    print(f"          No automatic downgrade. Please provision adequate RAM/VRAM for qwen2.5:7b")
+                    print(f"          or explicitly run with --allow-deprecated and a smaller model.")
                 return None
 
             result_text = response.json().get("response", "")

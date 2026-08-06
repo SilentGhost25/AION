@@ -2,15 +2,27 @@
 AION Emergency Mode Configuration
 ==================================
 Ultra-lightweight local-only configuration.
-Designed to work on 16GB RAM systems with zero cloud dependencies.
+Production Model: qwen2.5:7b — No silent downgrade.
+Even in emergency mode, the production model is used. Resource constraints
+are handled via smaller context/chunk settings, NOT model downgrade.
+
+Per AION Development Context:
+- No silent model switching
+- No automatic downgrade
+- Emergency mode reduces workload, not model size
 """
 
-EMERGENCY_CONFIG = {
-    # Use ONLY the smallest model
-    "primary_model":   "qwen2.5:1.5b",
-    "fallback_model":  None,  # No fallback — one model only
+try:
+    from core.config.production_model import PRODUCTION_MODEL
+except ImportError:
+    PRODUCTION_MODEL = "qwen2.5:7b"
 
-    # Aggressive memory limits
+EMERGENCY_CONFIG = {
+    # Production model even in emergency — constraints handled via context limits
+    "primary_model":   PRODUCTION_MODEL,
+    "fallback_model":  None,  # No fallback — one model only (fail loud)
+
+    # Aggressive memory limits (emergency = smaller workload, same model)
     "max_context_words":     200,   # Cut in half
     "max_output_tokens":     128,   # Fast prediction
     "chunk_size_words":      300,   # Small sentence chunks

@@ -1,5 +1,9 @@
 # Central Integrated Configuration for AION Platform
 # Unifying Production Infrastructure & Cognitive Reasoning Engine
+# UPDATED per AION Development Context (2026-08-06):
+#   Single Production Model: qwen2.5:7b via Ollama (not Qwen3-8B via vLLM)
+#   Client does NOT want fine-tuned LLM at this stage. LLM is one component, not the architecture.
+#   See core/config/production_model.py for single source of truth.
 
 system:
   name: "AION Platform"
@@ -8,17 +12,23 @@ system:
   log_level: "INFO"
 
 models:
+  production_model: "qwen2.5:7b"  # SINGLE SOURCE OF TRUTH — see core/config/production_model.py
+  production_provider: "ollama"
+  ollama_url: "http://localhost:11434"
   ocr: "baidu/Unlimited-OCR"
   document_structure: "docling-project/docling-models"
   table_verifier: "microsoft/table-transformer"
   text_embedding: "BAAI/bge-m3"
   reranker: "BAAI/bge-reranker-v2-m3"
-  multimodal: "Qwen3-VL-2B"
+  multimodal: "Qwen3-VL-2B"  # Stub — Florence-2 / Qwen2.5-VL via VisionAdapter (see core/extraction/vision_adapter.py)
   concept_extractor: "knowledgator/gliner-relex"
-  generator_base: "Qwen3-8B-Instruct"
-  serving_engine: "vllm"
+  generator_base: "qwen2.5:7b"  # Was Qwen3-8B-Instruct — now unified to production model via Ollama
+  serving_engine: "ollama"     # Was vllm — now Ollama per production requirement
+  # Deprecated (single model enforcement):
+  deprecated_models: ["qwen2.5:1.5b", "qwen2.5:3b", "aion", "aion-exam"]
 
 retrieval:
+  mode: "concept_level"        # Was paragraph retrieval — now concept-level (see core/retrieval/concept_retriever.py)
   dense_top_k: 50
   rerank_top_k: 10
   hybrid_alpha: 0.6               # 0.6 dense + 0.4 sparse BM25
@@ -32,12 +42,24 @@ thought_graph_traversal:
     - "BLOOM_DIRECTED"
     - "EXAMINER_DIRECTED"
     - "SOCRATIC"
+  status: "deferred"  # See docs/optimization_backlog.md — ATG is backlog, not current milestone
 
 rag2_generation:
+  philosophy: "Text → Concept → Expected Answer → Question"  # Not Text → LLM paraphrase → Question
   enforce_answer_first: true
-  temperature: 0.6
+  temperature: 0.3               # Was 0.6 — tuned for qwen2.5:7b grounding fidelity
   max_tokens_answer: 350
   max_tokens_question: 150
+  planner: "core/planning/question_planner.py"      # Planner decides concept/marks/Bloom/objective
+  composer: "core/generation/question_composer.py"  # Composer writes English
+
+extraction:
+  philosophy: "Layered 6-stage"  # L1 Native → L2 Layout → L3 Image → L4 OCR → L5 Diagram → L6 Merge
+  layered_engine: "core/extraction/layered_extractor.py"
+  vision_adapter: "core/extraction/vision_adapter.py"
+  clean_text_output: "extracted_output/clean_text.txt"
+  header_footer_removal: true
+  performance_target: "<60s for 100-page textbook"
 
 grpo_training:
   group_size_g: 4
@@ -51,8 +73,13 @@ grpo_training:
     w6_simulation: 0.10
     w7_atg: 0.10
     w8_format_penalty: 0.20
+  status: "deferred"  # Training is not current milestone — stability/grounding first
 
 guardrails:
+  multi_stage_validation: "core/validation/pipeline.py"  # Grammar → Semantic → Bloom → Grounding → Marks → Diagram → Final
+  academic_semantics: "core/semantics/verifier.py"
+  numerical_engine: "core/numerical/generator.py"  # Problem Generator, not Copier
+  confidence_recovery: "core/confidence/recovery.py"
   faithfulness:
     model: "lettucedetect"
     min_threshold: 0.85
@@ -61,6 +88,14 @@ guardrails:
     max_source_similarity: 0.15
     max_qbank_similarity: 0.20
   retry_limit: 2
+
+performance_goals:
+  extraction: 0.95
+  grounding: 0.98
+  hallucination: 0.01  # <1%
+  semantic_accuracy: 0.95
+  question_acceptance: 0.90
+  processing_time: "<60s for 100-page textbook"
 
 checkpoints:
   chk_1_ocr_accuracy_min: 0.95
@@ -71,3 +106,9 @@ checkpoints:
   chk_6_genome_integrity: "pass"
   chk_7_atg_socratic_validity: "pass"
   chk_8_grpo_reward_correlation_min: 0.75
+
+pipeline:
+  universal: "core/pipeline/aion_pipeline.py"
+  philosophy: "Upload → Extract → Understand → Build Concept Graph → Ground → Reason → Plan Question → Compose Question → Audit → Output"
+  llm_role: "component, not architecture"
+  modularity: "Modular, Stateless APIs, Pluggable models/OCR/vision/retriever/LLM — everything replaceable"

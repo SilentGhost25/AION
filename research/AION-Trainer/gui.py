@@ -176,11 +176,11 @@ TYPE_ICON = {
 
 
 # ─────────────────────────────────────────────
-# Generator (uses Ollama native qwen2.5:3b)
+# Generator (uses Ollama native qwen2.5:7b)
 # ─────────────────────────────────────────────
 
 class QuestionGenerator:
-    def __init__(self, model_name: str = "qwen2.5:3b"):
+    def __init__(self, model_name: str = "qwen2.5:7b"):
         self.model_name = os.environ.get("AION_MODEL", model_name)
 
     def load(self, adapter_path: str = None, log=print):

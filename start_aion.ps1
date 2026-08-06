@@ -56,11 +56,11 @@ if ($freeRAM -ge 5.5) {
     $env:AION_MODEL = "aion-exam"
     Write-Host "      Model: aion-exam (7B fine-tuned)"
 } elseif ($freeRAM -ge 3.0) {
-    $env:AION_MODEL = "qwen2.5:3b"
-    Write-Host "      Model: qwen2.5:3b (RAM constraint)"
+    $env:AION_MODEL = "qwen2.5:7b"
+    Write-Host "      Model: qwen2.5:7b (RAM constraint)"
 } else {
-    $env:AION_MODEL = "qwen2.5:3b"
-    Write-Host "      WARNING: Very low RAM — using qwen2.5:3b"
+    $env:AION_MODEL = "qwen2.5:7b"
+    Write-Host "      WARNING: Very low RAM — using qwen2.5:7b"
     Write-Host "      Close more apps for better performance"
 }
 

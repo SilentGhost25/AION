@@ -1,0 +1,43 @@
+# AION Production Model — Single Source of Truth
+# DO NOT create alternative model files. This is the ONLY production model.
+# Any downgrade requires explicit human decision, not automatic fallback.
+
+model:
+  name: "qwen2.5:7b"
+  provider: "ollama"
+  ollama_url: "http://localhost:11434"
+  context_window: 4096
+  parameters: "7B"
+  quantization: null
+  aliases: []
+  deprecated_models:
+    - "qwen2.5:1.5b"
+    - "qwen2.5:3b"
+    - "aion"
+    - "aion-exam"
+    - "aion-qwen"
+
+generation:
+  temperature: 0.30
+  top_p: 0.90
+  top_k: 40
+  repeat_penalty: 1.1
+  num_ctx: 4096
+  num_predict: 350
+  stop_sequences:
+    - "Ideal Answer"
+    - "Marking Scheme"
+    - "Note:"
+    - "Explanation:"
+
+policy:
+  allow_silent_fallback: false
+  allow_automatic_downgrade: false
+  require_explicit_flag_for_deprecated: true
+  fallback_behavior: "fail_loud"  # fail_loud | retry_same_model | abort_pipeline
+
+runtime:
+  keep_alive: "5m"
+  num_thread: 14
+  num_batch: 512
+  timeout_sec: 300

@@ -155,8 +155,13 @@ class ConnectionValidator:
         )
 
     def _check_ollama_model(self):
-        model = os.environ.get("AION_MODEL", "aion-qwen")
-        base  = "qwen2.5:3b"
+        # Single production model enforcement
+        try:
+            from core.config.production_model import PRODUCTION_MODEL
+        except ImportError:
+            PRODUCTION_MODEL = "qwen2.5:7b"
+        model = os.environ.get("AION_MODEL", PRODUCTION_MODEL)
+        base  = PRODUCTION_MODEL
 
         try:
             req = urllib.request.Request(
@@ -183,7 +188,7 @@ class ConnectionValidator:
             self.errors.append(
                 f"No suitable model found in Ollama.\n"
                 f"  Installed: {names}\n"
-                f"  Fix: ollama pull qwen2.5:3b"
+                f"  Fix: ollama pull qwen2.5:7b"
             )
 
         except Exception:

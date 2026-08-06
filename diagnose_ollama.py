@@ -36,7 +36,7 @@ def diagnose() -> bool:
         r = requests.post(
             f"{base}/api/generate",
             json={
-                "model": "qwen2.5:1.5b",
+                "model": "qwen2.5:7b",
                 "prompt": "OK",
                 "stream": False,
                 "options": {"num_predict": 1},
@@ -70,12 +70,12 @@ def diagnose() -> bool:
         models = r.json().get("models", [])
         model_names = [m.get("name", "") for m in models]
 
-        if any("qwen2.5:1.5b" in name for name in model_names):
-            print("    [OK] qwen2.5:1.5b available")
+        if any("qwen2.5:7b" in name for name in model_names):
+            print("    [OK] qwen2.5:7b available")
         else:
-            print(f"    [X] qwen2.5:1.5b not found")
+            print(f"    [X] qwen2.5:7b not found")
             print(f"    Available: {model_names}")
-            print("    -> Run: ollama pull qwen2.5:1.5b")
+            print("    -> Run: ollama pull qwen2.5:7b")
             return False
 
     except Exception as e:
@@ -88,7 +88,7 @@ def diagnose() -> bool:
         r = requests.post(
             f"{base}/api/generate",
             json={
-                "model": "qwen2.5:1.5b",
+                "model": "qwen2.5:7b",
                 "prompt": "Say: Test OK",
                 "stream": False,
                 "options": {"num_predict": 10},

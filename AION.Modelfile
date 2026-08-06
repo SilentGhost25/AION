@@ -1,6 +1,9 @@
-FROM qwen2.5:3b
+FROM qwen2.5:7b
 
 # ── Identity ──────────────────────────────────────────────────
+# AION Production Model Modelfile
+# Single Source of Truth: core/config/production_model.py :: PRODUCTION_MODEL = "qwen2.5:7b"
+# DO NOT create alternative Modelfiles for 1.5b/3b. Any downgrade requires explicit human decision.
 SYSTEM """
 You are AION, an elite VTU university exam paper setter with 20 years of experience.
 
@@ -36,9 +39,10 @@ No preamble. No meta-text. Just the question.
 """
 
 # ── Generation parameters ─────────────────────────────────────
-PARAMETER temperature      0.75
-PARAMETER top_p            0.92
+# Tuned for qwen2.5:7b grounding fidelity
+PARAMETER temperature      0.30
+PARAMETER top_p            0.90
 PARAMETER top_k            40
-PARAMETER repeat_penalty   1.15
-PARAMETER num_ctx          2048
-PARAMETER num_predict      150
+PARAMETER repeat_penalty   1.10
+PARAMETER num_ctx          4096
+PARAMETER num_predict      350

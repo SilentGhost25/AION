@@ -195,7 +195,7 @@ def health():
         "ollama":         "ok" if ollama_ok else "down",
         "ollama_detail":  ollama_detail,
         "model":          app.config.get(
-                              "MODEL", "qwen2.5:3b"
+                              "MODEL", "qwen2.5:7b"
                           ),
         "timestamp":      time.time(),
     }), 200 if overall == "ok" else 503
@@ -614,7 +614,7 @@ if __name__ == "__main__":
     print("         AION Flask API Server  v0.1              ")
     print("==================================================")
     print(f"  URL   : http://localhost:{port}")
-    print(f"  Model : {os.environ.get('AION_MODEL', 'qwen2.5:3b')}")
+    print(f"  Model : {os.environ.get('AION_MODEL', 'qwen2.5:7b')}")
     print("==================================================")
     print("  GET  /api/health")
     print("  GET  /api/tags")

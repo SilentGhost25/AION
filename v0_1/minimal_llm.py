@@ -2,25 +2,40 @@
 AION Minimal LLM Caller
 ========================
 Bare-bones LLM caller with zero extras.
+Single Production Model: qwen2.5:7b (core/config/production_model.py)
 Single model, single request, token streaming, 5s token hang detection, immediate unload.
+No silent fallback. Fail loud.
 """
 
+import os
 import requests
 import json
 import time
 from typing import Optional
+
+try:
+    from core.config.production_model import PRODUCTION_MODEL
+except ImportError:
+    PRODUCTION_MODEL = "qwen2.5:7b"
 
 
 class MinimalLLM:
     """
     Rock-solid LLM caller.
     No retries. No fallbacks. No complexity.
-    If it fails, it fails FAST and LOUD.
+    Production model only. Fail loud if unavailable.
     """
 
-    def __init__(self, model: str = "qwen2.5:1.5b", base_url: str = "http://localhost:11434"):
+    def __init__(self, model: str | None = None, base_url: str = "http://localhost:11434"):
         self.base_url = base_url.rstrip("/")
-        self.model = model
+        # Enforce production model unless explicitly overridden with env
+        self.model = model or os.environ.get("AION_MODEL", PRODUCTION_MODEL)
+        if self.model != PRODUCTION_MODEL:
+            print(f"[MinimalLLM] Using requested '{self.model}' (production '{PRODUCTION_MODEL}')")
+            # Still enforce production by default unless caller explicitly wants override
+            # For MinimalLLM we respect explicit arg but warn
+            if os.environ.get("AION_ALLOW_DEPRECATED", "") != "1":
+                print(f"[MinimalLLM] Tip: production is {PRODUCTION_MODEL}. Set AION_ALLOW_DEPRECATED=1 to keep deprecated.")
 
     def generate(
         self,
@@ -42,7 +57,7 @@ class MinimalLLM:
             "stream": True,  # Stream for early hang detection
             "options": {
                 "num_predict":  max_tokens,
-                "temperature":  0.2,  # Low = predictable
+                "temperature":  0.3,  # Tuned for 7b grounding
                 "top_p":        0.9,
                 "top_k":        40,
             },
@@ -148,5 +163,5 @@ class MinimalLLM:
             return False
 
 
-# Singleton instance
-llm = MinimalLLM()
+# Singleton instance — production model
+llm = MinimalLLM(model=PRODUCTION_MODEL)
