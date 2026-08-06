@@ -1,5 +1,5 @@
 """
-Knowledge Unit Builder — Canonical Representation
+Knowledge Unit Builder - Canonical Representation
 Per audit: Concept is not enough. Need Knowledge Unit with
 Concept + Definition + Formula + Procedure + Diagram + Applications
 + Relationships + Common mistakes + Numerical templates + Expected answer + Difficulty + Evidence
@@ -85,7 +85,7 @@ def _extract_applications(evidence: str) -> List[str]:
     return apps
 
 def _extract_misconceptions(concept_name: str, evidence: str) -> List[str]:
-    # Heuristic misconceptions per domain — only if contrast term is actually grounded in evidence or broader doc will be checked later
+    # Heuristic misconceptions per domain - only if contrast term is actually grounded in evidence or broader doc will be checked later
     misc = []
     low = (concept_name + " " + evidence).lower()
     # Only add TDMA vs FDMA if both terms are in evidence (to avoid hallucination)
@@ -93,15 +93,15 @@ def _extract_misconceptions(concept_name: str, evidence: str) -> List[str]:
         misc.append("Confuse TDMA time slots with FDMA frequency bands")
     elif "tdma" in low and "fdma" not in low:
         # Generic TDMA misconception without FDMA hallucination
-        misc.append("Think TDMA guard time is optional — without it, propagation delays cause slot overlap")
+        misc.append("Think TDMA guard time is optional - without it, propagation delays cause slot overlap")
     if "p0171" in low:
-        misc.append("Students confuse P0171 (lean) with rich condition — opposite fuel trim interpretation")
+        misc.append("Students confuse P0171 (lean) with rich condition - opposite fuel trim interpretation")
     if "p0300" in low and "misfire" in low:
         misc.append("Confuse random misfire (P0300) with specific cylinder misfire (P0301-P0308)")
     if "p0420" in low:
         misc.append("Misattribute P0420 to O2 sensor failure vs catalyst oxygen storage degradation")
     if "oxygen sensor" in low:
-        misc.append("Think O2 switching slowly is normal — healthy sensor should switch 8+ times/10s at 2500 RPM")
+        misc.append("Think O2 switching slowly is normal - healthy sensor should switch 8+ times/10s at 2500 RPM")
     if "maf" in low:
         misc.append("Confuse MAF under-reporting (lean) with fuel pressure issue")
     if not misc:
@@ -110,7 +110,7 @@ def _extract_misconceptions(concept_name: str, evidence: str) -> List[str]:
 
 def _extract_numerical_template(evidence: str) -> Optional[Dict[str, Any]]:
     # Only for truly numerical contexts: explicit arrays/calculations or O2 sensor threshold diagnostics
-    # DTC codes like P0171 alone should NOT trigger — they are identifiers, not calculations
+    # DTC codes like P0171 alone should NOT trigger - they are identifiers, not calculations
     # Exclude header-like evidence
     if re.match(r"^\s*MODULE\s*\d+", evidence, re.I):
         return None
@@ -170,9 +170,13 @@ class KnowledgeUnit:
 
 
 class KnowledgeUnitBuilder:
-    """Builds KnowledgeUnit from ExtractedConcept + document context."""
+    """Builds KnowledgeUnit from ExtractedConcept + document context - domain-aware."""
+    def __init__(self, subject_profile=None):
+        self.subject_profile = subject_profile
 
-    def build(self, concept: ExtractedConcept) -> KnowledgeUnit:
+    def build(self, concept: ExtractedConcept, subject_profile=None) -> KnowledgeUnit:
+        # Use instance profile or passed profile
+        profile = subject_profile or getattr(self, 'subject_profile', None)
         canonical = _normalize_concept_name(concept.concept_name)
         # Distill definition: first definitional sentence, not whole evidence
         defn = concept.canonical_definition
@@ -194,18 +198,45 @@ class KnowledgeUnitBuilder:
         diagram_ref = concept.diagram_refs[0] if concept.diagram_refs else None
         # Applications
         apps = _extract_applications(concept.supporting_evidence)
-        # Relationships: heuristic entity linking
+        # Relationships: domain-scoped and typed
         relationships = []
         ev_low = concept.supporting_evidence.lower()
-        entities = ["ecu", "o2 sensor", "maf sensor", "dlc", "can", "mil", "dtc", "catalyst", "crankshaft"]
-        for ent in entities:
-            if ent in ev_low and ent not in canonical.lower():
-                relationships.append({"target": ent.upper(), "relation": "related"})
+        # Domain-aware entity lists
+        if profile:
+            permitted = {t.lower() for t in profile.permitted_vocabulary}
+            forbidden = {t.lower() for t in profile.forbidden_cross_terms}
+            # Only consider entities that are in permitted vocabulary for this subject
+            candidates = [e for e in permitted if e in ev_low]
+            # Also add generic CSE/ME etc. phrases that appear in evidence and are in permitted
+            for ent in candidates:
+                if ent not in canonical.lower() and len(ent) >= 3:
+                    import re
+                    if re.search(r"\b" + re.escape(ent) + r"\b", ev_low):
+                        # Type the relationship based on context
+                        if "prerequisite" in ev_low or "requires" in ev_low or "depends" in ev_low:
+                            rel = "prerequisite"
+                        elif "used in" in ev_low or "application" in ev_low:
+                            rel = "application"
+                        elif "compare" in ev_low or "vs" in ev_low or "difference" in ev_low:
+                            rel = "comparison"
+                        elif "algorithm" in ev_low or "insertion" in ev_low or "traversal" in ev_low:
+                            rel = "algorithm_flow"
+                        else:
+                            rel = "related"
+                        relationships.append({"target": ent, "relation": rel})
+        else:
+            # Fallback: generic but filtered to avoid cross-domain
+            generic_entities = ["binary tree", "bst", "avl", "traversal", "insertion", "rotation", "balance factor"]
+            for ent in generic_entities:
+                if ent in ev_low and ent not in canonical.lower():
+                    import re
+                    if re.search(r"\b" + re.escape(ent) + r"\b", ev_low):
+                        relationships.append({"target": ent.upper(), "relation": "related"})
         # Misconceptions
         miscon = _extract_misconceptions(canonical, concept.supporting_evidence)
         # Numerical template
         num_tmpl = _extract_numerical_template(concept.supporting_evidence)
-        # Canonical expected answer: distilled, not copied — 2 sentences max, key facts
+        # Canonical expected answer: distilled, not copied - 2 sentences max, key facts
         canon_ans = self._distill_canonical(defn, procedure, formula)
 
         # Difficulty from word count and type
@@ -242,8 +273,9 @@ class KnowledgeUnitBuilder:
             word_count=concept.word_count
         )
 
-    def build_batch(self, concepts: List[ExtractedConcept]) -> List[KnowledgeUnit]:
-        return [self.build(c) for c in concepts]
+    def build_batch(self, concepts: List[ExtractedConcept], subject_profile=None) -> List[KnowledgeUnit]:
+        prof = subject_profile or getattr(self, 'subject_profile', None)
+        return [self.build(c, subject_profile=prof) for c in concepts]
 
     def _distill_canonical(self, definition: str, procedure: Optional[str], formula: Optional[str]) -> str:
         # Canonical answer should be concise, not verbatim copy

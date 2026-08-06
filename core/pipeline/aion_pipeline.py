@@ -276,16 +276,34 @@ class AionUniversalPipeline:
                 if not r.is_valid:
                     print(f"  ✗ {r.concept_id}: {r.reason}")
 
-        # Build concept graph (index for retrieval)
-        print(f"[PIPELINE] Stage 3.5: Build Concept Graph + Index (retrieval)")
+        # Build concept graph (index for retrieval) — domain-scoped
+        print(f"[PIPELINE] Stage 3.5: Build Concept Graph + Index (retrieval) — domain-scoped")
+        # Subject detection for domain isolation
+        try:
+            from core.domain.subject_detector import SubjectDetector
+            detector = SubjectDetector()
+            subject_profile, subj_conf, subj_scores = detector.detect_with_confidence(clean_text)
+            print(f"[SUBJECT] Detected {subject_profile.code} ({subject_profile.name}) conf={subj_conf:.0%} scores={subj_scores}")
+            component_conf.reasoning = max(component_conf.reasoning, subj_conf)
+            # Store for integrity gate
+            self._current_subject_profile = subject_profile
+        except Exception as e:
+            print(f"[SUBJECT] Detector failed: {e}")
+            self._current_subject_profile = None
         self.retriever.index(valid_concepts)
 
         # ── Stage 3.6: Knowledge Unit Builder ──────────────────
         t = time.time()
         knowledge_units = []
         if self.ku_builder and valid_concepts:
-            print(f"[PIPELINE] Stage 3.6: Knowledge Unit Builder (canonical representation)")
-            knowledge_units = self.ku_builder.build_batch(valid_concepts)
+            print(f"[PIPELINE] Stage 3.6: Knowledge Unit Builder (canonical representation — domain-scoped)")
+            # Pass subject profile for domain-isolated relationships
+            prof = getattr(self, '_current_subject_profile', None)
+            if prof:
+                self.ku_builder.subject_profile = prof
+                knowledge_units = self.ku_builder.build_batch(valid_concepts, subject_profile=prof)
+            else:
+                knowledge_units = self.ku_builder.build_batch(valid_concepts)
             metrics.ku_build_ms = round((time.time() - t) * 1000, 1)
             metrics.knowledge_units = len(knowledge_units)
             # KU confidence is average of concept confidence
@@ -374,6 +392,18 @@ class AionUniversalPipeline:
         ku_by_raw = {ku.raw_concept: ku for ku in knowledge_units} if knowledge_units else {}
         intent_by_kuid = {ri.ku_id: ri for ri in reasoning_intents} if reasoning_intents else {}
 
+        # ── Stage 6.5: Domain Integrity Gate (will be applied after composition on final questions)
+        # Pre-check: build grounded vocab for post-composition check
+        try:
+            from core.domain.integrity_gate import DomainIntegrityGate
+            self._integrity_gate = DomainIntegrityGate()
+            self._ku_concepts_for_gate = {ku.concept for ku in knowledge_units} if knowledge_units else set()
+            self._retrieved_evidence_for_gate = " ".join([c.supporting_evidence for c in valid_concepts[:3]]) if valid_concepts else clean_text[:2000]
+            print(f"[INTEGRITY] Gate prepared for {len(plans)} plans (will check final questions)")
+        except Exception as e:
+            print(f"[INTEGRITY] Gate prep failed: {e}")
+            self._integrity_gate = None
+
         # ── Stage 7: Compose Question (KU-aware) ───────────────
         t = time.time()
         print(f"[PIPELINE] Stage 7: Question Composition (KU-aware, scenario-based, not generic)")
@@ -448,6 +478,24 @@ class AionUniversalPipeline:
         rejected_list: List[tuple[ComposedQuestion, ValidationReport]] = []
 
         for idx, (q, plan) in enumerate(zip(questions, plans)):
+            # Domain Integrity Gate on final question (before other validation)
+            if hasattr(self, '_integrity_gate') and self._integrity_gate:
+                try:
+                    ku_concepts = getattr(self, '_ku_concepts_for_gate', set())
+                    retrieved_ev = getattr(self, '_retrieved_evidence_for_gate', "")
+                    gate_res = self._integrity_gate.check(q.question_text, ku_concepts, retrieved_ev, getattr(self, '_current_subject_profile', None))
+                    if not gate_res.passed:
+                        # Create a failed validation report directly
+                        from core.validation.pipeline import ValidationGateResult, ValidationReport
+                        gate_result = ValidationGateResult(gate="domain_integrity", passed=False, score=gate_res.score, reason="; ".join(gate_res.violations), reason_code="RC-01: domain integrity")
+                        fake_report = ValidationReport(question_text=q.question_text, concept_id=q.concept_id, overall_passed=False, overall_score=gate_res.score, gates=[gate_result], reason_codes=[gate_result.reason_code], confidence=gate_res.score)
+                        validations.append(fake_report)
+                        rejected_list.append((q, fake_report))
+                        print(f"  ✗ REJECT [{q.concept_id}] domain integrity: {gate_res.violations[:1]}")
+                        continue
+                except Exception as e:
+                    print(f"[INTEGRITY] Check failed for {q.concept_id}: {e}")
+
             # Include self-critic result as gate if available
             report = self.validator.validate(
                 q,
@@ -483,16 +531,38 @@ class AionUniversalPipeline:
                 rejected_list.append((q, report))
                 print(f"  ✗ REJECT [{q.concept_id}] score={report.overall_score:.0%} codes={report.reason_codes} | {report.gates[-1].reason}")
 
-        # Graceful promotion
-        if len(accepted) < num_questions and rejected_list:
-            rejected_list.sort(key=lambda x: x[1].overall_score, reverse=True)
-            need = num_questions - len(accepted)
-            for q, rep in rejected_list[:need]:
-                if rep.overall_score >= 0.55 and not any(c in ("RC-01: semantic hallucination", "RC-07: grounding insufficient", "RC-05: self-critic reasoning") for c in rep.reason_codes):
-                    print(f"  ~ PROMOTED low-confidence [{q.concept_id}] score={rep.overall_score:.0%}")
+        # No promotion — repair then return fewer (audit: never invent quality)
+        # Attempt repair for rejected that are close (score >=0.60 and only bloom/grounding)
+        repaired = []
+        for q, rep in list(rejected_list):
+            if rep.overall_score >= 0.65 and len(rep.reason_codes) == 1 and "RC-04" in rep.reason_codes[0]:
+                # Bloom mismatch repairable via auto-correct verb
+                try:
+                    from v0_1.qa_engine import BloomsTaxonomyValidator
+                    validator = BloomsTaxonomyValidator()
+                    fixed_text = validator.auto_correct_blooms_level(q.question_text, q.bloom_level)
+                    if fixed_text != q.question_text:
+                        q.question_text = fixed_text
+                        # Revalidate
+                        new_rep = self.validator.validate(q, plan=next((pp for pp in plans if pp.plan_id==q.plan_id), None), evidence=q.grounding.get("evidence_snippet",""), expected_answer=q.expected_answer)
+                        if new_rep.overall_passed:
+                            print(f"  ~ REPAIRED [{q.concept_id}] bloom verb corrected → PASS")
+                            repaired.append((q, new_rep))
+                except Exception:
+                    pass
+        for q, rep in repaired:
+            if (q, rep) not in [(qq, rr) for qq, rr in rejected_list]:
+                continue
+            # Move from rejected to accepted if repaired
+            for orig_q, orig_rep in list(rejected_list):
+                if orig_q.concept_id == q.concept_id:
+                    rejected_list.remove((orig_q, orig_rep))
                     accepted.append(q)
-            rejected_list = [x for x in rejected_list if x[0] not in accepted]
-
+                    validations = [v for v in validations if v.concept_id != orig_rep.concept_id] + [new_rep]
+                    break
+        # Do NOT promote remaining failures — return fewer questions
+        if len(accepted) < num_questions:
+            print(f"[AUDIT] Returning {len(accepted)}/{num_questions} questions — {num_questions - len(accepted)} failed without repair (no promotion)")
         accepted = accepted[:num_questions]
 
         metrics.audit_ms = round((time.time() - t) * 1000, 1)
