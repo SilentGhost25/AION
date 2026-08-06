@@ -26,7 +26,15 @@ from .generator import (
     SEE_PARTITIONS,
     get_bloom_level_name
 )
+
 from .difficulty import DifficultyManager, DifficultyLevel
+
+# Universal Academic Pipeline (new, grounded) — import is optional for backward compat
+try:
+    from core.pipeline.aion_pipeline import AionUniversalPipeline
+    HAS_UNIFIED = True
+except ImportError:
+    HAS_UNIFIED = False
 from .visual import (
     safe_build_planner,
     VisualQuestionGenerator,
@@ -102,6 +110,70 @@ def _save_cached_modules(file_path: str, modules):
 # Pipeline Orchestrator
 # ─────────────────────────────────────────────────────────────
 
+def run_unified_pipeline(
+    file_path:      str,
+    exam_type:      str  = "see",
+    difficulty:     str  = "mixed",
+    num_questions:  int  = 8,
+    use_llm:        bool = True,
+    allow_external: bool = False,
+) -> Tuple[List[dict], List[dict]]:
+    """
+    Universal Academic Pipeline (AION Development Context):
+      Upload → Extract → Understand → Build Concept Graph → Ground
+           → Reason → Plan → Compose → Audit → Output
+    Every question grounded: Concept ID | Source chunk | Confidence | Expected answer | Bloom | Question
+    Stateless, pluggable, hallucination-resistant.
+
+    Returns (accepted, rejected) as dicts compatible with legacy run_pipeline.
+    """
+    if not HAS_UNIFIED:
+        raise ImportError("AionUniversalPipeline not available — check core/pipeline/aion_pipeline.py")
+
+    pipeline = AionUniversalPipeline(
+        use_llm=use_llm,
+        allow_external=allow_external,
+        exam_type=exam_type,
+        difficulty=difficulty,
+    )
+    result = pipeline.run(
+        source_path=file_path,
+        num_questions=num_questions,
+    )
+    # Convert to legacy dict format for Flask / CLI
+    accepted = []
+    for q in result.accepted:
+        accepted.append({
+            "question_text": q.question_text,
+            "concept_id": q.concept_id,
+            "source_hash": q.source_hash,
+            "marks": q.marks,
+            "bloom_level": q.bloom_level,
+            "bloom_label": q.bloom_label,
+            "expected_answer": q.expected_answer,
+            "question_type": q.question_type,
+            "grounding": q.grounding,
+            "confidence": q.confidence,
+            "plan_id": q.plan_id,
+        })
+    rejected = []
+    for q, rep in result.rejected:
+        rejected.append({
+            "question_text": q.question_text,
+            "concept_id": q.concept_id,
+            "reason_codes": rep.reason_codes,
+            "overall_score": rep.overall_score,
+            "gates": [g.__dict__ for g in rep.gates],
+        })
+    # Also expose full result via side-file for debugging
+    import json
+    from pathlib import Path as _P
+    out = _P("extracted_output") / "unified_pipeline_report.json"
+    out.parent.mkdir(exist_ok=True, parents=True)
+    out.write_text(json.dumps(result.summary(), indent=2), encoding="utf-8")
+    return accepted, rejected
+
+
 def run_pipeline(
     file_path:      str,
     max_concepts:   int  = 10,
@@ -109,12 +181,26 @@ def run_pipeline(
     exam_type:      str  = "see",
     difficulty:     str  = "mixed",
     include_visual: bool = True,
+    use_unified:    bool = False,
 ) -> Tuple[List[dict], List[dict]]:
     """
     Saves and generates an aligned VTU Question Paper grouped strictly by Module.
     Generates exactly 4 main questions per module.
     Sub-questions per main question are strictly capped to max 3.
+
+    If use_unified=True, delegates to Universal Academic Pipeline (grounded, hallucination-resistant).
+    Legacy path preserved for backward compatibility (Upload→Prompt LLM→Return).
     """
+    # ── Unified pipeline delegate (grounded) ─────────────────
+    if use_unified and HAS_UNIFIED:
+        print("[PIPELINE] Delegating to Universal Academic Pipeline (grounded, hallucination-resistant)")
+        return run_unified_pipeline(
+            file_path=file_path,
+            exam_type=exam_type,
+            difficulty=difficulty,
+            num_questions=max(4, max_concepts),
+        )
+
     print("=" * 60)
     print(f"[START] AION Exam Generation Pipeline ({exam_type.upper()} Exam Mode)...")
     print(f"[CONFIG] Difficulty: {difficulty.upper()} | Visual RAG: {include_visual}")

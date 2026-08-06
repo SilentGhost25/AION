@@ -1,12 +1,20 @@
 """
 AION API v1 — Health & Diagnostics Router
 Provides health checks and system diagnostics.
+Single Production Model: qwen2.5:7b
 """
 
 import os
 import sys
 import requests
 from flask import Blueprint, jsonify
+
+try:
+    from core.config.production_model import PRODUCTION_MODEL, get_production_model
+except ImportError:
+    PRODUCTION_MODEL = "qwen2.5:7b"
+    def get_production_model():
+        return os.environ.get("AION_MODEL", PRODUCTION_MODEL)
 
 health_bp = Blueprint("health_api", __name__)
 
@@ -25,7 +33,7 @@ def get_health():
     except Exception:
         ollama_ok = False
 
-    active_model = os.environ.get("AION_MODEL", "qwen2.5:3b")
+    active_model = get_production_model()
 
     return jsonify({
         "status": "healthy" if ollama_ok else "degraded",
@@ -35,7 +43,9 @@ def get_health():
             "ollama": "healthy" if ollama_ok else "unreachable",
         },
         "active_model": active_model,
+        "production_model": PRODUCTION_MODEL,
         "models_available": models_count,
+        "model_policy": "single_production_model",
     })
 
 
@@ -54,13 +64,18 @@ def get_diagnostics():
     return jsonify({
         "system_health": "healthy" if ollama_status == "healthy" else "degraded",
         "python_version": sys.version.split()[0],
+        "production_model": PRODUCTION_MODEL,
         "ollama": {
             "status": ollama_status,
             "url": OLLAMA_URL,
             "models": available_models,
         },
         "environment": {
-            "AION_MODEL": os.environ.get("AION_MODEL", "qwen2.5:3b"),
+            "AION_MODEL": get_production_model(),
             "OLLAMA_URL": OLLAMA_URL,
+        },
+        "pipeline": {
+            "philosophy": "Upload → Extract → Understand → Build Concept Graph → Ground → Reason → Plan → Compose → Audit → Output",
+            "llm_role": "component, not architecture",
         },
     })

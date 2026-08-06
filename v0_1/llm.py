@@ -1,8 +1,10 @@
 """
 AION Unified LLM Interface — Robust LLM Caller
+Single Production Model: qwen2.5:7b (core/config/production_model.py)
+Policy: No silent fallback, no automatic downgrade. Fail loud on production model failure.
 Features:
 - Hard thread-level timeout per call
-- Fallback model chain (qwen2.5:7b -> qwen2.5:3b)
+- Centralized production model import
 - Stream keepalive callback during long calls
 - Pipeline abort on consecutive failures
 """
@@ -17,12 +19,20 @@ import threading
 import requests
 from typing import Optional, Callable
 
+try:
+    from core.config.production_model import PRODUCTION_MODEL, get_production_model
+except ImportError:
+    PRODUCTION_MODEL = "qwen2.5:7b"
+    def get_production_model():
+        return os.environ.get("AION_MODEL", PRODUCTION_MODEL)
+
 
 class RobustLLMCaller:
     """
     LLM caller with:
     - Hard timeout per call
-    - Automatic fallback model chain
+    - Single production model (no silent downgrade)
+    - Optional explicit fallback only if caller provides allow_fallback=True
     - Stream keepalive during long calls
     - Pipeline abort on repeated failure
     """
@@ -42,7 +52,8 @@ class RobustLLMCaller:
         self.ollama_url     = ollama_url.rstrip("/")
         self._consecutive_failures = 0
         self.MAX_CONSECUTIVE_FAILURES = 3
-        print(f"[LLM] RobustLLMCaller initialized — primary: {self.primary_model}")
+        print(f"[LLM] RobustLLMCaller initialized — primary: {self.primary_model} "
+              f"(fallback={'enabled' if self.allow_fallback else 'DISABLED'})")
 
     def call(
         self,
@@ -51,12 +62,12 @@ class RobustLLMCaller:
         stream_fn:  Optional[Callable[[dict], None]] = None,
     ) -> Optional[str]:
         """
-        Call LLM with hard timeout and fallback.
-        stream_fn: optional callback for SSE keepalive
+        Call LLM with hard timeout.
+        Only production model is tried unless allow_fallback was explicitly enabled.
         """
-        models_to_try = [self.primary_model] + [
-            m for m in self.fallback_models if m != self.primary_model
-        ]
+        models_to_try = [self.primary_model]
+        if self.allow_fallback and self.fallback_models:
+            models_to_try += self.fallback_models
 
         for model in models_to_try:
             for attempt in range(self.max_retries):
@@ -79,7 +90,7 @@ class RobustLLMCaller:
         if self._consecutive_failures >= self.MAX_CONSECUTIVE_FAILURES:
             raise RuntimeError(
                 f"[LLM] ABORT: {self._consecutive_failures} consecutive LLM failures. "
-                f"Is Ollama running? Ensure: ollama serve"
+                f"Is Ollama running? Ensure: ollama serve && ollama pull {PRODUCTION_MODEL}"
             )
 
         return None
@@ -120,6 +131,7 @@ class RobustLLMCaller:
                         content = data.get("response", "").strip()
                     result_queue.put(content if content else None)
                 else:
+                    print(f"[LLM] HTTP {r.status_code}: {r.text[:200]}")
                     result_queue.put(None)
 
             except requests.Timeout as e:
@@ -134,7 +146,7 @@ class RobustLLMCaller:
         thread.join(timeout=timeout + 5)
 
         if thread.is_alive():
-            print(f"[LLM] {model} thread hung — moving to fallback")
+            print(f"[LLM] {model} thread hung — no fallback (production model only)")
             return None
 
         try:
@@ -154,7 +166,7 @@ class AIONLLM:
         self,
         prompt:      str,
         system:      Optional[str] = None,
-        temperature: float = 0.75,
+        temperature: float = 0.30,
         options:     Optional[dict] = None,
         stream_fn:   Optional[Callable[[dict], None]] = None,
     ) -> str:

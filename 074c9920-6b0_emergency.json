@@ -6,6 +6,6 @@
     "chunks": 7,
     "generated": 0,
     "mode": "emergency",
-    "model": "qwen2.5:1.5b"
+    "model": "qwen2.5:7b"
   }
 }

@@ -6,7 +6,7 @@
     "dataset_version": "1.0",
     "schema_version": "1.0",
     "generated_by": "aion_pipeline",
-    "generator_model": "qwen2.5:3b",
+    "generator_model": "qwen2.5:7b",
     "reviewer": null,
     "review_status": "approved",
     "revision_count": 0,

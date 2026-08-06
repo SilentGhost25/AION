@@ -1,4 +1,24 @@
+# AION Default Model — Points to Production Config
+# This file is kept for backward compatibility; source of truth is configs/models/production.yaml
+# and core/config/production_model.py
+
 model:
-  device: cuda
-  name: AION-Academic-v1
-  size: 7B
+  name: "qwen2.5:7b"
+  provider: "ollama"
+  source_of_truth: "core/config/production_model.py::PRODUCTION_MODEL"
+  size: "7B"
+  device: "cuda"
+  ollama_url: "http://localhost:11434"
+  context_window: 4096
+
+generation:
+  temperature: 0.30
+  top_p: 0.90
+  top_k: 40
+  repeat_penalty: 1.1
+  num_ctx: 4096
+  num_predict: 350
+
+policy:
+  allow_silent_fallback: false
+  allow_automatic_downgrade: false

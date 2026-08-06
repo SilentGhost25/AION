@@ -3,24 +3,32 @@ AION Single-Request LLM Wrapper
 ================================
 Forces Ollama into single-threaded mode using a Python threading.Lock.
 Prevents queue buildup and 503 Server Busy errors entirely.
+Production Model: qwen2.5:7b (core/config/production_model.py)
 """
 
+import os
 import requests
 import json
 import time
 import threading
 from typing import Optional
 
+try:
+    from core.config.production_model import PRODUCTION_MODEL
+except ImportError:
+    PRODUCTION_MODEL = "qwen2.5:7b"
+
 
 class SingleRequestLLM:
     """
     Only one request at a time.
     All other requests wait in Python queue, not Ollama queue.
+    Production model only.
     """
 
     def __init__(self, model: str = "qwen2.5:1.5b", base_url: str = "http://127.0.0.1:11434"):
         self.base_url = base_url.rstrip("/")
-        self.model = model
+        self.model = model or os.environ.get("AION_MODEL", PRODUCTION_MODEL)
         self._lock = threading.Lock()
         self._request_count = 0
 
@@ -35,7 +43,7 @@ class SingleRequestLLM:
         print(f"[LLM #{req_id}] Waiting for lock...", flush=True)
 
         with self._lock:
-            print(f"[LLM #{req_id}] Lock acquired, calling Ollama...", flush=True)
+            print(f"[LLM #{req_id}] Lock acquired, calling Ollama ({self.model})...", flush=True)
 
             result = self._generate_internal(prompt, max_tokens, req_id)
             self._force_unload()
@@ -48,7 +56,7 @@ class SingleRequestLLM:
             "stream": True,
             "options": {
                 "num_predict": max_tokens,
-                "temperature": 0.2,
+                "temperature": 0.3,
             },
             "keep_alive": 0,  # Unload immediately
         }
@@ -69,7 +77,7 @@ class SingleRequestLLM:
                     f"  1. Stop script (Ctrl+C)\n"
                     f"  2. Run: taskkill /F /IM ollama.exe\n"
                     f"  3. Delete: %LOCALAPPDATA%\\Ollama\\*.db\n"
-                    f"  4. Run: ollama serve",
+                    f"  4. Run: ollama serve && ollama pull {PRODUCTION_MODEL}",
                     flush=True
                 )
                 return None
