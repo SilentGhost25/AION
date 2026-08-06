@@ -54,8 +54,8 @@ class ReasoningEngine:
 
     def _reason_single(self, ku: KnowledgeUnit) -> ReasoningIntent:
         low = (ku.concept + " " + ku.definition + " " + (ku.procedure or "")).lower()
-        # Choose intent type based on KU enrichment
-        if ku.numerical_template and ku.difficulty == "hard":
+        # Choose intent type based on KU enrichment — numerical if template exists (any difficulty, deterministic generation)
+        if ku.numerical_template:
             return self._numerical_intent(ku)
         if ku.misconceptions and "confuse" in ku.misconceptions[0].lower():
             return self._misconception_intent(ku)

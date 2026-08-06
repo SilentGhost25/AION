@@ -116,7 +116,7 @@ def _extract_numerical_template(evidence: str) -> Optional[Dict[str, Any]]:
         return None
     low = evidence.lower()
     # Strict calculation contexts: array, matrix, quick sort, or explicit calculate/compute
-    has_explicit_calculation = bool(re.search(r"\barray\s*\[|\bquick\s*sort\b|\bmatrix\s*\[|calculate|compute.*\d|complexity\s*O\(", evidence, re.I))
+    has_explicit_calculation = bool(re.search(r"\b(?:array\s*\[|keys\s*\[|inserting keys|quick\s*sort\b|matrix\s*\[|calculate|compute.*\d|complexity\s*O\(|insertion in bst)", evidence, re.I))
     has_sensor_threshold = bool(re.search(r"0\.1V.*0\.9V.*8\s*times.*10\s*seconds.*2500\s*RPM", evidence, re.I | re.S))
     if has_sensor_threshold:
         return {
