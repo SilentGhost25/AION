@@ -24,7 +24,7 @@ if ($ovReady) {
     Start-Sleep -Seconds 3
     $env:OLLAMA_KEEP_ALIVE  = "2h"
     $env:OLLAMA_NUM_THREADS = "14"
-    $env:AION_MODEL         = "qwen2.5:7b"
+    $env:AION_MODEL         = "qwen2.5:14b"
     Start-Process "ollama" -ArgumentList "serve" -WindowStyle Hidden
     Start-Sleep -Seconds 5
 }

@@ -52,6 +52,61 @@ SEE_PARTITIONS = [
     [5, 7, 8],     # 3 sub-questions
 ]
 
+
+# ── Bloom Distribution Controller ────────────────────────────────────────────
+# Ensures a paper has the correct spread of cognitive levels.
+# Called by the pipeline orchestrator when selecting Bloom levels per question.
+
+BLOOM_TARGETS_IA = {
+    1: 10,   # Remember   — 10% of marks
+    2: 20,   # Understand — 20%
+    3: 30,   # Apply      — 30%
+    4: 20,   # Analyze    — 20%
+    5: 15,   # Evaluate   — 15%
+    6: 5,    # Create     —  5%
+}
+
+BLOOM_TARGETS_SEE = {
+    1: 5,
+    2: 15,
+    3: 30,
+    4: 25,
+    5: 15,
+    6: 10,
+}
+
+
+class BloomDistributionController:
+    """
+    Tracks Bloom level usage and recommends next level
+    so the final paper matches target distribution.
+    """
+
+    def __init__(self, exam_type: str = "IA", total_marks: int = 50):
+        self.total_marks = total_marks
+        self.targets     = BLOOM_TARGETS_IA if exam_type in ("IA", "IAT1", "IAT2") else BLOOM_TARGETS_SEE
+        self.used        = {b: 0 for b in range(1, 7)}
+
+    def recommend(self) -> int:
+        """Return the Bloom level most needed right now."""
+        target_marks = {
+            b: round(pct / 100 * self.total_marks)
+            for b, pct in self.targets.items()
+        }
+        deficit = {
+            b: target_marks[b] - self.used[b]
+            for b in range(1, 7)
+        }
+        return max(deficit, key=deficit.get)
+
+    def record(self, bloom: int, marks: int):
+        """Record that marks were assigned to a bloom level."""
+        self.used[bloom] = self.used.get(bloom, 0) + marks
+
+    def summary(self) -> dict:
+        total = max(1, sum(self.used.values()))
+        return {b: round(m / total * 100) for b, m in self.used.items()}
+
 # ─────────────────────────────────────────────────────────────
 # Prompt Templates
 # ─────────────────────────────────────────────────────────────

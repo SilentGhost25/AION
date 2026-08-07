@@ -20,6 +20,7 @@ from .learner import Learner
 from .schemas import GeneratedQuestion
 from .segmenter import segment_document, ModuleSegment
 from .content_validator import validate_content, validate_chunks
+from .paper_validator import enforce_or_parity
 from .generator import (
     get_vtu_vibe_question,
     _is_valid,
@@ -387,6 +388,17 @@ def run_pipeline(
             module_questions.append(res)
 
         module_questions.sort(key=lambda x: x["mq_index"])
+
+        # Enforce OR pair parity (Q1 vs Q2, Q3 vs Q4)
+        if len(module_questions) >= 2:
+            module_questions[0], module_questions[1] = enforce_or_parity(
+                module_questions[0], module_questions[1], target_marks
+            )
+        if len(module_questions) >= 4:
+            module_questions[2], module_questions[3] = enforce_or_parity(
+                module_questions[2], module_questions[3], target_marks
+            )
+
         output_paper.append({
             "module_index": mod_idx,
             "module_title": mod.title,

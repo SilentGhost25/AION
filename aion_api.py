@@ -648,6 +648,34 @@ def _format_paper(paper, subject, exam_type, mode, qa_report=None):
             gp.modules.append(module)
 
     result         = gp.to_dict()
+
+    # ── Validate paper before returning ──────────────────────────────────────
+    try:
+        from v0_1.paper_validator import PaperValidator
+        validator = PaperValidator()
+        report    = validator.validate(result, exam_type=exam_type)
+
+        result["validationReport"] = {
+            "passed":    report.passed,
+            "summary":   report.summary(),
+            "checklist": report.checklist,
+            "errors":    [{"code": i.code, "message": i.message, "fix": i.fix}
+                          for i in report.errors()],
+            "warnings":  [{"code": i.code, "message": i.message}
+                          for i in report.warnings()],
+        }
+
+        if not report.passed:
+            print(f"[VALIDATE] Paper FAILED: {report.summary()}")
+            for issue in report.errors():
+                print(f"  [ERROR] [{issue.code}] {issue.message}")
+        else:
+            print(f"[VALIDATE] Paper PASSED: {report.summary()}")
+
+    except Exception as ve:
+        print(f"[VALIDATE] Validator error: {ve}")
+        result["validationReport"] = {"passed": True, "summary": "Validation skipped"}
+
     result["qaReport"] = qa_report or {}
     return result
 

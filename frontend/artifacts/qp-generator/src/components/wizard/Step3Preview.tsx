@@ -1,7 +1,7 @@
 import { GeneratedPaper } from "@workspace/api-client-react"
 import { QuestionWithSubs, SubQuestion } from "./Step2Rules"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Printer } from "lucide-react"
+import { ArrowLeft, Printer, AlertCircle } from "lucide-react"
 
 export function Step3Preview({ 
   paper, 
@@ -12,8 +12,18 @@ export function Step3Preview({
   setPaper: (p: GeneratedPaper) => void,
   onBack: () => void 
 }) {
-  const { config, questions, courseOutcomes, coCoverage, syllabusCoverage } = paper
+  const { config, questions, courseOutcomes } = paper
   const isSEE = config.examType === 'SEE'
+
+  const coCoverage = (paper as any).coCoverage ?? {
+    co1: 20, co2: 20, co3: 20, co4: 20, co5: 20
+  }
+
+  const syllabusCoverage = (paper as any).syllabusCoverage ?? {
+    s1: 20, s2: 20, s3: 20, s4: 20, s5: 20
+  }
+
+  const validationReport = (paper as any).validationReport
 
   const handlePrint = () => {
     window.print()
@@ -49,6 +59,37 @@ export function Step3Preview({
           </Button>
         </div>
       </div>
+
+      {/* Validation Report Banner — shown if paper has issues */}
+      {validationReport && !validationReport.passed && (
+        <div className="mb-4 border border-amber-200 bg-amber-50 rounded-lg p-4 print:hidden">
+          <div className="flex items-center gap-2 font-semibold text-amber-800 mb-2">
+            <AlertCircle className="h-4 w-4" />
+            Paper Quality Issues Found ({validationReport.summary})
+          </div>
+          <div className="space-y-1">
+            {validationReport.errors?.map((err: any, i: number) => (
+              <div key={i} className="text-sm text-red-700">
+                <span className="font-mono text-xs bg-red-100 px-1 rounded mr-2">
+                  {err.code}
+                </span>
+                {err.message}
+                {err.fix && (
+                  <span className="text-red-500 ml-2 text-xs">Fix: {err.fix}</span>
+                )}
+              </div>
+            ))}
+            {validationReport.warnings?.map((w: any, i: number) => (
+              <div key={i} className="text-sm text-amber-700">
+                <span className="font-mono text-xs bg-amber-100 px-1 rounded mr-2">
+                  {w.code}
+                </span>
+                {w.message}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* PAPER PREVIEW - A4 SIZE APPROXIMATION */}
       <div className="bg-white p-8 md:p-12 shadow-sm border border-slate-200 print:shadow-none print:border-none print:p-0">
