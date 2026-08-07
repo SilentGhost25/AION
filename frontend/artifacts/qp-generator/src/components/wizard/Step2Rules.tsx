@@ -225,23 +225,17 @@ async function generateFromAION(
           const lines = buffer.split("\n")
           buffer = lines.pop() ?? ""
 
-          let currentEvent = ""
           for (const line of lines) {
-            const trimmed = line.trim()
-            if (trimmed.startsWith("event:")) {
-              currentEvent = trimmed.slice(6).trim()
-              continue
-            }
-            if (!trimmed.startsWith("data:")) continue
-
+            if (!line.startsWith("data:")) continue
             try {
-              const data = JSON.parse(trimmed.slice(5).trim())
+              const raw  = line.slice(5).trim()
+              if (!raw || raw === "[DONE]") continue
+              const data = JSON.parse(raw)
 
-              if (currentEvent === "result" || data.modules) {
-                const modules = data.modules ?? []
+              // Primary: backend sends event:result with full paper
+              if (data.modules && Array.isArray(data.modules)) {
                 const extractedText: string[] = []
-
-                for (const mod of modules) {
+                for (const mod of data.modules) {
                   for (const q of (mod.questions || [])) {
                     for (const sq of (q.subQuestions || [])) {
                       if (sq.text) {
@@ -253,19 +247,30 @@ async function generateFromAION(
                 }
                 if (extractedText.length > 0) {
                   result = extractedText.join("\n\n")
+                } else {
+                  const firstSub = data.modules[0]?.questions?.[0]?.subQuestions?.[0]
+                  if (firstSub?.text) result = firstSub.text
                 }
+                ;(window as any).__aionLastPaper = data
               }
 
+              // Legacy shapes
               if (data.status === "done" && data.paper) {
                 const q = data.paper.questions?.[0]
                 result = q?.text ?? q?.question ?? result
               }
 
-              if (data.chunk) result += data.chunk
-              if (data.text)  result  = data.text
-              if (data.question) result = data.question
-
-            } catch { /* skip malformed events */ }
+              if (data.chunk)    result += data.chunk
+              if (data.text)     result  = data.text
+              if (data.question) result  = data.question
+              if (data.message && data.status === "error") {
+                throw new Error(data.message)
+              }
+            } catch (parseErr) {
+              if (parseErr instanceof Error && parseErr.message.includes("error")) {
+                throw parseErr
+              }
+            }
           }
         }
 

@@ -225,3 +225,7 @@ def segment_document(text: str, file_path: str = "") -> SegmentResult:
     segmenter = RobustSegmenter()
     segments = segmenter.segment(text, target_n=5)
     return SegmentResult(segments=segments)
+
+
+# Compatibility alias
+Segmenter = RobustSegmenter

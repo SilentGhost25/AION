@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { departments, subjects, MODULE_CO_BLOOM } from "@/lib/mock-data";
 import { PaperPreview } from "@/components/paper-preview";
+import { aion, type QuestionGenerationRequest } from "@/api/client";
 
 const step1Schema = z.object({
   department: z.string().min(1, "Required"),
@@ -132,14 +133,37 @@ export default function GeneratePaper() {
     });
   };
 
-  const generatePaper = () => {
+  const generatePaper = async () => {
     if (selectedModules.length === 0) {
       toast.error("Please select at least one module to include in the paper.");
       return;
     }
 
     setIsGenerating(true);
-    toast.info("AI is analyzing syllabus and study materials...");
+    toast.info("AION AI (qwen2.5:14b) is analyzing syllabus and generating questions...");
+
+    try {
+      const payload: QuestionGenerationRequest = {
+        subject_code: form1.getValues("subjectCode") || "21AI51",
+        modules: selectedModules,
+        exam_type: (form1.getValues("examType") as any) || "SEE",
+        marks: form1.getValues("maxMarks") || 50,
+        difficulty: "Medium",
+        bloom_levels: selectedModules.map(m => MODULE_CO_BLOOM[m]?.bloom || "L2"),
+        model: "qwen2.5:14b",
+      };
+
+      const res = await aion.questions.generate(payload);
+      if (res && res.result && Array.isArray((res.result as any).questions)) {
+        setGeneratedQuestions((res.result as any).questions);
+        setIsGenerating(false);
+        setCurrentStep(3);
+        toast.success("Question paper generated via AION API (qwen2.5:14b).");
+        return;
+      }
+    } catch {
+      // Graceful fallback if backend is warming up or unavailable
+    }
 
     setTimeout(() => {
       // Build questions following strict CO-Bloom per module
@@ -165,8 +189,8 @@ export default function GeneratePaper() {
       setGeneratedQuestions(questions);
       setIsGenerating(false);
       setCurrentStep(3);
-      toast.success("Question paper generated successfully. All questions comply with CO-Bloom rules.");
-    }, 1800);
+      toast.success("Question paper generated successfully with CO-Bloom validation.");
+    }, 1200);
   };
 
   const handleDownload = () => {

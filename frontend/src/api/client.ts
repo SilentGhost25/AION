@@ -134,15 +134,21 @@ export const aion = {
       if (metadata) {
         Object.entries(metadata).forEach(([k, v]) => form.append(k, v));
       }
-      const res = await fetch(`${BASE_URL}/api/upload`, {
+      let res = await fetch(`${BASE_URL}/api/v1/uploads`, {
         method: "POST",
         body: form,
       });
+      if (!res.ok) {
+        res = await fetch(`${BASE_URL}/api/upload`, {
+          method: "POST",
+          body: form,
+        });
+      }
       if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
       return res.json() as Promise<UploadResponse>;
     },
     list: () =>
-      aionFetch("/api/files"),
+      aionFetch("/api/v1/uploads").catch(() => aionFetch("/api/files")),
   },
 
   // Training

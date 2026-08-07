@@ -584,47 +584,72 @@ def job_status(job_id):
 
 
 def _format_paper(paper, subject, exam_type, mode, qa_report=None):
-    modules     = []
-    total_marks = 0
+    """
+    Convert raw pipeline output into the unified GeneratedPaper schema.
+    Handles all legacy output formats from the pipeline.
+    """
+    from v0_1.question_schema import (
+        GeneratedPaper, Module, MainQuestion, SubQuestion
+    )
 
+    gp = GeneratedPaper(
+        subject   = subject,
+        exam_type = exam_type,
+        mode      = mode,
+    )
+
+    # ── Handle list of modules (standard pipeline output) ─────────────────────
     if isinstance(paper, list):
-        for mod in paper:
-            questions = []
-            for mq in mod.get("questions", []):
+        for mod_idx, mod in enumerate(paper):
+            module = Module(
+                module_index = mod.get("module_index", mod_idx + 1),
+                module_title = mod.get("module_title", f"Module {mod_idx + 1}"),
+            )
+
+            for mq_idx, mq in enumerate(mod.get("questions", [])):
                 subs = []
-                for sq in mq.get("sub_questions", []):
-                    subs.append({
-                        "letter": sq.get("letter"),
-                        "text":   sq.get("text", ""),
-                        "marks":  sq.get("marks", 5),
-                        "image":  sq.get("image"),
-                    })
-                    total_marks += sq.get("marks", 0)
+                letters = "abcdefghij"
 
-                questions.append({
-                    "mqIndex":      mq.get("mq_index",    1),
-                    "totalMarks":   mq.get("total_marks", 10),
-                    "bloomLevel":   mq.get("bloom_level", 2),
-                    "bloomName":    mq.get("bloom_name",  "Understand"),
-                    "subQuestions": subs,
-                })
+                for sq_idx, sq in enumerate(mq.get("sub_questions", [])):
+                    text = (
+                        sq.get("text") or
+                        sq.get("question") or
+                        sq.get("content") or
+                        "Question text not available."
+                    )
+                    subs.append(SubQuestion(
+                        letter = sq.get("letter", letters[sq_idx]),
+                        text   = str(text).strip(),
+                        marks  = sq.get("marks", 5),
+                        co     = sq.get("co",    f"CO{min(5, mod_idx + 1)}"),
+                        bloom  = sq.get("bloom", mq.get("bloom_level", 2)),
+                        image  = sq.get("image"),
+                    ))
 
-            modules.append({
-                "moduleIndex": mod.get("module_index", 1),
-                "moduleTitle": mod.get("module_title", "Module"),
-                "questions":   questions,
-            })
+                # If no sub_questions but main question has text
+                if not subs and mq.get("text"):
+                    subs.append(SubQuestion(
+                        letter = "a",
+                        text   = str(mq["text"]).strip(),
+                        marks  = mq.get("total_marks", 10),
+                        co     = f"CO{min(5, mod_idx + 1)}",
+                        bloom  = mq.get("bloom_level", 2),
+                    ))
 
-    return {
-        "id":          str(uuid.uuid4())[:8],
-        "subject":     subject,
-        "examType":    exam_type,
-        "mode":        mode,
-        "modules":     modules,
-        "generatedAt": datetime.now().isoformat(),
-        "totalMarks":  total_marks,
-        "qaReport":    qa_report or {},
-    }
+                module.questions.append(MainQuestion(
+                    mq_index     = mq.get("mq_index", mq_idx + 1),
+                    total_marks  = mq.get("total_marks", 10),
+                    bloom_level  = mq.get("bloom_level", 2),
+                    bloom_name   = mq.get("bloom_name", "Understand"),
+                    sub_questions = subs,
+                    is_or        = bool(mq.get("is_or", mq_idx % 2 == 1)),
+                ))
+
+            gp.modules.append(module)
+
+    result         = gp.to_dict()
+    result["qaReport"] = qa_report or {}
+    return result
 
 
 @app.route("/api/preview", methods=["POST"])

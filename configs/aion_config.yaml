@@ -12,7 +12,7 @@ system:
   log_level: "INFO"
 
 models:
-  production_model: "qwen2.5:7b"  # SINGLE SOURCE OF TRUTH — see core/config/production_model.py
+  production_model: "qwen2.5:14b"  # SINGLE SOURCE OF TRUTH — see core/config/production_model.py
   production_provider: "ollama"
   ollama_url: "http://localhost:11434"
   ocr: "baidu/Unlimited-OCR"
@@ -22,10 +22,10 @@ models:
   reranker: "BAAI/bge-reranker-v2-m3"
   multimodal: "Qwen3-VL-2B"  # Stub — Florence-2 / Qwen2.5-VL via VisionAdapter (see core/extraction/vision_adapter.py)
   concept_extractor: "knowledgator/gliner-relex"
-  generator_base: "qwen2.5:7b"  # Was Qwen3-8B-Instruct — now unified to production model via Ollama
+  generator_base: "qwen2.5:14b"  # Was Qwen3-8B-Instruct — now unified to production model via Ollama
   serving_engine: "ollama"     # Was vllm — now Ollama per production requirement
   # Deprecated (single model enforcement):
-  deprecated_models: ["qwen2.5:1.5b", "qwen2.5:3b", "aion", "aion-exam"]
+  deprecated_models: ["qwen2.5:7b", "qwen2.5:1.5b", "qwen2.5:3b", "aion", "aion-exam"]
 
 retrieval:
   mode: "concept_level"        # Was paragraph retrieval — now concept-level (see core/retrieval/concept_retriever.py)

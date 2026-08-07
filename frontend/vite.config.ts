@@ -38,6 +38,12 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    proxy: {
+      "/api": {
+        target: process.env.VITE_AION_API_URL || "http://127.0.0.1:8100",
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     port,

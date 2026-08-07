@@ -19,6 +19,7 @@ from .memory import ConceptMemoryStore
 from .learner import Learner
 from .schemas import GeneratedQuestion
 from .segmenter import segment_document, ModuleSegment
+from .content_validator import validate_content, validate_chunks
 from .generator import (
     get_vtu_vibe_question,
     _is_valid,
@@ -329,6 +330,14 @@ def run_pipeline(
             module_chunks_text = raw_splits or [mod.content]
         else:
             module_chunks_text = [c.text for c in module_chunks]
+
+        # Content Validation Gate — Filter corrupted/noisy chunks
+        valid_chunks, rejected_chunks, avg_conf = validate_chunks(module_chunks_text)
+        if valid_chunks:
+            module_chunks_text = valid_chunks
+        else:
+            print(f"[VALIDATOR] Warning: All chunks rejected in module '{mod.title}'. Using sanitized text.")
+            module_chunks_text = [validate_content(c).clean_text or c for c in module_chunks_text if c.strip()]
 
         pair1_bloom = random.choice([2, 3])
         pair2_bloom = random.choice([4, 5])

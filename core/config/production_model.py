@@ -20,11 +20,12 @@ from dataclasses import dataclass
 from typing import Final
 
 # ── Single Production Model ──────────────────────────────────
-PRODUCTION_MODEL: Final[str] = "qwen2.5:7b"
-PRODUCTION_MODEL_ALIASES: Final[tuple[str, ...]] = ("qwen2.5:7b", "qwen2.5-7b")
+PRODUCTION_MODEL: Final[str] = "qwen2.5:14b"
+PRODUCTION_MODEL_ALIASES: Final[tuple[str, ...]] = ("qwen2.5:14b", "qwen2.5-14b")
 
 # Deprecated models that must NOT be used silently
 DEPRECATED_MODELS: Final[tuple[str, ...]] = (
+    "qwen2.5:7b",
     "qwen2.5:1.5b",
     "qwen2.5:3b",
     "aion",
@@ -101,7 +102,7 @@ class ModelIdentity:
     name: str = PRODUCTION_MODEL
     ollama_url: str = DEFAULT_OLLAMA_URL
     context_window: int = 4096
-    parameters: str = "7B"
+    parameters: str = "14B"
     quantization: str | None = None
 
     def __str__(self) -> str:

@@ -26,7 +26,7 @@ if hasattr(sys.stdout, "reconfigure"):
 CONFIG = {
     "ollama_port":     11434,
     "api_port":        8100,
-    "model":           "qwen2.5:7b",
+    "model":           "qwen2.5:14b",
     "api_script":      "aion_api.py",
     "startup_timeout": 30,     # seconds to wait
 }
