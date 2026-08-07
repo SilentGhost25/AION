@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "AI Question Paper Generator"
+description = "A 3-step wizard for generating academic question papers for Dayananda Sagar Academy of Technology & Management. Faculty fill in exam configuration, upload notes per question section, and AI generates a complete question paper matching the official template — with PDF export."
+version = "1.0.0"
+id = "artifacts/qp-generator"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21250
+
+[services.development]
+run = "pnpm --filter @workspace/qp-generator run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/qp-generator", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/qp-generator/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21250"
+BASE_PATH = "/"

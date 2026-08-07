@@ -1,0 +1,217 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: paper
+    description: Question paper generation
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /paper/generate:
+    post:
+      operationId: generatePaper
+      tags: [paper]
+      summary: Generate a question paper using AI
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaperInput"
+      responses:
+        "200":
+          description: Generated question paper
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedPaper"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    PaperConfig:
+      type: object
+      required:
+        - institutionDepartment
+        - subjectName
+        - subjectCode
+        - examType
+        - semester
+        - batch
+        - maxMarks
+        - duration
+      properties:
+        institutionDepartment:
+          type: string
+        subjectName:
+          type: string
+        subjectCode:
+          type: string
+        examType:
+          type: string
+          enum: [IAT1, IAT2, SEE]
+        semester:
+          type: number
+        batch:
+          type: string
+        maxMarks:
+          type: number
+        duration:
+          type: string
+        dateOfExam:
+          type: ["string", "null"]
+
+    SectionInput:
+      type: object
+      required:
+        - sectionNumber
+        - mainQuestions
+        - subQuestionsPerQ
+        - marks
+        - notesText
+      properties:
+        sectionNumber:
+          type: number
+        mainQuestions:
+          type: number
+        subQuestionsPerQ:
+          type: number
+        marks:
+          type: number
+        notesText:
+          type: string
+          description: Extracted text from uploaded notes/reference material
+
+    PaperInput:
+      type: object
+      required:
+        - config
+        - sections
+      properties:
+        config:
+          $ref: "#/components/schemas/PaperConfig"
+        sections:
+          type: array
+          items:
+            $ref: "#/components/schemas/SectionInput"
+          minItems: 1
+          maxItems: 10
+
+    GeneratedQuestion:
+      type: object
+      required:
+        - qNo
+        - text
+        - marks
+        - co
+        - rbt
+        - sectionNumber
+        - isOrQuestion
+      properties:
+        qNo:
+          type: number
+        text:
+          type: string
+        marks:
+          type: number
+        co:
+          type: string
+        rbt:
+          type: string
+        sectionNumber:
+          type: number
+        isOrQuestion:
+          type: boolean
+          description: True for the OR alternative question in each pair
+
+    COCoverage:
+      type: object
+      required: [co1, co2, co3, co4, co5]
+      properties:
+        co1: { type: number }
+        co2: { type: number }
+        co3: { type: number }
+        co4: { type: number }
+        co5: { type: number }
+
+    SyllabusCoverage:
+      type: object
+      required: [s1, s2, s3, s4, s5]
+      properties:
+        s1: { type: number }
+        s2: { type: number }
+        s3: { type: number }
+        s4: { type: number }
+        s5: { type: number }
+
+    GeneratedPaper:
+      type: object
+      required:
+        - config
+        - questions
+        - courseOutcomes
+        - coCoverage
+        - syllabusCoverage
+      properties:
+        config:
+          $ref: "#/components/schemas/PaperConfig"
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/GeneratedQuestion"
+        courseOutcomes:
+          type: array
+          items:
+            type: string
+          description: CO descriptions (CO1 through CO5)
+        coCoverage:
+          $ref: "#/components/schemas/COCoverage"
+        syllabusCoverage:
+          $ref: "#/components/schemas/SyllabusCoverage"
