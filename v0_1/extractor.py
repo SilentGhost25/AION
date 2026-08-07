@@ -219,3 +219,7 @@ def extract(pdf_or_text_path: str) -> Document:
         file_type   = file_type,
         formulas    = formulas,
     )
+
+
+# Backward-compatible alias
+Extractor = ConfidenceGatedExtractor

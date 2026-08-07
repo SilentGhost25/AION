@@ -162,5 +162,11 @@ _validator = ContentValidator()
 def validate_content(text: str) -> ValidationResult:
     return _validator.validate(text)
 
+def validate_chunk(text: str) -> bool:
+    return _validator.validate(text).valid
+
+def clean_chunk(text: str) -> str:
+    return _validator._clean(text)
+
 def validate_chunks(chunks: List[str]) -> Tuple[List[str], List[str], float]:
     return _validator.validate_chunk_list(chunks)
