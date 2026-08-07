@@ -27,6 +27,28 @@ except ImportError:
         return os.environ.get("AION_MODEL", PRODUCTION_MODEL)
 
 
+def get_best_llm():
+    """
+    Auto-selects OpenVINO LLM if converted model exists locally (for Intel Arc laptop testing).
+    Falls back to standard RobustLLMCaller (Ollama / vLLM for L40 GPU server).
+    """
+    from pathlib import Path
+
+    ov_model = Path(__file__).parent.parent / "models" / "qwen2.5-7b-ov"
+
+    if (os.environ.get("AION_USE_OPENVINO") == "1" or ov_model.exists()) and (ov_model / "openvino_model.xml").exists():
+        try:
+            from v0_1.openvino_llm import get_ov_llm
+            print("[LLM] Using OpenVINO on Intel Arc iGPU (Laptop local accelerator)")
+            return get_ov_llm(device="GPU")
+        except Exception as e:
+            print(f"[LLM] OpenVINO load warning: {e} — falling back to standard caller")
+
+    print("[LLM] Using Standard RobustLLMCaller (Ollama / Production L40 GPU server)")
+    return RobustLLMCaller()
+
+
+
 class RobustLLMCaller:
     """
     LLM caller with:
@@ -39,14 +61,16 @@ class RobustLLMCaller:
 
     def __init__(
         self,
-        primary_model:  Optional[str] = None,
+        primary_model:   Optional[str] = None,
         fallback_models: Optional[list[str]] = None,
-        timeout_sec:    int = 180,
-        max_retries:    int = 2,
-        ollama_url:     str = "http://127.0.0.1:11434",
+        timeout_sec:     int = 180,
+        max_retries:     int = 2,
+        ollama_url:      str = "http://127.0.0.1:11434",
+        allow_fallback:  bool = False,
     ):
-        self.primary_model  = primary_model or os.environ.get("AION_MODEL", "qwen2.5:3b")
-        self.fallback_models = []
+        self.primary_model  = primary_model or get_production_model()
+        self.fallback_models = fallback_models or []
+        self.allow_fallback  = allow_fallback
         self.timeout_sec    = timeout_sec
         self.max_retries    = max_retries
         self.ollama_url     = ollama_url.rstrip("/")

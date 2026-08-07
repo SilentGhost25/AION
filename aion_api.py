@@ -23,6 +23,13 @@ os.chdir(ROOT)
 sys.path.insert(0, str(ROOT))
 os.environ.setdefault("AION_MODEL", "aion")
 
+# ── Core Services Imports ──────────────────────────────────────
+from core.document_registry  import DocumentRegistry, DocumentStatus
+from core.extraction_service import ExtractionService
+from core.generation_context import GenerationContext
+from core.planner            import Planner
+from core.numerical_engine   import NumericalEngine
+
 # ── Flask imports ─────────────────────────────────────────────
 try:
     from flask import Flask, request, jsonify, Response, stream_with_context
@@ -102,9 +109,15 @@ def api_v1_root():
         },
     })
 
-# ── Storage ───────────────────────────────────────────────────
+# ── Storage & Core Registry ────────────────────────────────────
 UPLOAD_DIR = ROOT / "workspace" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+CACHE_DIR       = ROOT / "workspace" / "cache"
+doc_registry    = DocumentRegistry(cache_dir=CACHE_DIR)
+extract_svc     = ExtractionService(registry=doc_registry)
+planner         = Planner()
+numerical_eng   = NumericalEngine()
 
 file_registry: dict = {}
 job_store:     dict = {}
@@ -226,39 +239,93 @@ def upload():
             "allowed": sorted(ALLOWED),
         }), 400
 
-    file_id = str(uuid.uuid4())[:12]
-    dest    = UPLOAD_DIR / f"{file_id}{ext}"
-    f.save(str(dest))
+    # Save file and register document
+    doc = doc_registry.register(
+        filename = f.filename,
+        path     = "",                          # set after save
+        subject  = request.form.get("subject",  "unknown"),
+        category = request.form.get("category", "notes"),
+    )
 
-    size = dest.stat().st_size
+    dest = UPLOAD_DIR / f"{doc.id}{ext}"
+    f.save(str(dest))
+    doc.path       = str(dest)
+    doc.size_bytes = dest.stat().st_size
 
     record = {
-        "id":          file_id,
-        "filename":    f.filename,
+        "id":          doc.id,
+        "filename":    doc.filename,
         "storedPath":  str(dest),
-        "subject":     request.form.get("subject",  "unknown"),
-        "category":    request.form.get("category", "notes"),
-        "uploadedAt":  datetime.now().isoformat(),
-        "sizeBytes":   size,
+        "subject":     doc.subject,
+        "category":    doc.category,
+        "uploadedAt":  doc.uploaded_at,
+        "sizeBytes":   doc.size_bytes,
+        "status":      doc.status.value,
     }
-    file_registry[file_id] = record
+    file_registry[doc.id] = record
 
-    print(f"[UPLOAD] OK: {f.filename} -> {dest} ({size:,} bytes)")
-    return jsonify(record), 201
+    print(f"[UPLOAD] {f.filename} → {doc.id} ({doc.size_bytes:,} bytes)")
+
+    # Start background extraction immediately
+    extract_svc.extract_async(doc.id)
+
+    return jsonify({
+        "id":         doc.id,
+        "filename":   doc.filename,
+        "status":     doc.status.value,
+        "size_bytes": doc.size_bytes,
+        "storedPath": str(dest),
+    }), 201
+
+
+@app.route("/api/documents/<doc_id>/status", methods=["GET"])
+def document_status(doc_id: str):
+    doc = doc_registry.get(doc_id)
+    if not doc:
+        return jsonify({"error": "Document not found"}), 404
+    return jsonify({
+        "id":           doc.id,
+        "status":       doc.status.value,
+        "module_count": len(doc.modules),
+        "chunk_count":  len(doc.chunks),
+        "word_count":   doc.word_count,
+        "confidence":   doc.confidence,
+        "error":        doc.error,
+    })
+
+
+@app.route("/api/documents/<doc_id>/modules", methods=["GET"])
+def document_modules(doc_id: str):
+    doc = doc_registry.get(doc_id)
+    if not doc:
+        return jsonify({"error": "Document not found"}), 404
+    if doc.status not in (DocumentStatus.READY, DocumentStatus.GENERATING):
+        return jsonify({
+            "status":  doc.status.value,
+            "modules": [],
+            "message": "Extraction not complete yet",
+        })
+    return jsonify({
+        "status":  doc.status.value,
+        "modules": doc.modules,
+    })
 
 
 @app.route("/api/files", methods=["GET"])
 def list_files():
-    return jsonify(list(file_registry.values()))
+    return jsonify(doc_registry.all())
 
 
 @app.route("/api/files/<file_id>", methods=["DELETE"])
 def delete_file(file_id):
     record = file_registry.pop(file_id, None)
-    if not record:
+    doc = doc_registry.get(file_id)
+    if not record and not doc:
         return jsonify({"error": "Not found"}), 404
+    stored_path = doc.path if doc else (record["storedPath"] if record else "")
     try:
-        Path(record["storedPath"]).unlink(missing_ok=True)
+        if stored_path:
+            Path(stored_path).unlink(missing_ok=True)
     except Exception:
         pass
     return jsonify({"ok": True})
@@ -280,12 +347,17 @@ def _sse(event: str, data: dict) -> str:
 def generate_stream():
     body = request.get_json(silent=True) or {}
 
-    file_id   = body.get("fileId")
-    file_path = body.get("filePath", "")
+    file_id   = body.get("file_id") or body.get("fileId")
+    file_path = body.get("file_path") or body.get("filePath", "")
 
     if file_id:
+        doc = doc_registry.get(file_id)
         record = file_registry.get(file_id)
-        if not record:
+        if doc:
+            file_path = doc.path
+        elif record:
+            file_path = record["storedPath"]
+        else:
             def err_stream():
                 yield _sse("error", {
                     "message": f"File ID '{file_id}' not found. Upload first."
@@ -299,7 +371,7 @@ def generate_stream():
                     "X-Accel-Buffering": "no",
                 }
             )
-        file_path = record["storedPath"]
+        file_path = doc.path if doc else record["storedPath"]
 
     if not file_path or not Path(file_path).exists():
         def err_stream():
@@ -315,11 +387,11 @@ def generate_stream():
         )
 
     subject        = body.get("subject",        "Unknown")
-    exam_type      = body.get("examType",       "see")
+    exam_type      = body.get("exam_type") or body.get("examType", "see")
     mode           = body.get("mode",           "turbo")
     difficulty     = body.get("difficulty",     "mixed")
-    max_concepts   = int(body.get("maxConcepts", 10))
-    include_visual = bool(body.get("includeVisual", True))
+    max_concepts   = int(body.get("max_concepts") if "max_concepts" in body else body.get("maxConcepts", 10))
+    include_visual = bool(body.get("include_visual") if "include_visual" in body else body.get("includeVisual", True))
 
     print(f"\n{'='*50}")
     print(f"[STREAM] START: {file_id or file_path}")
@@ -443,14 +515,18 @@ def generate_stream():
 def generate_async():
     body = request.get_json(silent=True) or {}
 
-    file_id   = body.get("fileId")
-    file_path = body.get("filePath", "")
+    file_id   = body.get("file_id") or body.get("fileId")
+    file_path = body.get("file_path") or body.get("filePath", "")
 
     if file_id:
+        doc = doc_registry.get(file_id)
         record = file_registry.get(file_id)
-        if not record:
+        if doc:
+            file_path = doc.path
+        elif record:
+            file_path = record["storedPath"]
+        else:
             return jsonify({"error": "File not found"}), 404
-        file_path = record["storedPath"]
 
     if not file_path or not Path(file_path).exists():
         return jsonify({"error": f"File not found: '{file_path}'"}), 404
@@ -470,11 +546,11 @@ def generate_async():
             from v0_1.main import run_pipeline
             paper, qa_report = run_pipeline(
                 file_path,
-                max_concepts   = int(body.get("maxConcepts", 10)),
+                max_concepts   = int(body.get("max_concepts") if "max_concepts" in body else body.get("maxConcepts", 10)),
                 mode           = body.get("mode",           "turbo"),
-                exam_type      = body.get("examType",       "see"),
+                exam_type      = body.get("exam_type") or body.get("examType",       "see"),
                 difficulty     = body.get("difficulty",     "mixed"),
-                include_visual = bool(body.get("includeVisual", True)),
+                include_visual = bool(body.get("include_visual") if "include_visual" in body else body.get("includeVisual", True)),
             )
             job["result"]   = _format_paper(
                 paper,
