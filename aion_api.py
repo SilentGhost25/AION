@@ -421,21 +421,21 @@ def generate_stream():
             def run_worker():
                 t0 = time.time()
                 try:
-                    from v0_1.unified_pipeline import run_unified
-                    paper = run_unified(
-                        file_path     = file_path,
-                        exam_type     = gen_req.exam_type,
-                        difficulty    = gen_req.difficulty,
-                        subject       = gen_req.subject,
-                        department    = gen_req.department,
-                        max_questions = 10,
-                        mode          = "turbo",
+                    from v0_1.main import run_pipeline as _run_pipe
+                    _paper, _qa = _run_pipe(
+                        file_path      = file_path,
+                        exam_type      = gen_req.exam_type,
+                        difficulty     = gen_req.difficulty,
+                        include_visual = bool(gen_req.include_visual),
+                        max_concepts   = 10,
+                        mode           = "turbo",
                     )
                     dur = (time.time() - t0) * 1000
-                    trace.stage("PipelineExecution", status="PASS", duration_ms=dur, metrics={"questions": len(paper.modules)})
+                    trace.stage("PipelineExecution", status="PASS", duration_ms=dur,
+                                metrics={"questions": len(_paper) if isinstance(_paper, list) else 1})
                     trace.complete()
-                    result_holder["paper"] = paper
-                    result_holder["qa_report"] = {"passed": True, "score": paper.qa_score}
+                    result_holder["paper"]     = _paper
+                    result_holder["qa_report"] = _qa or {}
                 except Exception as e:
                     import traceback as tb
                     dur = (time.time() - t0) * 1000
@@ -930,6 +930,7 @@ if __name__ == "__main__":
         debug    = False,
         threaded = True,
     )
+
 
 
 
