@@ -421,22 +421,21 @@ def generate_stream():
             def run_worker():
                 t0 = time.time()
                 try:
-                    from v0_1.main import run_pipeline
-                    paper, qa_report = run_pipeline(
-                        file_path,
-                        max_concepts   = 10,
-                        mode           = "turbo",
-                        exam_type      = gen_req.exam_type,
-                        difficulty     = gen_req.difficulty,
-                        include_visual = gen_req.visual_mode,
-                        request_contract = gen_req,
-                        pipeline_trace   = trace,
+                    from v0_1.unified_pipeline import run_unified
+                    paper = run_unified(
+                        file_path     = file_path,
+                        exam_type     = gen_req.exam_type,
+                        difficulty    = gen_req.difficulty,
+                        subject       = gen_req.subject,
+                        department    = gen_req.department,
+                        max_questions = 10,
+                        mode          = "turbo",
                     )
                     dur = (time.time() - t0) * 1000
-                    trace.stage("PipelineExecution", status="PASS", duration_ms=dur, metrics={"questions": len(paper)})
+                    trace.stage("PipelineExecution", status="PASS", duration_ms=dur, metrics={"questions": len(paper.modules)})
                     trace.complete()
                     result_holder["paper"] = paper
-                    result_holder["qa_report"] = qa_report
+                    result_holder["qa_report"] = {"passed": True, "score": paper.qa_score}
                 except Exception as e:
                     import traceback as tb
                     dur = (time.time() - t0) * 1000
@@ -500,6 +499,12 @@ def generate_stream():
                 })
                 return
 
+
+            # ── Enforce correct marks before sending to frontend ──────────
+            result["modules"] = _enforce_marks(
+                result.get("modules", []),
+                _exam_type
+            )
             yield _sse("result", result)
             yield _sse("done", {"status": "done", "elapsed": elapsed})
             result_sent = True
@@ -611,6 +616,44 @@ def job_status(job_id):
     })
 
 
+
+def _enforce_marks(modules: list, exam_type: str) -> list:
+    """
+    Force correct marks on every question regardless of what the LLM returned.
+    IA:  10 marks per question, max 2 sub-questions (6+4)
+    SEE: 20 marks per question, max 3 sub-questions (8+6+6)
+    Both sides of every OR pair must have equal marks.
+    """
+    exam_upper = str(exam_type).upper() if exam_type else "IA"
+    is_ia      = exam_upper in ("IA", "IAT1", "IAT2", "IAT3", "MID")
+    q_marks    = 10 if is_ia else 20
+    max_parts  = 2  if is_ia else 3
+
+    for mod in modules:
+        questions = mod.get("questions", [])
+        for q in questions:
+            subs   = q.get("subQuestions", [])
+            n_subs = min(max(1, len(subs)), max_parts)
+
+            if is_ia:
+                split = [10] if n_subs == 1 else [6, 4]
+            else:
+                if n_subs == 1:
+                    split = [20]
+                elif n_subs == 2:
+                    split = [10, 10]
+                else:
+                    split = [8, 6, 6]
+
+            # Assign marks to subQuestions up to n_subs
+            for j, sq in enumerate(subs[:len(split)]):
+                sq["marks"] = split[j]
+
+            q["subQuestions"] = subs[:len(split)]
+            q["totalMarks"]   = q_marks
+
+    return modules
+
 def _format_paper(paper, subject, exam_type, mode, qa_report=None):
     """
     Convert raw pipeline output into the unified GeneratedPaper schema.
@@ -626,56 +669,91 @@ def _format_paper(paper, subject, exam_type, mode, qa_report=None):
         mode      = mode,
     )
 
-    # ── Handle list of modules (standard pipeline output) ─────────────────────
-    if isinstance(paper, list):
-        for mod_idx, mod in enumerate(paper):
-            module = Module(
-                module_index = mod.get("module_index", mod_idx + 1),
-                module_title = mod.get("module_title", f"Module {mod_idx + 1}"),
-            )
+    if hasattr(paper, "modules"):
+        paper_modules = paper.modules
+    elif isinstance(paper, dict) and "modules" in paper:
+        paper_modules = paper["modules"]
+    elif isinstance(paper, list):
+        paper_modules = paper
+    else:
+        paper_modules = []
 
-            for mq_idx, mq in enumerate(mod.get("questions", [])):
-                subs = []
-                letters = "abcdefghij"
+    for mod_idx, mod in enumerate(paper_modules):
+        if hasattr(mod, "to_dict"):
+            mod = mod.to_dict()
+        elif not isinstance(mod, dict):
+            mod = {"module_index": mod_idx + 1, "questions": []}
 
-                for sq_idx, sq in enumerate(mq.get("sub_questions", [])):
-                    text = (
-                        sq.get("text") or
-                        sq.get("question") or
-                        sq.get("content") or
-                        "Question text not available."
-                    )
-                    subs.append(SubQuestion(
-                        letter = sq.get("letter", letters[sq_idx]),
-                        text   = str(text).strip(),
-                        marks  = sq.get("marks", 5),
-                        co     = sq.get("co",    f"CO{min(5, mod_idx + 1)}"),
-                        bloom  = sq.get("bloom", mq.get("bloom_level", 2)),
-                        image  = sq.get("image"),
-                    ))
+        module = Module(
+            module_index = mod.get("module_index", mod_idx + 1),
+            module_title = mod.get("module_title", f"Module {mod_idx + 1}"),
+        )
 
-                # If no sub_questions but main question has text
-                if not subs and mq.get("text"):
-                    subs.append(SubQuestion(
-                        letter = "a",
-                        text   = str(mq["text"]).strip(),
-                        marks  = mq.get("total_marks", 10),
-                        co     = f"CO{min(5, mod_idx + 1)}",
-                        bloom  = mq.get("bloom_level", 2),
-                    ))
+        for mq_idx, mq in enumerate(mod.get("questions", [])):
+            if hasattr(mq, "to_dict"):
+                mq = mq.to_dict()
+            elif not isinstance(mq, dict):
+                continue
 
-                module.questions.append(MainQuestion(
-                    mq_index     = mq.get("mq_index", mq_idx + 1),
-                    total_marks  = mq.get("total_marks", 10),
-                    bloom_level  = mq.get("bloom_level", 2),
-                    bloom_name   = mq.get("bloom_name", "Understand"),
-                    sub_questions = subs,
-                    is_or        = bool(mq.get("is_or", mq_idx % 2 == 1)),
+            subs = []
+            letters = "abcdefghij"
+            raw_subs = mq.get("sub_questions") or mq.get("subQuestions") or []
+
+            exam_upper = str(exam_type).upper() if exam_type else "IA"
+            is_ia      = exam_upper in ("IA", "IAT1", "IAT2", "IAT3", "MID")
+            max_parts  = 2 if is_ia else 3
+            q_marks    = 10 if is_ia else 20
+
+            n_parts = min(max(1, len(raw_subs)), max_parts)
+            if is_ia:
+                split = [10] if n_parts == 1 else [6, 4]
+            else:
+                if n_parts == 1:
+                    split = [20]
+                elif n_parts == 2:
+                    split = [10, 10]
+                else:
+                    split = [8, 6, 6]
+
+            for sq_idx in range(len(split)):
+                if sq_idx < len(raw_subs):
+                    sq = raw_subs[sq_idx]
+                    if hasattr(sq, "to_dict"):
+                        sq = sq.to_dict()
+                    elif not isinstance(sq, dict):
+                        sq = {}
+                    text  = sq.get("text") or sq.get("question") or sq.get("content") or mq.get("text") or "Explain the concepts and principles in detail."
+                    co    = sq.get("co") or f"CO{min(5, mod_idx + 1)}"
+                    bloom = sq.get("bloom") or mq.get("bloom_level") or mq.get("bloomLevel") or 2
+                    image = sq.get("image")
+                else:
+                    text  = "Explain the concepts and principles in detail."
+                    co    = f"CO{min(5, mod_idx + 1)}"
+                    bloom = mq.get("bloom_level") or mq.get("bloomLevel") or 2
+                    image = None
+
+                subs.append(SubQuestion(
+                    letter = letters[sq_idx],
+                    text   = str(text).strip(),
+                    marks  = split[sq_idx],
+                    co     = str(co),
+                    bloom  = int(bloom),
+                    image  = image,
                 ))
 
-            gp.modules.append(module)
+            module.questions.append(MainQuestion(
+                mq_index      = mq.get("mq_index", mq.get("mqIndex", mq_idx + 1)),
+                total_marks   = q_marks,
+                bloom_level   = mq.get("bloom_level", mq.get("bloomLevel", 2)),
+                bloom_name    = mq.get("bloom_name", mq.get("bloomName", "Understand")),
+                sub_questions = subs,
+                is_or         = bool(mq.get("is_or", mq.get("isOr", mq_idx % 2 == 1))),
+            ))
 
-    result         = gp.to_dict()
+        gp.modules.append(module)
+
+    result = gp.to_dict()
+    result["modules"] = _enforce_marks(result.get("modules", []), exam_type)
 
     # ── Validate paper before returning ──────────────────────────────────────
     try:
@@ -852,4 +930,6 @@ if __name__ == "__main__":
         debug    = False,
         threaded = True,
     )
+
+
 

@@ -1,0 +1,29 @@
+{
+  "request_id": "e018f78d",
+  "subject": "Satellite Communication",
+  "status": "FAILED",
+  "model": "qwen2.5:14b",
+  "created_at": "2026-08-08T16:47:28.405455",
+  "total_duration_ms": 2.79,
+  "error": "Invalid Request: no content provided (file_id, file_path, or notes_text required)",
+  "stage_results": [
+    {
+      "stage_name": "RequestContract",
+      "status": "FAIL",
+      "duration_ms": 0.0,
+      "metrics": {},
+      "reason_code": null,
+      "message": "Invalid Request: no content provided (file_id, file_path, or notes_text required)",
+      "timestamp": "2026-08-08T16:47:28.406421"
+    },
+    {
+      "stage_name": "PipelineError",
+      "status": "FAIL",
+      "duration_ms": 0.0,
+      "metrics": {},
+      "reason_code": null,
+      "message": "Invalid Request: no content provided (file_id, file_path, or notes_text required)",
+      "timestamp": "2026-08-08T16:47:28.406442"
+    }
+  ]
+}
