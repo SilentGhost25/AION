@@ -1,4 +1,4 @@
-# scratch/read_untruncated.py
+﻿# scratch/read_untruncated.py
 import json
 
 transcript_path = r"C:\Users\Tarun J\.gemini\antigravity-ide\brain\9cb2f04d-f10f-4294-9988-645b89242c9f\.system_generated\logs\transcript_full.jsonl"
@@ -21,3 +21,4 @@ if "last_user_input" in locals():
     print("Successfully wrote full content to scratch/full_user_request.txt")
 else:
     print("Could not find USER_INPUT")
+

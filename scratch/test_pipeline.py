@@ -1,9 +1,9 @@
-import sys
+﻿import sys
 import os
 from pathlib import Path
 
 # Add project root to path
-ROOT = Path("c:/Users/Tarun J/OneDrive/Desktop/AION")
+ROOT = Path(".")
 sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)
 
@@ -25,3 +25,4 @@ except Exception as e:
     import traceback
     print("FAILED with exception:", e)
     traceback.print_exc()
+

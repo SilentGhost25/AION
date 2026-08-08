@@ -1,4 +1,4 @@
-# scratch/search_logs.py
+﻿# scratch/search_logs.py
 import json
 import os
 
@@ -26,3 +26,4 @@ for folder in os.listdir(brain_dir):
 
 if not found:
     print("Could not find any matching log with length > 10k")
+
