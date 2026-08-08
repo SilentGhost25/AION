@@ -1,0 +1,16 @@
+Module 3: Multiple Access Techniques
+
+TDMA (Time Division Multiple Access) divides the satellite channel into time slots.
+Each earth station transmits in its assigned slot within a TDMA frame.
+Guard times between slots prevent overlap caused by propagation delays.
+All earth stations must synchronize to a master reference burst from the satellite.
+
+FDMA (Frequency Division Multiple Access) assigns a unique frequency band to each user.
+Guard bands separate adjacent frequency channels to prevent interference.
+FDMA does not require synchronization between earth stations.
+Intermodulation distortion is a major problem in FDMA systems with nonlinear amplifiers.
+
+CDMA (Code Division Multiple Access) allows all users to share the same frequency band.
+Each user is assigned a unique pseudo-random code for identification.
+The receiver uses the matching code to extract the intended signal.
+CDMA provides soft handoff capability and resistance to multipath fading.

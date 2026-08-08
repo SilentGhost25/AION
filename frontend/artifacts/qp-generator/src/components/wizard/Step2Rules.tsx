@@ -225,54 +225,52 @@ async function generateFromAION(
           const lines = buffer.split("\n")
           buffer = lines.pop() ?? ""
 
+          let currentEvent = ""
           for (const line of lines) {
-            if (!line.startsWith("data:")) continue
+            const trimmed = line.trim()
+
+            if (trimmed.startsWith("event:")) {
+              currentEvent = trimmed.slice(6).trim()
+              continue
+            }
+
+            if (!trimmed.startsWith("data:")) continue
+            const raw = trimmed.slice(5).trim()
+            if (!raw || raw === "[DONE]") continue
+
             try {
-              const raw  = line.slice(5).trim()
-              if (!raw || raw === "[DONE]") continue
               const data = JSON.parse(raw)
 
-              // Primary: backend sends event:result with full paper
-              if (data.modules && Array.isArray(data.modules)) {
-                const extractedText: string[] = []
-                for (const mod of data.modules) {
-                  for (const q of (mod.questions || [])) {
-                    for (const sq of (q.subQuestions || [])) {
-                      if (sq.text) {
-                        const label = sq.letter ? `${sq.letter}) ` : ""
-                        extractedText.push(`${label}${sq.text}`)
-                      }
-                    }
-                  }
-                }
-                if (extractedText.length > 0) {
-                  result = extractedText.join("\n\n")
-                } else {
-                  const firstSub = data.modules[0]?.questions?.[0]?.subQuestions?.[0]
-                  if (firstSub?.text) result = firstSub.text
-                }
+              if (currentEvent === "result" || (data.modules && Array.isArray(data.modules))) {
                 ;(window as any).__aionLastPaper = data
+                const firstSub = data.modules?.[0]?.questions?.[0]?.subQuestions?.[0]
+                result = firstSub?.text || "Paper generated. Click Generate Paper to continue."
+                currentEvent = ""
+                continue
               }
 
-              // Legacy shapes
-              if (data.status === "done" && data.paper) {
-                const q = data.paper.questions?.[0]
-                result = q?.text ?? q?.question ?? result
+              if (currentEvent === "done" || data.status === "done") {
+                currentEvent = "done"
+                break
+              }
+
+              if (currentEvent === "error" || (data.message && data.status === "error")) {
+                throw new Error(data.message || "Generation failed")
               }
 
               if (data.chunk)    result += data.chunk
               if (data.text)     result  = data.text
               if (data.question) result  = data.question
-              if (data.message && data.status === "error") {
-                throw new Error(data.message)
-              }
+
             } catch (parseErr) {
-              if (parseErr instanceof Error && parseErr.message.includes("error")) {
+              if (parseErr instanceof Error && !parseErr.message.includes("JSON")) {
                 throw parseErr
               }
             }
           }
+          if (currentEvent === "done") break
         }
+
 
         resolve(result || "Question generation completed. Please review and edit.")
       })
@@ -334,6 +332,48 @@ export function Step2Rules({
     }
 
     setIsBuilding(true)
+
+    // ── Use AION-generated paper if available ─────────────────────────────
+    const aionPaper = (window as any).__aionLastPaper
+    if (aionPaper?.modules?.length > 0) {
+      try {
+        const questions = aionPaper.modules.flatMap((mod: any, modIdx: number) =>
+          (mod.questions ?? []).map((q: any) => ({
+            qNo:           q.mqIndex ?? q.qNo ?? (modIdx * 2 + 1),
+            text:          q.subQuestions?.[0]?.text ?? "",
+            marks:         q.totalMarks ?? 10,
+            co:            q.subQuestions?.[0]?.co ?? `CO${modIdx + 1}`,
+            rbt:           `L${q.bloomLevel ?? 2}`,
+            sectionNumber: modIdx + 1,
+            isOrQuestion:  q.isOr ?? false,
+            subQuestions:  (q.subQuestions ?? []).map((sq: any) => ({
+              label: sq.letter ?? "a",
+              text:  sq.text ?? "",
+              marks: sq.marks ?? 5,
+              co:    sq.co ?? `CO${modIdx + 1}`,
+              rbt:   `L${sq.bloom ?? 2}`,
+            })),
+          }))
+        )
+        const paper: GeneratedPaper = {
+          config,
+          questions,
+          courseOutcomes: [1,2,3,4,5].map(i =>
+            `Understand and apply Module ${i} concepts of ${config.subjectName || "the subject"}.`
+          ),
+          coCoverage:       { co1: 20, co2: 20, co3: 20, co4: 20, co5: 20 },
+          syllabusCoverage: { s1: 20, s2: 20, s3: 20, s4: 20, s5: 20 },
+        }
+        delete (window as any).__aionLastPaper
+        setIsBuilding(false)
+        setBuildStatus("")
+        onSuccess(paper)
+        return
+      } catch (err) {
+        console.warn("AION paper assembly failed, falling back:", err)
+        delete (window as any).__aionLastPaper
+      }
+    }
     setBuildStatus("Assembling paper...")
 
     try {
@@ -876,3 +916,4 @@ function SubQuestionEditor({ sub, qNum, showLabel, onChange, onRegenerate }: {
     </div>
   )
 }
+

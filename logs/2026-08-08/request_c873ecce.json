@@ -1,0 +1,71 @@
+{
+  "request_id": "c873ecce",
+  "subject": "Satellite Communication",
+  "status": "COMPLETED",
+  "model": "qwen2.5:14b",
+  "created_at": "2026-08-08T16:08:05.217194",
+  "total_duration_ms": 167784.3,
+  "error": null,
+  "stage_results": [
+    {
+      "stage_name": "RequestContract",
+      "status": "PASS",
+      "duration_ms": 0.0,
+      "metrics": {
+        "subject": "Satellite Communication",
+        "exam": "IA",
+        "model": "qwen2.5:14b"
+      },
+      "reason_code": null,
+      "message": null,
+      "timestamp": "2026-08-08T16:08:05.217775"
+    },
+    {
+      "stage_name": "PipelineStart",
+      "status": "PASS",
+      "duration_ms": 0.0,
+      "metrics": {
+        "file": "sample_lecture.txt",
+        "exam": "IA"
+      },
+      "reason_code": null,
+      "message": null,
+      "timestamp": "2026-08-08T16:08:12.583762"
+    },
+    {
+      "stage_name": "AcademicValidator",
+      "status": "PASS",
+      "duration_ms": 0.0,
+      "metrics": {
+        "score": 0.7874731857368358,
+        "noise": 0.0
+      },
+      "reason_code": null,
+      "message": "Clean academic text",
+      "timestamp": "2026-08-08T16:08:13.365760"
+    },
+    {
+      "stage_name": "Extraction",
+      "status": "PASS",
+      "duration_ms": 785.76,
+      "metrics": {
+        "cached": false,
+        "modules": 5
+      },
+      "reason_code": null,
+      "message": null,
+      "timestamp": "2026-08-08T16:08:13.369686"
+    },
+    {
+      "stage_name": "PipelineExecution",
+      "status": "PASS",
+      "duration_ms": 167770.71,
+      "metrics": {
+        "questions": 5
+      },
+      "reason_code": null,
+      "message": null,
+      "timestamp": "2026-08-08T16:10:52.997612"
+    }
+  ]
+}

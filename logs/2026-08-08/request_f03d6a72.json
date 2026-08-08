@@ -1,0 +1,29 @@
+{
+  "request_id": "f03d6a72",
+  "subject": "Satellite Communication",
+  "status": "FAILED",
+  "model": "qwen2.5:14b",
+  "created_at": "2026-08-08T16:25:42.850559",
+  "total_duration_ms": 2.71,
+  "error": "File not found: 'None'",
+  "stage_results": [
+    {
+      "stage_name": "RequestContract",
+      "status": "FAIL",
+      "duration_ms": 0.0,
+      "metrics": {},
+      "reason_code": null,
+      "message": "File not found: 'None'",
+      "timestamp": "2026-08-08T16:25:42.851341"
+    },
+    {
+      "stage_name": "PipelineError",
+      "status": "FAIL",
+      "duration_ms": 0.0,
+      "metrics": {},
+      "reason_code": null,
+      "message": "File not found: 'None'",
+      "timestamp": "2026-08-08T16:25:42.851357"
+    }
+  ]
+}

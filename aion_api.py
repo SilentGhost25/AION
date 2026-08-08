@@ -483,19 +483,26 @@ def generate_stream():
                 })
                 return
 
+            result_sent = False
             try:
-                result = _format_paper(paper, subject, exam_type, mode, qa_report=qa_report)
+                _subject   = getattr(gen_req, "subject",   None) or body.get("subject",  "Unknown")
+                _exam_type = getattr(gen_req, "exam_type", None) or body.get("examType", "IA")
+                _mode      = getattr(gen_req, "mode",      None) or body.get("mode",     "turbo")
+                result     = _format_paper(paper, _subject, _exam_type, _mode, qa_report=qa_report)
                 print(f"[STREAM] Formatted paper in {elapsed:.1f}s: {len(result.get('modules', []))} modules", flush=True)
-            except Exception as e:
-                print(f"[STREAM] Format error: {e}", flush=True)
+            except Exception as fmt_err:
+                import traceback
+                print(f"[STREAM] Format error: {fmt_err}", flush=True)
+                traceback.print_exc()
                 yield _sse("error", {
-                    "message": f"Result formatting failed: {str(e)}",
-                    "trace":   traceback.format_exc(),
+                    "message": f"Paper formatting failed: {fmt_err}",
+                    "trace":   traceback.format_exc()[-500:],
                 })
                 return
 
             yield _sse("result", result)
             yield _sse("done", {"status": "done", "elapsed": elapsed})
+            result_sent = True
             print(f"[STREAM] Complete event sent in {elapsed:.1f}s", flush=True)
 
         except GeneratorExit:
@@ -510,6 +517,12 @@ def generate_stream():
                 })
             except Exception:
                 pass
+        finally:
+            if not result_sent:
+                try:
+                    yield _sse("error", {"message": "Stream ended without result"})
+                except Exception:
+                    pass
 
     return Response(
         stream_with_context(stream()),
