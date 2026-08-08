@@ -1,12 +1,13 @@
 """
-AION Module: Document Cleaner
-Maturity:    v0.1 — RULE-BASED NOISE STRIPPER
-Upgrades to: Neural Layout & Header/Footer Classification Model
-Contract:    document: Document -> CleanedDocument (see schemas.py)
+AION Module: Document Cleaner & Stage 3 Semantic Cleaner
+=========================================================
+Removes residual PDF artifacts, OCR noise, and structural debris from chunks.
 """
 
 import re
+import unicodedata
 from collections import Counter
+from typing import Optional, List
 from .schemas import Document, CleanedDocument
 
 
@@ -14,71 +15,40 @@ def clean(document: Document) -> CleanedDocument:
     original_lines = document.raw_text.splitlines()
     original_count = len(original_lines)
 
-    # ── Pass 1: Detect repeated header/footer lines ──
-    # Lines that appear on many pages are running headers/footers
     line_counts = Counter(
         ln.strip().lower()
         for ln in original_lines
         if len(ln.strip()) >= 4 and not ln.strip().isdigit()
     )
-    # A line repeated more than 8 times is almost certainly a header/footer
     repeated_noise = {
         line for line, count in line_counts.items()
         if count >= 8
     }
 
-    # ── Pass 2: Line-level filtering ──
     kept = []
     removed = 0
 
     for line in original_lines:
         s = line.strip()
 
-        # Blank line (preserve as paragraph boundary)
         if not s:
             kept.append("")
             continue
 
-        # Single char noise
-        if len(s) < 2:
+        if len(s) < 2 or s.isdigit() or s.startswith("---") or s.startswith("===") or s.startswith("___"):
             removed += 1
             continue
 
-        # Standalone page number
-        if s.isdigit():
+        if re.match(r"^\s*https?://\S+\s*$", s) or re.match(r"^\s*[\w_\-]+\.(py|html|js|css|json|yaml|txt|md|cfg)\s*$", s):
             removed += 1
             continue
 
-        # Divider lines
-        if s.startswith("---") or s.startswith("===") or s.startswith("___"):
-            removed += 1
-            continue
-
-        # URLs
-        if re.match(r"^\s*https?://\S+\s*$", s):
-            removed += 1
-            continue
-
-        # Standalone filename references
-        if re.match(r"^\s*[\w_\-]+\.(py|html|js|css|json|yaml|txt|md|cfg)\s*$", s):
-            removed += 1
-            continue
-
-        # ISBN / copyright lines
-        if re.search(r"^\s*(isbn|copyright\s*©?|all\s+rights\s+reserved|published\s+by)\b", s, re.I):
-            removed += 1
-            continue
-
-        # Repeated header/footer
-        if s.lower() in repeated_noise:
+        if re.search(r"^\s*(isbn|copyright\s*©?|all\s+rights\s+reserved|published\s+by)\b", s, re.I) or s.lower() in repeated_noise:
             removed += 1
             continue
 
         kept.append(s)
 
-    # ── Pass 3: Rebuild with paragraph structure preserved ──
-    # Group consecutive non-empty lines into paragraphs
-    # separated by blank lines (which become \n\n)
     paragraphs = []
     current_para = []
 
@@ -93,11 +63,7 @@ def clean(document: Document) -> CleanedDocument:
     if current_para:
         paragraphs.append(" ".join(current_para))
 
-    # Join paragraphs with double newline so learner.py
-    # can split on \n\n correctly
     clean_text = "\n\n".join(p for p in paragraphs if p.strip())
-
-    # Also fix hyphenation across line breaks
     clean_text = re.sub(r"(\w+)-\s+(\w+)", r"\1\2", clean_text)
 
     return CleanedDocument(
@@ -106,3 +72,66 @@ def clean(document: Document) -> CleanedDocument:
         removed_line_count=removed,
         original_line_count=original_count,
     )
+
+
+# ── Stage 3 Extension ─────────────────────────────────────────────────────────
+
+_PDF_ARTIFACTS = [
+    re.compile(r'\b\d+\s+\d+\s+obj\b.*?endobj', re.DOTALL | re.IGNORECASE),
+    re.compile(r'<<.*?>>', re.DOTALL),
+    re.compile(r'/\w+\s*\[.*?\]', re.DOTALL),
+    re.compile(r'stream[\s\S]*?endstream', re.IGNORECASE),
+    re.compile(r'xref\s+\d+\s+\d+', re.IGNORECASE),
+    re.compile(r'trailer\s*<<', re.IGNORECASE),
+    re.compile(r'startxref\s+\d+', re.IGNORECASE),
+]
+
+_HEADER_FOOTER = [
+    re.compile(r'^page\s+\d+\s+of\s+\d+$', re.IGNORECASE | re.MULTILINE),
+    re.compile(r'^\d+\s*$', re.MULTILINE),
+    re.compile(r'^www\.\S+\.(?:com|org|edu|in)\s*$', re.IGNORECASE | re.MULTILINE),
+    re.compile(r'^(?:copyright|©).*$', re.IGNORECASE | re.MULTILINE),
+    re.compile(r'^(?:unit|chapter|module)\s+\d+\s*$', re.IGNORECASE | re.MULTILINE),
+]
+
+_OCR_NOISE = [
+    re.compile(r'[|]{2,}'),
+    re.compile(r'_{4,}'),
+    re.compile(r'-{4,}'),
+    re.compile(r'\.{4,}'),
+    re.compile(r'\s{4,}'),
+]
+
+
+class SemanticCleaner:
+    def clean(self, text: str) -> str:
+        if not text or not text.strip():
+            return ""
+
+        for pattern in _PDF_ARTIFACTS:
+            text = pattern.sub(' ', text)
+
+        for pattern in _HEADER_FOOTER:
+            text = pattern.sub('', text)
+
+        for pattern in _OCR_NOISE:
+            text = pattern.sub(' ', text)
+
+        text = re.sub(r'(\w)-\s*\n\s*(\w)', r'\1\2', text)
+        text = unicodedata.normalize('NFC', text)
+        text = re.sub(r'^\s*[a-zA-Z]\s*$', '', text, flags=re.MULTILINE)
+        text = re.sub(r'[ \t]+', ' ', text)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        return text.strip()
+
+    def clean_batch(self, chunks: List[str]) -> List[str]:
+        return [self.clean(c) for c in chunks if c.strip()]
+
+
+_cleaner = SemanticCleaner()
+
+def semantic_clean(text: str) -> str:
+    return _cleaner.clean(text)
+
+def semantic_clean_batch(chunks: List[str]) -> List[str]:
+    return _cleaner.clean_batch(chunks)
