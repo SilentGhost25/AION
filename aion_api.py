@@ -403,6 +403,7 @@ def generate_stream():
     def stream():
         import time
         import threading
+        result_sent = False
         start_time = time.time()
 
         try:
@@ -426,7 +427,7 @@ def generate_stream():
                         file_path      = file_path,
                         exam_type      = gen_req.exam_type,
                         difficulty     = gen_req.difficulty,
-                        include_visual = bool(gen_req.include_visual),
+                        include_visual = False,
                         max_concepts   = 10,
                         mode           = "turbo",
                     )
@@ -930,6 +931,7 @@ if __name__ == "__main__":
         debug    = False,
         threaded = True,
     )
+
 
 
 
