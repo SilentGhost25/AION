@@ -44,6 +44,9 @@ class ConfidenceGatedExtractor:
         "low":    0.40,
     }
 
+    def extract(self, path: Any) -> Document:
+        return extract(str(path))
+
     def extract_pdf(self, pdf_path: str) -> Dict[str, Any]:
         from .document_parser import parse_document
         parsed = parse_document(pdf_path)

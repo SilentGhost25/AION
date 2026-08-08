@@ -158,6 +158,13 @@ cmd_backend() {
     # Wait for backend to become ready
     local retries=0
     while ! is_port_open "$BACKEND_PORT"; do
+        if ! is_running "$pid"; then
+            echo ""
+            error "Backend process (PID $pid) exited prematurely!"
+            error "--- Last 20 lines of $BACKEND_LOG ---"
+            tail -n 20 "$BACKEND_LOG"
+            return 1
+        fi
         sleep 1
         retries=$((retries + 1))
         if [[ $retries -ge 30 ]]; then

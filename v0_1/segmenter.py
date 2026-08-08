@@ -20,6 +20,12 @@ class ModuleSegment:
     content:    str
     word_count: int
 
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
+
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key)
+
 
 @dataclass
 class SegmentResult:

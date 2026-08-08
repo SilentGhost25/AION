@@ -101,32 +101,35 @@ class ContentValidator:
         self,
         chunks: List[str],
         min_valid: int = 2,
+        max_chunks: int = 150,
     ) -> Tuple[List[str], List[str], float]:
         """
-        Validate a list of chunks.
+        Validate a list of chunks efficiently.
+        Caps chunk processing to max_chunks to prevent RAM OOM on massive documents.
         Returns (valid_chunks, rejected_chunks, avg_confidence)
         """
         valid    = []
         rejected = []
+        conf_sum = 0.0
 
-        for chunk in chunks:
+        # Sub-sample or cap chunks if document is massive (>150 chunks)
+        eval_chunks = chunks[:max_chunks] if len(chunks) > max_chunks else chunks
+
+        for chunk in eval_chunks:
             result = self.validate(chunk)
             if result.valid:
                 valid.append(result.clean_text or chunk)
+                conf_sum += result.confidence
             else:
                 rejected.append(chunk)
-                print(f"[VALIDATOR] Rejected chunk: {result.rejection_reason}")
+
+        if rejected:
+            print(f"[VALIDATOR] Evaluated {len(eval_chunks)} chunks -> Accepted: {len(valid)}, Rejected: {len(rejected)}")
 
         if len(valid) < min_valid:
-            print(
-                f"[VALIDATOR] Only {len(valid)}/{len(chunks)} chunks valid. "
-                f"Generation may be unreliable."
-            )
+            print(f"[VALIDATOR] Only {len(valid)}/{len(chunks)} chunks valid. Generation may be unreliable.")
 
-        avg_conf = sum(
-            self.validate(c).confidence for c in valid
-        ) / max(1, len(valid))
-
+        avg_conf = conf_sum / max(1, len(valid))
         return valid, rejected, avg_conf
 
     def _compute_noise(self, text: str, word_count: int) -> float:

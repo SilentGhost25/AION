@@ -1,0 +1,90 @@
+{
+  "request_id": "71a02845",
+  "subject": "Information Theory & Coding",
+  "status": "COMPLETED",
+  "model": "qwen2.5:14b",
+  "created_at": "2026-08-08T12:59:59.182760",
+  "total_duration_ms": 1.64,
+  "error": null,
+  "stage_results": [
+    {
+      "stage_name": "RequestContract",
+      "status": "PASS",
+      "duration_ms": 0.0,
+      "metrics": {
+        "subject": "ITC",
+        "exam": "SEE"
+      },
+      "reason_code": null,
+      "message": null,
+      "timestamp": "2026-08-08T12:59:59.182809"
+    },
+    {
+      "stage_name": "Extraction",
+      "status": "PASS",
+      "duration_ms": 145.2,
+      "metrics": {
+        "pages": 12,
+        "words": 4500
+      },
+      "reason_code": null,
+      "message": null,
+      "timestamp": "2026-08-08T12:59:59.183132"
+    },
+    {
+      "stage_name": "AcademicValidator",
+      "status": "PASS",
+      "duration_ms": 0.0,
+      "metrics": {
+        "score": 0.92,
+        "noise": 0.05
+      },
+      "reason_code": null,
+      "message": null,
+      "timestamp": "2026-08-08T12:59:59.183150"
+    },
+    {
+      "stage_name": "Retrieval",
+      "status": "PASS",
+      "duration_ms": 88.0,
+      "metrics": {
+        "chunks": 4
+      },
+      "reason_code": null,
+      "message": null,
+      "timestamp": "2026-08-08T12:59:59.183155"
+    },
+    {
+      "stage_name": "Generation",
+      "status": "PASS",
+      "duration_ms": 2100.5,
+      "metrics": {
+        "model": "qwen2.5:14b"
+      },
+      "reason_code": null,
+      "message": null,
+      "timestamp": "2026-08-08T12:59:59.183159"
+    },
+    {
+      "stage_name": "Critic",
+      "status": "PASS",
+      "duration_ms": 0.0,
+      "metrics": {
+        "grammar": 0.98,
+        "grounding": 0.94
+      },
+      "reason_code": null,
+      "message": null,
+      "timestamp": "2026-08-08T12:59:59.183162"
+    },
+    {
+      "stage_name": "Renderer",
+      "status": "PASS",
+      "duration_ms": 35.0,
+      "metrics": {},
+      "reason_code": null,
+      "message": null,
+      "timestamp": "2026-08-08T12:59:59.183165"
+    }
+  ]
+}
