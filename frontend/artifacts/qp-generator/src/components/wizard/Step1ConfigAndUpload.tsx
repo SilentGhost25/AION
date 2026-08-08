@@ -103,12 +103,14 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
         file_id: fileId,
         fileId: fileId,
         subject: config.subjectName || "Subject",
+        department: (config as any).department || "Computer Science & Engineering",
+        semester: (config as any).semester || 5,
         exam_type: config.examType || "IA",
         examType: config.examType || "IA",
-        mode: "turbo",
         difficulty: "mixed",
-        maxConcepts: 10,
-        includeVisual: false,
+        notes_text: combinedNotes,
+        model: "qwen2.5:14b",
+        include_visual: true,
       })
 
       if (!response.ok) {

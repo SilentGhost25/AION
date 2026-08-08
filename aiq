@@ -10,6 +10,7 @@
 #   ./aiq stop         → stop all AIQ processes
 #   ./aiq logs         → tail backend logs
 #   ./aiq model        → show resolved model
+#   ./aiq install      → install global 'aiq' command
 # =============================================================
 
 set -euo pipefail
@@ -22,6 +23,7 @@ BACKEND_PID_FILE="$PID_DIR/backend.pid"
 FRONTEND_PID_FILE="$PID_DIR/frontend.pid"
 
 BACKEND_PORT=8100
+FRONTEND_PORT=5173
 FRONTEND_DIR="$ROOT/frontend/artifacts/qp-generator"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
@@ -60,9 +62,11 @@ ensure_dirs() {
 }
 
 activate_venv() {
-    if [[ -f "$ROOT/.venv/bin/activate" ]]; then
+    if [[ -n "${VIRTUAL_ENV:-}" ]]; then
+        log "Using currently active virtual environment: $VIRTUAL_ENV"
+    elif [[ -f "$ROOT/.venv/bin/activate" ]]; then
         source "$ROOT/.venv/bin/activate"
-        log "Virtual environment activated"
+        log "Virtual environment activated (.venv/)"
     elif [[ -f "$ROOT/venv/bin/activate" ]]; then
         source "$ROOT/venv/bin/activate"
         log "Virtual environment activated (venv/)"
@@ -77,12 +81,32 @@ from core.config.production_model import get_production_model, get_resolution_in
 m = get_production_model()
 i = get_resolution_info()
 print(f\"{m} (source: {i['source']}, device: {i['device']})\")
-" 2>/dev/null || echo "qwen2.5:3b (config unavailable)"
+" 2>/dev/null || echo "qwen2.5:14b (config default)"
 }
 
 is_port_open() {
     local port="$1"
-    nc -z 127.0.0.1 "$port" 2>/dev/null
+    if command -v nc >/dev/null 2>&1; then
+        nc -z 127.0.0.1 "$port" 2>/dev/null
+    elif command -v lsof >/dev/null 2>&1; then
+        lsof -i:"$port" >/dev/null 2>&1
+    else
+        (echo > "/dev/tcp/127.0.0.1/$port") 2>/dev/null
+    fi
+}
+
+kill_port() {
+    local port="$1"
+    if command -v fuser >/dev/null 2>&1; then
+        fuser -k "${port}/tcp" 2>/dev/null || true
+    fi
+    if command -v lsof >/dev/null 2>&1; then
+        local pids
+        pids=$(lsof -t -i:"${port}" 2>/dev/null || true)
+        if [[ -n "$pids" ]]; then
+            kill -9 $pids 2>/dev/null || true
+        fi
+    fi
 }
 
 read_pid() {
@@ -113,6 +137,12 @@ cmd_backend() {
     ensure_dirs
     cd "$ROOT"
     activate_venv
+
+    if is_port_open "$BACKEND_PORT"; then
+        warn "Port $BACKEND_PORT is currently occupied — clearing existing process..."
+        kill_port "$BACKEND_PORT"
+        sleep 1
+    fi
 
     local model
     model=$(resolve_model)
@@ -150,6 +180,13 @@ cmd_frontend() {
         return 1
     fi
 
+    if is_port_open "$FRONTEND_PORT"; then
+        warn "Port $FRONTEND_PORT is currently occupied — clearing existing frontend process..."
+        kill_port "$FRONTEND_PORT"
+        kill_port 5174
+        sleep 1
+    fi
+
     cd "$FRONTEND_DIR"
     require pnpm
 
@@ -159,9 +196,9 @@ cmd_frontend() {
     log "Frontend PID: $pid"
     log "Frontend starting..."
 
-    # Wait for Vite to print its URL
-    sleep 4
-    log "Frontend ready — check terminal for URL"
+    # Wait for Vite to initialize
+    sleep 3
+    log "Frontend ready — accessible at http://0.0.0.0:$FRONTEND_PORT"
 }
 
 cmd_start() {
@@ -176,7 +213,7 @@ cmd_start() {
     if [[ -z "$device" ]]; then
         # Auto-detect from available RAM
         local free_gb
-        free_gb=$(free -g | awk '/^Mem:/{print $7}')
+        free_gb=$(free -g 2>/dev/null | awk '/^Mem:/{print $7}' || echo "16")
         if   [[ "$free_gb" -ge 30 ]]; then device="server"
         elif [[ "$free_gb" -ge 10 ]]; then device="desktop"
         else                               device="laptop"
@@ -203,6 +240,7 @@ cmd_start() {
     echo -e "${GREEN}${BOLD}================================================${NC}"
     echo -e "${GREEN}${BOLD}  AIQ is running${NC}"
     echo -e "${GREEN}  Backend  : http://localhost:$BACKEND_PORT${NC}"
+    echo -e "${GREEN}  Frontend : http://0.0.0.0:$FRONTEND_PORT${NC}"
     echo -e "${GREEN}  Device   : $device${NC}"
     echo -e "${GREEN}  Logs     : $BACKEND_LOG${NC}"
     echo -e "${GREEN}${BOLD}================================================${NC}"
@@ -221,24 +259,22 @@ cmd_stop() {
     frontend_pid=$(read_pid "$FRONTEND_PID_FILE")
 
     if is_running "$backend_pid"; then
-        kill "$backend_pid" 2>/dev/null
+        kill "$backend_pid" 2>/dev/null || true
         log "Backend stopped (PID $backend_pid)"
-    else
-        warn "Backend not running"
     fi
 
     if is_running "$frontend_pid"; then
-        kill "$frontend_pid" 2>/dev/null
+        kill "$frontend_pid" 2>/dev/null || true
         log "Frontend stopped (PID $frontend_pid)"
-    else
-        warn "Frontend not running"
     fi
 
-    # Also kill by port as fallback
-    fuser -k "${BACKEND_PORT}/tcp" 2>/dev/null || true
+    # Kill by port as robust fallback
+    kill_port "$BACKEND_PORT"
+    kill_port "$FRONTEND_PORT"
+    kill_port 5174
 
     rm -f "$BACKEND_PID_FILE" "$FRONTEND_PID_FILE"
-    log "Stopped"
+    log "Stopped all processes on ports $BACKEND_PORT, $FRONTEND_PORT"
 }
 
 cmd_status() {
@@ -249,8 +285,8 @@ cmd_status() {
     frontend_pid=$(read_pid "$FRONTEND_PID_FILE")
 
     # Backend
-    if is_running "$backend_pid"; then
-        echo -e "  Backend   ${GREEN}● running${NC}  (PID $backend_pid)"
+    if is_port_open "$BACKEND_PORT"; then
+        echo -e "  Backend   ${GREEN}● running${NC}  (port $BACKEND_PORT, PID ${backend_pid:-active})"
         # Try health check
         local health
         health=$(curl -sf "http://localhost:$BACKEND_PORT/api/v1/health" 2>/dev/null || echo "{}")
@@ -260,14 +296,14 @@ cmd_status() {
         echo -e "  Health    ${GREEN}$status${NC}"
         echo -e "  Model     $model"
     else
-        echo -e "  Backend   ${RED}● stopped${NC}"
+        echo -e "  Backend   ${RED}● stopped${NC}  (port $BACKEND_PORT)"
     fi
 
     # Frontend
-    if is_running "$frontend_pid"; then
-        echo -e "  Frontend  ${GREEN}● running${NC}  (PID $frontend_pid)"
+    if is_port_open "$FRONTEND_PORT"; then
+        echo -e "  Frontend  ${GREEN}● running${NC}  (port $FRONTEND_PORT, PID ${frontend_pid:-active})"
     else
-        echo -e "  Frontend  ${RED}● stopped${NC}"
+        echo -e "  Frontend  ${RED}● stopped${NC}  (port $FRONTEND_PORT)"
     fi
 
     # Ollama
@@ -275,10 +311,10 @@ cmd_status() {
         local models
         models=$(curl -sf "http://localhost:11434/api/tags" 2>/dev/null | \
             python -c "import sys,json; d=json.load(sys.stdin); print(', '.join(m['name'] for m in d.get('models',[])))" 2>/dev/null || echo "?")
-        echo -e "  Ollama    ${GREEN}● running${NC}"
+        echo -e "  Ollama    ${GREEN}● running${NC}  (port 11434)"
         echo -e "  Models    $models"
     else
-        echo -e "  Ollama    ${RED}● stopped${NC}"
+        echo -e "  Ollama    ${RED}● stopped${NC}  (port 11434)"
     fi
 }
 
@@ -315,18 +351,33 @@ for device, model in sorted(DEVICE_MAP.items()):
 "
 }
 
+cmd_install() {
+    header "Installing global 'aiq' launcher"
+    local bin_dir="$HOME/.local/bin"
+    mkdir -p "$bin_dir"
+    ln -sf "$ROOT/aiq" "$bin_dir/aiq"
+    log "Created symlink: $bin_dir/aiq -> $ROOT/aiq"
+    if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
+        warn "Note: Ensure $bin_dir is in your PATH."
+        warn "Add to ~/.bashrc: export PATH=\"\$HOME/.local/bin:\$PATH\""
+    else
+        log "You can now type 'aiq' from anywhere in your shell!"
+    fi
+}
+
 cmd_help() {
     banner
-    echo "Usage: ./aiq [command]"
+    echo "Usage: ./aiq [command]  (or 'aiq [command]' if installed)"
     echo ""
     echo "Commands:"
     echo "  (none)     Start backend + frontend"
     echo "  backend    Start backend only"
     echo "  frontend   Start frontend only"
-    echo "  stop       Stop all AIQ processes"
+    echo "  stop       Stop all AIQ processes (ports 8100 & 5173)"
     echo "  status     Show running status"
     echo "  logs       Tail backend logs"
     echo "  model      Show resolved model configuration"
+    echo "  install    Install global 'aiq' binary in ~/.local/bin"
     echo "  help       Show this help"
     echo ""
     echo "Environment:"
@@ -337,7 +388,7 @@ cmd_help() {
     echo "  ./aiq"
     echo "  AION_DEVICE=server ./aiq"
     echo "  ./aiq status"
-    echo "  ./aiq logs"
+    echo "  ./aiq stop"
 }
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
@@ -349,6 +400,7 @@ case "${1:-}" in
     status)   cmd_status ;;
     logs)     cmd_logs ;;
     model)    cmd_model ;;
+    install)  cmd_install ;;
     help|--help|-h) cmd_help ;;
     "")       cmd_start ;;
     *)        error "Unknown command: $1"; cmd_help; exit 1 ;;

@@ -341,39 +341,52 @@ def _sse(event: str, data: dict) -> str:
 # Generate — SSE stream
 # ─────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────
+# Generate — SSE stream
+# ─────────────────────────────────────────────────────────────
+
 @app.route("/api/generate/stream", methods=["POST"])
 def generate_stream():
+    from core.contracts import GenerationRequest, PipelineTrace
+
     body = request.get_json(silent=True) or {}
+    gen_req = GenerationRequest.from_dict(body)
+    trace   = PipelineTrace(subject=gen_req.subject)
+    trace.model = gen_req.model
 
-    file_id   = body.get("file_id") or body.get("fileId")
-    file_path = body.get("file_path") or body.get("filePath", "")
+    gen_req.print_received_summary()
 
-    if file_id:
-        doc = doc_registry.get(file_id)
-        record = file_registry.get(file_id)
+    # Resolve file path
+    file_path = gen_req.file_path
+    if gen_req.file_id:
+        doc = doc_registry.get(gen_req.file_id)
+        record = file_registry.get(gen_req.file_id)
         if doc:
             file_path = doc.path
         elif record:
             file_path = record["storedPath"]
-        else:
-            def err_stream():
-                yield _sse("error", {
-                    "message": f"File ID '{file_id}' not found. Upload first."
-                })
-            return Response(
-                stream_with_context(err_stream()),
-                mimetype="text/event-stream",
-                headers={
-                    "Cache-Control":     "no-cache",
-                    "Connection":        "keep-alive",
-                    "X-Accel-Buffering": "no",
-                }
-            )
-        file_path = doc.path if doc else record["storedPath"]
 
-    if not file_path or not Path(file_path).exists():
+    # Save inline notes_text if present and file_path not set
+    if not file_path and gen_req.notes_text:
+        notes_dir = ROOT / "workspace" / "uploads"
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        notes_file = notes_dir / f"inline_{trace.request_id}.txt"
+        with open(notes_file, "w", encoding="utf-8") as f:
+            f.write(gen_req.notes_text)
+        file_path = str(notes_file)
+        gen_req.file_path = file_path
+
+    # Contract Validation
+    is_valid, errors = gen_req.validate()
+    if not is_valid or not file_path or not Path(file_path).exists():
+        err_msg = f"Invalid Request: {', '.join(errors)}" if not is_valid else f"File not found: '{file_path}'"
+        trace.stage("RequestContract", status="FAIL", message=err_msg)
+        trace.fail(err_msg)
+        trace.print_summary()
+        trace.save_log()
+
         def err_stream():
-            yield _sse("error", {"message": f"File not found: '{file_path}'"})
+            yield _sse("error", {"message": err_msg, "request_id": trace.request_id})
         return Response(
             stream_with_context(err_stream()),
             mimetype="text/event-stream",
@@ -384,16 +397,7 @@ def generate_stream():
             }
         )
 
-    subject        = body.get("subject",        "Unknown")
-    exam_type      = body.get("exam_type") or body.get("examType", "see")
-    mode           = body.get("mode",           "turbo")
-    difficulty     = body.get("difficulty",     "mixed")
-    max_concepts   = int(body.get("max_concepts") if "max_concepts" in body else body.get("maxConcepts", 10))
-    include_visual = bool(body.get("include_visual") if "include_visual" in body else body.get("includeVisual", True))
-
-    print(f"\n{'='*50}")
-    print(f"[STREAM] START: {file_id or file_path}")
-    print(f"[STREAM] Time: {datetime.now()}")
+    trace.stage("RequestContract", status="PASS", metrics={"subject": gen_req.subject, "exam": gen_req.exam_type, "model": gen_req.model})
 
     def stream():
         import time
@@ -402,34 +406,46 @@ def generate_stream():
 
         try:
             yield _sse("status", {
-                "status":  "started",
-                "message": f"Processing: {Path(file_path).name}",
+                "status":     "started",
+                "request_id": trace.request_id,
+                "message":    f"Processing: {Path(file_path).name}",
             })
             yield _sse("log", {
-                "message": f"Running pipeline in {mode} mode ({difficulty.upper()} difficulty)..."
+                "message": f"Running pipeline trace {trace.request_id} ({gen_req.model}, {gen_req.difficulty.upper()} difficulty)..."
             })
 
             pipeline_done = threading.Event()
             result_holder = {"paper": None, "qa_report": None, "error": None, "trace": None}
 
             def run_worker():
+                t0 = time.time()
                 try:
                     from v0_1.main import run_pipeline
                     paper, qa_report = run_pipeline(
                         file_path,
-                        max_concepts   = max_concepts,
-                        mode           = mode,
-                        exam_type      = exam_type,
-                        difficulty     = difficulty,
-                        include_visual = include_visual,
+                        max_concepts   = 10,
+                        mode           = "turbo",
+                        exam_type      = gen_req.exam_type,
+                        difficulty     = gen_req.difficulty,
+                        include_visual = gen_req.visual_mode,
+                        request_contract = gen_req,
+                        pipeline_trace   = trace,
                     )
+                    dur = (time.time() - t0) * 1000
+                    trace.stage("PipelineExecution", status="PASS", duration_ms=dur, metrics={"questions": len(paper)})
+                    trace.complete()
                     result_holder["paper"] = paper
                     result_holder["qa_report"] = qa_report
                 except Exception as e:
                     import traceback as tb
+                    dur = (time.time() - t0) * 1000
+                    trace.stage("PipelineExecution", status="FAIL", duration_ms=dur, message=str(e))
+                    trace.fail(str(e))
                     result_holder["error"] = str(e)
                     result_holder["trace"] = tb.format_exc()
                 finally:
+                    trace.print_summary()
+                    trace.save_log()
                     pipeline_done.set()
 
             pipeline_thread = threading.Thread(target=run_worker, daemon=True)

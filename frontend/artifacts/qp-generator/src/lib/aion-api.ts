@@ -65,16 +65,27 @@ export const aionAPI = {
   },
 
   generateStream: (payload: {
-    file_id?:   string;
-    fileId?:    string;
-    subject?:   string;
-    exam_type?: string;
-    examType?:  string;
-    mode?:      string;
-    difficulty?: string;
-    maxConcepts?: number;
-    includeVisual?: boolean;
+    file_id?:               string;
+    fileId?:                string;
+    subject?:               string;
+    department?:            string;
+    semester?:              number;
+    exam_type?:             string;
+    examType?:              string;
+    mode?:                  string;
+    difficulty?:            string;
+    bloom_levels?:          string[];
+    bloomsTaxonomy?:        string[];
+    selected_modules?:      number[];
+    modules?:               any[];
+    question_types?:        string[];
+    model?:                 string;
+    include_visual?:        boolean;
+    useImages?:             boolean;
+    notes_text?:            string;
+    notesText?:             string;
   }) => {
+    console.log("[AION FRONTEND] Outgoing Payload:", payload);
     const body = JSON.stringify(payload);
     return fetch("/api/generate/stream", {
       method:  "POST",

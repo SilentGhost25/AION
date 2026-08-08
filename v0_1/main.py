@@ -9,7 +9,7 @@ import json
 import random
 import time
 from pathlib import Path
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .uploader import upload
@@ -177,22 +177,27 @@ def run_unified_pipeline(
 
 
 def run_pipeline(
-    file_path:      str,
-    max_concepts:   int  = 10,
-    mode:           str  = "turbo",
-    exam_type:      str  = "see",
-    difficulty:     str  = "mixed",
-    include_visual: bool = True,
-    use_unified:    bool = False,
+    file_path:        str,
+    max_concepts:     int  = 10,
+    mode:             str  = "turbo",
+    exam_type:        str  = "see",
+    difficulty:       str  = "mixed",
+    include_visual:   bool = True,
+    use_unified:      bool = False,
+    request_contract: Optional[Any] = None,
+    pipeline_trace:   Optional[Any] = None,
 ) -> Tuple[List[dict], List[dict]]:
     """
     Saves and generates an aligned VTU Question Paper grouped strictly by Module.
     Generates exactly 4 main questions per module.
     Sub-questions per main question are strictly capped to max 3.
-
-    If use_unified=True, delegates to Universal Academic Pipeline (grounded, hallucination-resistant).
-    Legacy path preserved for backward compatibility (Upload→Prompt LLM→Return).
     """
+    from core.validators.academic_validator import validate_academic_quality
+
+    t_start = time.time()
+    if pipeline_trace:
+        pipeline_trace.stage("PipelineStart", status="PASS", metrics={"file": Path(file_path).name, "exam": exam_type})
+
     # ── Unified pipeline delegate (grounded) ─────────────────
     if use_unified and HAS_UNIFIED:
         print("[PIPELINE] Delegating to Universal Academic Pipeline (grounded, hallucination-resistant)")
@@ -211,9 +216,12 @@ def run_pipeline(
     diff_manager = DifficultyManager.from_string(difficulty)
 
     # 1. Ingestion & Segmentation
+    t0 = time.time()
     cached_modules = _load_cached_modules(file_path)
     if cached_modules is not None:
         modules = cached_modules
+        if pipeline_trace:
+            pipeline_trace.stage("Extraction", status="PASS", duration_ms=(time.time()-t0)*1000, metrics={"cached": True, "modules": len(modules)})
     else:
         validated_path = upload(file_path)
         p = Path(validated_path)
@@ -235,16 +243,41 @@ def run_pipeline(
                     val_file_path = upload(str(file_item))
                     doc = extract(val_file_path)
                     content = doc.raw_text.strip()
+
+                    # Modular Academic Validation Gate
+                    acad_res = validate_academic_quality(content)
+                    if pipeline_trace:
+                        pipeline_trace.stage(
+                            f"AcademicValidator:{file_item.stem}",
+                            status = "PASS" if acad_res.valid else "WARN",
+                            metrics = {"score": acad_res.academic_score, "noise": acad_res.noise_score},
+                            message = acad_res.rejection_reason if not acad_res.valid else "Clean academic text"
+                        )
+
                     words = len(content.split())
                     modules.append(ModuleSegment(title=file_item.stem, content=content, word_count=words))
                 except Exception as e:
                     print(f"  [ERROR] Failed to process {file_item.name}: {e}")
         else:
             raw_document = extract(validated_path)
-            seg_result = segment_document(raw_document.raw_text, file_path=validated_path)
+            content = raw_document.raw_text
+
+            # Modular Academic Validation Gate
+            acad_res = validate_academic_quality(content)
+            if pipeline_trace:
+                pipeline_trace.stage(
+                    "AcademicValidator",
+                    status = "PASS" if acad_res.valid else "WARN",
+                    metrics = {"score": acad_res.academic_score, "noise": acad_res.noise_score},
+                    message = acad_res.rejection_reason if not acad_res.valid else "Clean academic text"
+                )
+
+            seg_result = segment_document(content, file_path=validated_path)
             modules = seg_result.segments
 
         _save_cached_modules(file_path, modules)
+        if pipeline_trace:
+            pipeline_trace.stage("Extraction", status="PASS", duration_ms=(time.time()-t0)*1000, metrics={"cached": False, "modules": len(modules)})
 
     print(f"[SEGMENTER] Identified {len(modules)} Modules/Chapters in source material.")
 

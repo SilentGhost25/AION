@@ -156,17 +156,29 @@ def _async_generate_question(job_id: str, config: dict):
 
 @questions_bp.route("/questions/generate", methods=["POST"])
 def generate_questions():
-    config = request.get_json() or {}
-    job_id = create_job("question_generation", config)
+    from core.contracts import GenerationRequest
+    raw_config = request.get_json(silent=True) or {}
+    gen_req = GenerationRequest.from_dict(raw_config)
+    is_valid, errors = gen_req.validate()
 
-    t = threading.Thread(target=_async_generate_question, args=(job_id, config), daemon=True)
+    if not is_valid:
+        return jsonify({
+            "error": f"Invalid Request: {', '.join(errors)}",
+            "validation_errors": errors,
+        }), 400
+
+    gen_req.print_received_summary()
+    job_id = create_job("question_generation", gen_req.raw_payload)
+
+    t = threading.Thread(target=_async_generate_question, args=(job_id, gen_req.raw_payload), daemon=True)
     t.start()
 
     return jsonify({
         "job_id": job_id,
         "status": "queued",
         "workspace": "question-forge",
-        "model": get_production_model(),
+        "model": gen_req.model,
+        "subject": gen_req.subject,
     })
 
 

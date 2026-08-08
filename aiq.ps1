@@ -120,6 +120,12 @@ function Start-Frontend {
         Write-Err "Frontend not found: $FRONTEND_DIR"
         return
     }
+    if (Test-Port -Port 5173) {
+        Write-Warn "Port 5173 occupied - clearing existing process..."
+        $conn = Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue
+        if ($conn) { Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue }
+        Start-Sleep -Seconds 1
+    }
     Set-Location $FRONTEND_DIR
     Write-AIQ "Starting frontend..."
     Start-Process "pnpm" -ArgumentList "run dev --host" -NoNewWindow
