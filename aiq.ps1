@@ -128,7 +128,7 @@ function Start-Frontend {
     }
     Set-Location $FRONTEND_DIR
     Write-AIQ "Starting frontend..."
-    Start-Process "pnpm" -ArgumentList "run dev --host" -NoNewWindow
+    Start-Process "cmd.exe" -ArgumentList "/c pnpm run dev --host" -NoNewWindow
     Start-Sleep -Seconds 4
     Write-AIQ "Frontend starting - check output for port"
 }

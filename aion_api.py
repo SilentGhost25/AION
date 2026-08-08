@@ -31,6 +31,7 @@ from core.extraction_service import ExtractionService
 from core.generation_context import GenerationContext
 from core.planner            import Planner
 from core.numerical_engine   import NumericalEngine
+from v0_1.unified_pipeline   import run_unified, FinalPaper
 
 # ── Flask imports ─────────────────────────────────────────────
 try:
