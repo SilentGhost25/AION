@@ -1,46 +1,59 @@
-# AION Startup — OpenVINO + Intel Arc (Laptop local testing)
+# AION Startup — Environment-Aware
+# Usage: .\start_aion.ps1 [laptop|desktop|server]
 
-Write-Host "`n=== AION OpenVINO Startup ===" -ForegroundColor Cyan
+param([string]$device = "")
 
-# Power plan
-powercfg /setactive SCHEME_MIN 2>$null
-Write-Host "[1/3] Power plan → High Performance"
-
-# Check OpenVINO model
-$ovModel = "C:\Users\Tarun J\OneDrive\Desktop\AION\models\qwen2.5-7b-ov"
-$ovReady = (Test-Path "$ovModel\openvino_model.xml")
-
-if ($ovReady) {
-    Write-Host "[2/3] OpenVINO model found — using Intel Arc GPU" -ForegroundColor Green
-    $env:AION_USE_OPENVINO = "1"
-    $env:AION_OV_MODEL     = $ovModel
-    $env:AION_MODEL        = "openvino"
-} else {
-    Write-Host "[2/3] OpenVINO model not found — using Ollama on CPU" -ForegroundColor Yellow
-    Write-Host "      Run optimum-cli export to enable Arc GPU acceleration"
-
-    # Start Ollama with minimal settings
-    Get-Process -Name "ollama" -ErrorAction SilentlyContinue | Stop-Process -Force
-    Start-Sleep -Seconds 3
-    $env:OLLAMA_KEEP_ALIVE  = "2h"
-    $env:OLLAMA_NUM_THREADS = "14"
-    $env:AION_MODEL         = "qwen2.5:14b"
-    Start-Process "ollama" -ArgumentList "serve" -WindowStyle Hidden
-    Start-Sleep -Seconds 5
+# Determine which env file to load
+if ($device -eq "") {
+    $freeGB = [math]::Round(
+        (Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB, 1
+    )
+    if ($freeGB -ge 30)      { $device = "server" }
+    elseif ($freeGB -ge 10)  { $device = "desktop" }
+    else                      { $device = "laptop" }
+    Write-Host "Auto-detected device: $device (${freeGB}GB free RAM)"
 }
 
-$free = [math]::Round(
-    (Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory/1MB, 1
-)
+# Load environment file
+$envFile = "$PSScriptRoot\.env.$device"
+if (Test-Path $envFile) {
+    Get-Content $envFile |
+        Where-Object { $_ -match "^\s*[^#]\S+=\S" } |
+        ForEach-Object {
+            $k, $v = $_ -split "=", 2
+            [System.Environment]::SetEnvironmentVariable(
+                $k.Trim(), $v.Trim(), "Process"
+            )
+        }
+    Write-Host "Loaded: .env.$device"
+} else {
+    $env:AION_DEVICE = $device
+    Write-Host "No .env.$device found — using AION_DEVICE=$device"
+}
 
-Write-Host "[3/3] Starting AION..."
+# Show resolved model (from Python authority)
+$resolvedModel = python -c "
+from core.config.production_model import get_production_model, get_resolution_info
+model = get_production_model()
+info  = get_resolution_info()
+print(f\"{model} (source: {info['source']})\")
+" 2>$null
+
 Write-Host ""
 Write-Host "================================================" -ForegroundColor Green
-Write-Host " Backend  : http://localhost:8100"              -ForegroundColor Green
-Write-Host " Model    : $(if ($ovReady) { 'Qwen2.5-7B (OpenVINO/Arc GPU)' } else { 'qwen2.5:7b (Ollama/CPU)' })" -ForegroundColor Green
-Write-Host " Free RAM : ${free}GB"                          -ForegroundColor Green
+Write-Host " AION Startup" -ForegroundColor Green
+Write-Host " Device  : $device" -ForegroundColor Green
+Write-Host " Model   : $resolvedModel" -ForegroundColor Green
+Write-Host " Backend : http://localhost:8100" -ForegroundColor Green
 Write-Host "================================================" -ForegroundColor Green
 Write-Host ""
 
-Set-Location "C:\Users\Tarun J\OneDrive\Desktop\AION"
+# Start Ollama
+$env:OLLAMA_KEEP_ALIVE = if ($env:OLLAMA_KEEP_ALIVE) { $env:OLLAMA_KEEP_ALIVE } else { "2h" }
+Get-Process -Name "ollama" -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Seconds 3
+Start-Process "ollama" -ArgumentList "serve" -WindowStyle Hidden
+Start-Sleep -Seconds 6
+
+Set-Location $PSScriptRoot
 python aion_api.py

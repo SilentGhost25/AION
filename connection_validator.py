@@ -156,12 +156,9 @@ class ConnectionValidator:
 
     def _check_ollama_model(self):
         # Single production model enforcement
-        try:
-            from core.config.production_model import PRODUCTION_MODEL
-        except ImportError:
-            PRODUCTION_MODEL = "qwen2.5:7b"
-        model = os.environ.get("AION_MODEL", PRODUCTION_MODEL)
-        base  = PRODUCTION_MODEL
+        from core.config.production_model import get_production_model
+        model = get_production_model()
+        base  = model
 
         try:
             req = urllib.request.Request(

@@ -10,12 +10,13 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
+from core.config.production_model import get_production_model
+
 @dataclass
 class GenerationContext:
     """
-    Complete context for a question generation job.
-    Created from a ready Document.
-    Passed to every pipeline stage.
+    Everything needed to generate a question paper in a single object.
+    Passed between pipeline stages. Side-effect free.
     """
 
     # Identity
@@ -28,7 +29,7 @@ class GenerationContext:
     difficulty:  str                   # Easy / Medium / Hard / Mixed
     selected_modules: list[str]        # module IDs to generate from
     marks_per_question: int            # 10 for IA, 20 for SEE
-    model:       str = "qwen2.5:3b"
+    model:       str = field(default_factory=get_production_model)
 
     # Pre-loaded content (no path access after creation)
     modules:     list[dict] = field(default_factory=list)
@@ -48,7 +49,7 @@ class GenerationContext:
         exam_type:   str   = "IA",
         difficulty:  str   = "Mixed",
         selected_modules: list[str] = None,
-        model:       str   = "qwen2.5:3b",
+        model:       Optional[str] = None,
     ) -> "GenerationContext":
         """Create a GenerationContext from a ready Document."""
         marks = 10 if exam_type == "IA" else 20
@@ -58,9 +59,9 @@ class GenerationContext:
             filename          = doc.filename,
             exam_type         = exam_type,
             difficulty        = difficulty,
-            selected_modules  = selected_modules or [m["id"] for m in doc.modules],
+            selected_modules  = selected_modules or [],
             marks_per_question = marks,
-            model             = model,
+            model             = model or get_production_model(),
             modules           = doc.modules,
             chunks            = doc.chunks,
             figures           = doc.figures,

@@ -9,12 +9,7 @@ import sys
 import requests
 from flask import Blueprint, jsonify
 
-try:
-    from core.config.production_model import PRODUCTION_MODEL, get_production_model
-except ImportError:
-    PRODUCTION_MODEL = "qwen2.5:7b"
-    def get_production_model():
-        return os.environ.get("AION_MODEL", PRODUCTION_MODEL)
+from core.config.production_model import get_production_model, get_resolution_info
 
 health_bp = Blueprint("health_api", __name__)
 
@@ -23,6 +18,7 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
 @health_bp.route("/health", methods=["GET"])
 def get_health():
+    resolution = get_resolution_info()
     ollama_ok = False
     models_count = 0
     try:
@@ -33,8 +29,6 @@ def get_health():
     except Exception:
         ollama_ok = False
 
-    active_model = get_production_model()
-
     return jsonify({
         "status": "healthy" if ollama_ok else "degraded",
         "api_version": "v1.0",
@@ -42,10 +36,11 @@ def get_health():
             "aion_api": "healthy",
             "ollama": "healthy" if ollama_ok else "unreachable",
         },
-        "active_model": active_model,
-        "production_model": PRODUCTION_MODEL,
+        "resolved_model": resolution["resolved_model"],
+        "model_source": resolution["source"],
+        "device_profile": resolution["device"],
         "models_available": models_count,
-        "model_policy": "single_production_model",
+        "model_policy": "single_production_model_authority",
     })
 
 
@@ -64,7 +59,7 @@ def get_diagnostics():
     return jsonify({
         "system_health": "healthy" if ollama_status == "healthy" else "degraded",
         "python_version": sys.version.split()[0],
-        "production_model": PRODUCTION_MODEL,
+        "production_model": get_production_model(),
         "ollama": {
             "status": ollama_status,
             "url": OLLAMA_URL,

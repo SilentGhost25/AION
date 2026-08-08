@@ -21,7 +21,9 @@ import requests
 ROOT = Path(__file__).parent.resolve()
 os.chdir(ROOT)
 sys.path.insert(0, str(ROOT))
-os.environ.setdefault("AION_MODEL", "aion")
+
+from core.config.production_model import get_production_model, get_resolution_info
+os.environ.setdefault("AION_MODEL", get_production_model())
 
 # ── Core Services Imports ──────────────────────────────────────
 from core.document_registry  import DocumentRegistry, DocumentStatus
@@ -179,43 +181,39 @@ def get_tags():
         return jsonify({"models": [], "error": str(e)})
 
 
+@app.route("/api/v1/health", methods=["GET"])
 @app.route("/api/health", methods=["GET"])
+@app.route("/health", methods=["GET"])
 def health():
     """
-    Proper health check that tests Ollama,
-    not just Flask.
+    Health check endpoint reporting resolution info and Ollama status.
     """
-    import requests as req
+    resolution = get_resolution_info()
 
     # Test Ollama
     ollama_ok = False
-    ollama_detail = "not checked"
+    models = []
     try:
-        r = req.get(
-            "http://localhost:11434/api/tags",
-            timeout=3
-        )
+        r = requests.get("http://127.0.0.1:11434/api/tags", timeout=3)
         ollama_ok = r.status_code == 200
-        models = [
-            m["name"]
-            for m in r.json().get("models", [])
-        ]
-        ollama_detail = f"{len(models)} models loaded"
-    except Exception as e:
-        ollama_detail = str(e)
-
-    overall = "ok" if ollama_ok else "degraded"
+        models = [m["name"] for m in r.json().get("models", [])]
+    except Exception:
+        ollama_ok = False
 
     return jsonify({
-        "status":         overall,
-        "flask":          "ok",
-        "ollama":         "ok" if ollama_ok else "down",
-        "ollama_detail":  ollama_detail,
-        "model":          app.config.get(
-                              "MODEL", "qwen2.5:7b"
-                          ),
-        "timestamp":      time.time(),
-    }), 200 if overall == "ok" else 503
+        "status":            "healthy" if ollama_ok else "degraded",
+        "api_version":       "v1.0",
+        "resolved_model":    resolution["resolved_model"],
+        "model_source":      resolution["source"],
+        "device_profile":    resolution["device"],
+        "models_available":  len(models),
+        "models":            models,
+        "services": {
+            "aion_api": "healthy",
+            "ollama":   "healthy" if ollama_ok else "unavailable",
+        },
+        "timestamp": datetime.now().isoformat()
+    }), 200
 
 
 # ─────────────────────────────────────────────────────────────
@@ -739,16 +737,6 @@ def generate_emergency():
 # ─────────────────────────────────────────────────────────────
 # Compatibility Routes for Frontend Artifacts
 # ─────────────────────────────────────────────────────────────
-
-@app.route("/api/health", methods=["GET"])
-@app.route("/health", methods=["GET"])
-def health_endpoint():
-    return jsonify({
-        "status": "ok",
-        "service": "AION Intelligence API Server",
-        "model": os.environ.get("AION_MODEL", "qwen2.5:3b"),
-        "timestamp": datetime.now().isoformat()
-    }), 200
 
 @app.route("/api/paper/generate", methods=["POST"])
 @app.route("/api/v1/paper/generate", methods=["POST"])

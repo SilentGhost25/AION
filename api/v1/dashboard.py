@@ -9,11 +9,7 @@ import requests
 from pathlib import Path
 from flask import Blueprint, jsonify
 
-try:
-    from core.config.production_model import get_production_model
-except ImportError:
-    def get_production_model():
-        return os.environ.get("AION_MODEL", "qwen2.5:7b")
+from core.config.production_model import get_production_model
 
 dashboard_bp = Blueprint("dashboard_api", __name__)
 

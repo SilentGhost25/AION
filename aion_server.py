@@ -14,7 +14,8 @@ from pathlib import Path
 # Setup
 os.chdir(Path(__file__).parent)
 sys.path.insert(0, ".")
-os.environ.setdefault("AION_MODEL", "qwen2.5:7b")
+from core.config.production_model import get_production_model
+os.environ.setdefault("AION_MODEL", get_production_model())
 
 def main():
     files_env   = os.environ.get("AION_FILES", "[]")

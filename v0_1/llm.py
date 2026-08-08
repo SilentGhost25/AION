@@ -19,12 +19,7 @@ import threading
 import requests
 from typing import Optional, Callable
 
-try:
-    from core.config.production_model import PRODUCTION_MODEL, get_production_model
-except ImportError:
-    PRODUCTION_MODEL = "qwen2.5:7b"
-    def get_production_model():
-        return os.environ.get("AION_MODEL", PRODUCTION_MODEL)
+from core.config.production_model import get_production_model
 
 
 def get_best_llm():
@@ -114,7 +109,7 @@ class RobustLLMCaller:
         if self._consecutive_failures >= self.MAX_CONSECUTIVE_FAILURES:
             raise RuntimeError(
                 f"[LLM] ABORT: {self._consecutive_failures} consecutive LLM failures. "
-                f"Is Ollama running? Ensure: ollama serve && ollama pull {PRODUCTION_MODEL}"
+                f"Is Ollama running? Ensure: ollama serve && ollama pull {get_production_model()}"
             )
 
         return None
@@ -183,7 +178,7 @@ class AIONLLM:
     """Wrapper around RobustLLMCaller providing generate() interface."""
 
     def __init__(self, model: Optional[str] = None, host: str = "http://127.0.0.1:11434"):
-        self.preferred_model = model or os.environ.get("AION_MODEL", "qwen2.5:7b")
+        self.preferred_model = model or os.environ.get("AION_MODEL", get_production_model())
         self.caller = RobustLLMCaller(primary_model=self.preferred_model, ollama_url=host)
 
     def generate(

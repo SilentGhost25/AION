@@ -12,12 +12,7 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request
 from api.v1.jobs import create_job, update_job, get_job_state
 
-try:
-    from core.config.production_model import get_production_model, PRODUCTION_MODEL
-except ImportError:
-    PRODUCTION_MODEL = "qwen2.5:7b"
-    def get_production_model():
-        return os.environ.get("AION_MODEL", PRODUCTION_MODEL)
+from core.config.production_model import get_production_model
 
 try:
     from v0_1.llm import get_llm
@@ -46,9 +41,6 @@ def _async_generate_question(job_id: str, config: dict):
     marks = config.get("marks", 10)
     bloom_level = config.get("bloom_levels", ["L3"])[0] if config.get("bloom_levels") else "L3"
     model = get_production_model()
-    # Enforce production model — ignore config.model if deprecated
-    if config.get("model") and config.get("model") != PRODUCTION_MODEL:
-        print(f"[QUESTIONS] Ignoring deprecated model '{config.get('model')}' — using production '{PRODUCTION_MODEL}'")
 
     update_job(job_id, status="processing", progress=45, message=f"Calling LLM engine ({model})...")
 
@@ -148,7 +140,7 @@ def _async_generate_question(job_id: str, config: dict):
             "grounded": use_grounded,
         },
         "status": "pending_review",
-        "model": PRODUCTION_MODEL,
+        "model": get_production_model(),
     }
 
     _question_bank[q_id] = q_object
@@ -165,10 +157,6 @@ def _async_generate_question(job_id: str, config: dict):
 @questions_bp.route("/questions/generate", methods=["POST"])
 def generate_questions():
     config = request.get_json() or {}
-    # Enforce production model in config response
-    if config.get("model") and config.get("model") != PRODUCTION_MODEL:
-        config["model"] = PRODUCTION_MODEL
-        config["_model_corrected"] = True
     job_id = create_job("question_generation", config)
 
     t = threading.Thread(target=_async_generate_question, args=(job_id, config), daemon=True)
@@ -178,7 +166,7 @@ def generate_questions():
         "job_id": job_id,
         "status": "queued",
         "workspace": "question-forge",
-        "model": PRODUCTION_MODEL,
+        "model": get_production_model(),
     })
 
 

@@ -12,14 +12,11 @@ Per AION Development Context:
 - Emergency mode reduces workload, not model size
 """
 
-try:
-    from core.config.production_model import PRODUCTION_MODEL
-except ImportError:
-    PRODUCTION_MODEL = "qwen2.5:7b"
+from core.config.production_model import get_production_model
 
 EMERGENCY_CONFIG = {
     # Production model even in emergency — constraints handled via context limits
-    "primary_model":   PRODUCTION_MODEL,
+    "primary_model":   get_production_model(),
     "fallback_model":  None,  # No fallback — one model only (fail loud)
 
     # Aggressive memory limits (emergency = smaller workload, same model)

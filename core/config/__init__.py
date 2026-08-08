@@ -1,27 +1,20 @@
 """
-AION Core Config — Centralized Configuration Exports
+AION Configuration Core Module
 """
-
 from .production_model import (
-    PRODUCTION_MODEL,
-    PRODUCTION_IDENTITY,
-    DEPRECATED_MODELS,
-    DEFAULT_OLLAMA_URL,
-    DEFAULT_GENERATION_OPTIONS,
     get_production_model,
-    assert_production_model,
-    is_deprecated_model,
-    ModelIdentity,
+    get_resolution_info,
+    get_model_for_device,
+    is_production,
+    PROFILE,
+    DEVICE_MAP,
 )
 
 __all__ = [
-    "PRODUCTION_MODEL",
-    "PRODUCTION_IDENTITY",
-    "DEPRECATED_MODELS",
-    "DEFAULT_OLLAMA_URL",
-    "DEFAULT_GENERATION_OPTIONS",
     "get_production_model",
-    "assert_production_model",
-    "is_deprecated_model",
-    "ModelIdentity",
+    "get_resolution_info",
+    "get_model_for_device",
+    "is_production",
+    "PROFILE",
+    "DEVICE_MAP",
 ]

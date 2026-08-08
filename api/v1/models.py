@@ -8,13 +8,7 @@ import os
 import requests
 from flask import Blueprint, jsonify, request
 
-try:
-    from core.config.production_model import PRODUCTION_MODEL, DEPRECATED_MODELS, get_production_model
-except ImportError:
-    PRODUCTION_MODEL = "qwen2.5:7b"
-    DEPRECATED_MODELS = ("qwen2.5:1.5b", "qwen2.5:3b", "aion", "aion-exam")
-    def get_production_model():
-        return os.environ.get("AION_MODEL", PRODUCTION_MODEL)
+from core.config.production_model import get_production_model, get_resolution_info, PROFILE
 
 models_bp = Blueprint("models_api", __name__)
 
@@ -23,6 +17,8 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
 @models_bp.route("/models", methods=["GET"])
 def list_models():
+    resolution = get_resolution_info()
+    current_model = resolution["resolved_model"]
     ollama_models = []
     ollama_ok = False
     try:
@@ -34,34 +30,32 @@ def list_models():
                     "id": m.get("name"),
                     "runtime": "ollama",
                     "size_gb": round(m.get("size", 0) / (1024**3), 2),
-                    "loaded": (m.get("name") == get_production_model()),
+                    "loaded": (m.get("name") == current_model),
                     "healthy": True,
                     "context_window": 4096,
-                    "is_production": (m.get("name") == PRODUCTION_MODEL),
-                    "is_deprecated": any(dep in m.get("name", "") for dep in DEPRECATED_MODELS),
+                    "is_production": (m.get("name") == PROFILE.production),
                 })
     except Exception:
         ollama_ok = False
 
-    active_model = get_production_model()
-
     return jsonify({
-        "active_model": active_model,
-        "production_model": PRODUCTION_MODEL,
+        "active_model": current_model,
+        "resolved_model": resolution["resolved_model"],
+        "model_source": resolution["source"],
+        "device_profile": resolution["device"],
         "runtime_status": "healthy" if ollama_ok else "degraded",
         "policy": {
-            "single_production_model": True,
+            "authority": "core.config.production_model",
             "allow_silent_fallback": False,
-            "deprecated": list(DEPRECATED_MODELS),
         },
         "models": ollama_models or [
             {
-                "id": active_model,
+                "id": current_model,
                 "runtime": "ollama",
                 "loaded": True,
                 "healthy": ollama_ok,
                 "context_window": 4096,
-                "is_production": True,
+                "is_production": (current_model == PROFILE.production),
             }
         ],
     })
@@ -69,35 +63,19 @@ def list_models():
 
 @models_bp.route("/models/<path:model_id>/load", methods=["POST"])
 def load_model(model_id):
-    # Enforce production model — deprecated models require explicit flag
-    if model_id in DEPRECATED_MODELS or model_id in ("qwen2.5:1.5b", "qwen2.5:3b"):
-        return jsonify({
-            "model_id": model_id,
-            "status": "rejected",
-            "message": f"Model '{model_id}' is deprecated. Production model is '{PRODUCTION_MODEL}'. Set AION_ALLOW_DEPRECATED=1 to override.",
-            "production_model": PRODUCTION_MODEL,
-        }), 400
-    if model_id != PRODUCTION_MODEL and not os.environ.get("AION_ALLOW_DEPRECATED"):
-        # Log warning but still allow experimental models if explicitly requested?
-        # For now, reject non-production to enforce single model
-        return jsonify({
-            "model_id": model_id,
-            "status": "rejected",
-            "message": f"Only production model '{PRODUCTION_MODEL}' is allowed. Requested '{model_id}'.",
-            "production_model": PRODUCTION_MODEL,
-        }), 400
     os.environ["AION_MODEL"] = model_id
+    res = get_resolution_info()
     return jsonify({
         "model_id": model_id,
         "status": "loaded",
-        "message": f"Active model set to '{model_id}'",
+        "message": f"Active model override set to '{model_id}'",
+        "resolution": res,
     })
 
 
 @models_bp.route("/models/<path:model_id>/warmup", methods=["POST"])
 def warmup_model(model_id):
-    # Warmup should use production model
-    target = PRODUCTION_MODEL if model_id in DEPRECATED_MODELS else model_id
+    target = model_id or get_production_model()
     try:
         r = requests.post(
             f"{OLLAMA_URL.rstrip('/')}/api/generate",

@@ -1,0 +1,11 @@
+{
+  "_comment": "AION User Configuration",
+  "_comment2": "Set 'model' to override device profile. Leave null to use AION_DEVICE auto-selection.",
+  "model": null,
+  "_examples": {
+    "production_server": "qwen2.5:14b",
+    "desktop": "qwen2.5:7b",
+    "laptop": "qwen2.5:3b",
+    "lightweight": "qwen2.5:1.5b"
+  }
+}
