@@ -578,11 +578,23 @@ def generate_stream():
                 return
 
 
-            # ── Enforce correct marks before sending to frontend ──────────
+            # ── Enforce correct marks and OR partition parity before sending to frontend ──────────
             result["modules"] = _enforce_marks(
                 result.get("modules", []),
                 _exam_type
             )
+
+            # ── HARD CONTRACT GATE ───────────────────────────────────────
+            try:
+                validate_final_paper_contract(result, _exam_type)
+            except Exception as contract_err:
+                print(f"[CONTRACT GATE HARD-STOP] REJECTED: {contract_err}", flush=True)
+                yield _sse("error", {
+                    "code": "CONTRACT_VIOLATION",
+                    "status": "REJECT",
+                    "message": f"Final Paper Contract Violation: {contract_err}",
+                })
+                return
 
             # ── FINAL QUALITY GATE HARD-STOP ENFORCEMENT ─────────────────
             qa_score = (qa_report or {}).get("quality_score", 100)
@@ -716,50 +728,142 @@ def job_status(job_id):
 
 
 
+def normalize_or_pair_structure(pair: list, is_ia: bool) -> list:
+    """
+    pair = [question_a, question_b]
+    Returns canonical sub-question mark partition that BOTH alternatives MUST use.
+    """
+    q_marks = 10 if is_ia else 20
+    candidates = []
+
+    for q in pair:
+        subs = q.get("subQuestions") or q.get("sub_questions") or []
+        if subs:
+            candidates.append([int(s.get("marks", 0)) for s in subs])
+
+    if not candidates:
+        return [q_marks]
+
+    # Inspect length of sub-questions
+    n_parts = len(candidates[0])
+    for c in candidates:
+        if len(c) > n_parts:
+            n_parts = len(c)
+
+    if is_ia:
+        if n_parts <= 1:
+            canonical = [10]
+        elif n_parts == 2:
+            # Check if first candidate had [5,5] or [6,4]
+            if candidates[0] == [5, 5]:
+                canonical = [5, 5]
+            else:
+                canonical = [6, 4]
+        else:
+            canonical = [4, 3, 3]
+    else:
+        if n_parts <= 1:
+            canonical = [20]
+        elif n_parts == 2:
+            canonical = [10, 10]
+        else:
+            canonical = [8, 6, 6]
+
+    if sum(canonical) != q_marks:
+        canonical = [q_marks]
+
+    return canonical
+
+
 def _enforce_marks(modules: list, exam_type: str) -> list:
     """
-    Force correct marks on every question regardless of what the LLM returned.
-    IA:  10 marks per question, max 2 sub-questions (6+4)
-    SEE: 20 marks per question, max 3 sub-questions (8+6+6)
-    Both sides of every OR pair must have equal marks.
+    Force correct marks and identical sub-question partition on every OR pair per module.
+    IA:  10 marks per question. OR choice alternatives must use IDENTICAL sub-question partition.
+    SEE: 20 marks per question. OR choice alternatives must use IDENTICAL sub-question partition.
     """
     exam_upper = str(exam_type).upper() if exam_type else "IA"
     is_ia      = exam_upper in ("IA", "IAT1", "IAT2", "IAT3", "MID")
     q_marks    = 10 if is_ia else 20
-    max_parts  = 3
+    letters    = "abcdefghij"
 
     for mod in modules:
         questions = mod.get("questions", [])
-        for q in questions:
-            subs   = q.get("subQuestions", [])
-            
-            # Respect the actual sub-question count from the pipeline.
-            # Fall back to a single question only if the pipeline gave nothing.
-            n_parts = len(subs) if subs else 1
-            
-            if is_ia:
-                if n_parts <= 1:
-                    split = [10]
-                elif n_parts == 2:
-                    split = [6, 4]
-                else:
-                    split = [4, 3, 3]
-            else:
-                if n_parts <= 1:
-                    split = [20]
-                elif n_parts == 2:
-                    split = [10, 10]
-                else:
-                    split = [8, 6, 6]
+        pairs = {}
+        for idx, q in enumerate(questions):
+            m_idx = q.get("mqIndex") or q.get("mq_index") or (idx + 1)
+            p_key = (m_idx - 1) // 2
+            pairs.setdefault(p_key, []).append(q)
 
-            # Assign marks to subQuestions up to n_parts
-            for j, sq in enumerate(subs[:len(split)]):
-                sq["marks"] = split[j]
+        for pair_qs in pairs.values():
+            canonical_partition = normalize_or_pair_structure(pair_qs, is_ia)
 
-            q["subQuestions"] = subs[:len(split)]
-            q["totalMarks"]   = q_marks
+            for q in pair_qs:
+                subs = q.get("subQuestions") or q.get("sub_questions") or []
+                
+                # If question text exists on main question but subs is empty
+                if not subs:
+                    main_text = q.get("text") or q.get("question_text") or "Explain the principles and concepts."
+                    subs = [{"letter": "a", "text": main_text, "marks": q_marks}]
+
+                # Trim or extend subs to match canonical_partition length
+                new_subs = []
+                for j, mark in enumerate(canonical_partition):
+                    if j < len(subs):
+                        sq = dict(subs[j])
+                    else:
+                        sq = {"text": "Explain the related principles and applications."}
+                    
+                    sq["letter"] = letters[j]
+                    sq["marks"]  = mark
+                    sq["co"]     = sq.get("co") or q.get("co") or f"CO{mod.get('module_index', 1)}"
+                    sq["bloom"]  = sq.get("bloom") or q.get("bloom_level") or q.get("bloomLevel") or 2
+                    new_subs.append(sq)
+
+                q["subQuestions"] = new_subs
+                q["totalMarks"]   = sum(canonical_partition)
 
     return modules
+
+
+def validate_final_paper_contract(paper_dict: dict, exam_type: str = "IA") -> bool:
+    """
+    Hard contract validation gate executed before sending final paper payload over SSE.
+    """
+    if not paper_dict:
+        raise ValueError("ContractViolation: EMPTY_FINAL_PAPER")
+
+    modules = paper_dict.get("modules", [])
+    if len(modules) != 5:
+        raise ValueError(f"ContractViolation: EXPECTED_5_MODULES (got {len(modules)})")
+
+    exam_upper = str(exam_type).upper() if exam_type else "IA"
+    is_ia      = exam_upper in ("IA", "IAT1", "IAT2", "IAT3", "MID")
+    expected_q_marks = 10 if is_ia else 20
+
+    for mod_idx, module in enumerate(modules):
+        questions = module.get("questions", [])
+        if len(questions) < 2:
+            raise ValueError(f"ContractViolation: Module {mod_idx+1} has {len(questions)} questions, expected at least 2")
+
+        # Group by OR pair
+        pairs = {}
+        for idx, q in enumerate(questions):
+            m_idx = q.get("mqIndex") or q.get("mq_index") or (idx + 1)
+            p_key = (m_idx - 1) // 2
+            pairs.setdefault(p_key, []).append(q)
+
+        for p_key, pair_qs in pairs.items():
+            if len(pair_qs) >= 2:
+                q_a, q_b = pair_qs[0], pair_qs[1]
+                part_a = [int(s.get("marks", 0)) for s in q_a.get("subQuestions", [])]
+                part_b = [int(s.get("marks", 0)) for s in q_b.get("subQuestions", [])]
+
+                if part_a != part_b:
+                    raise ValueError(f"ContractViolation: Module {mod_idx+1} OR pair partition mismatch: {part_a} != {part_b}")
+                if sum(part_a) != expected_q_marks:
+                    raise ValueError(f"ContractViolation: Module {mod_idx+1} partition sum {part_a} != {expected_q_marks}")
+
+    return True
 
 def _format_paper(paper, subject, exam_type, mode, qa_report=None):
     """

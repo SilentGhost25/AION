@@ -70,4 +70,4 @@ def test_paper_validator_or_parity_fail():
     }
     report = validator.validate(paper, exam_type="IA")
     assert report.passed is False
-    assert any(i.code == "OR_PARITY" for i in report.errors())
+    assert any(i.code in ("OR_PARITY", "OR_PARTITION_MISMATCH") for i in report.errors())

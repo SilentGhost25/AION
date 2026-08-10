@@ -77,13 +77,44 @@ def test_or_subquestion_mark_parity():
             "module_num": 1,
             "questions": [
                 {"mqIndex": 1, "subQuestions": [{"marks": 6}, {"marks": 4}]},
-                {"mqIndex": 2, "subQuestions": [{"marks": 5}, {"marks": 4}]}, # 9 != 10
+                {"mqIndex": 2, "subQuestions": [{"marks": 5}, {"marks": 5}]}, # [6,4] != [5,5]
             ]
         }
     ]
     report = validator.validate({"modules": modules, "totalMarks": 10}, exam_type="IA")
     assert report.checklist["or_parity"] is False
-    assert any(i.code == "OR_PARITY" for i in report.errors())
+    assert any(i.code == "OR_PARTITION_MISMATCH" for i in report.errors())
+
+
+def test_validate_final_paper_contract():
+    from aion_api import validate_final_paper_contract
+    modules = []
+    for mod_num in range(1, 6):
+        modules.append({
+            "module_index": mod_num,
+            "questions": [
+                {"mqIndex": (mod_num - 1) * 2 + 1, "subQuestions": [{"marks": 6}, {"marks": 4}]},
+                {"mqIndex": (mod_num - 1) * 2 + 2, "subQuestions": [{"marks": 6}, {"marks": 4}]},
+            ]
+        })
+    paper = {"modules": modules}
+    assert validate_final_paper_contract(paper, "IA") is True
+
+
+def test_validate_final_paper_contract_partition_mismatch():
+    from aion_api import validate_final_paper_contract
+    modules = []
+    for mod_num in range(1, 6):
+        modules.append({
+            "module_index": mod_num,
+            "questions": [
+                {"mqIndex": (mod_num - 1) * 2 + 1, "subQuestions": [{"marks": 6}, {"marks": 4}]},
+                {"mqIndex": (mod_num - 1) * 2 + 2, "subQuestions": [{"marks": 5}, {"marks": 5}]}, # Mismatch
+            ]
+        })
+    paper = {"modules": modules}
+    with pytest.raises(ValueError, match="ContractViolation: Module 1 OR pair partition mismatch"):
+        validate_final_paper_contract(paper, "IA")
 
 
 def test_module_locked_retrieval():

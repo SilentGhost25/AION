@@ -143,65 +143,56 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
 
           try {
             const data = JSON.parse(trimmed.slice(5).trim())
+            if (currentEvent === "error" || data.code === "QUALITY_GATE_FAILURE" || data.code === "CONTRACT_VIOLATION") {
+              const errText = data.message || "AION Quality/Contract Gate Rejected Paper";
+              console.error("[AION] SSE Error:", data);
+              throw new Error(errText);
+            }
             if (currentEvent === "result" || data.modules) {
               formattedResult = data
             }
-          } catch {}
+          } catch (pErr: any) {
+            if (pErr.message && pErr.message.includes("Quality Gate")) {
+              throw pErr;
+            }
+          }
         }
       }
 
-      if (formattedResult && formattedResult.modules) {
+      if (formattedResult && formattedResult.modules && formattedResult.modules.length > 0) {
         const markPerQuestion = Math.floor(config.maxMarks / 5)
         const questions: QuestionWithSubs[] = []
 
         let globalQNo = 1
-        for (let mIdx = 0; mIdx < Math.min(5, formattedResult.modules.length); mIdx++) {
+        for (let mIdx = 0; mIdx < formattedResult.modules.length; mIdx++) {
           const mod = formattedResult.modules[mIdx]
           const modQuestions = mod.questions || []
 
-          for (let qIdx = 0; qIdx < Math.min(2, modQuestions.length); qIdx++) {
+          for (let qIdx = 0; qIdx < modQuestions.length; qIdx++) {
             const q = modQuestions[qIdx]
-            const isOr = qIdx === 1
+            const isOr = q.isOr ?? (qIdx % 2 === 1)
             const co = `CO${mIdx + 1}`
-            const subs = (q.subQuestions || []).map((sq: any) => ({
+            const rawSubs = q.subQuestions || q.sub_questions || []
+            const subs = rawSubs.map((sq: any) => ({
               label: sq.letter || "a",
-              text: sq.text || "Explain the concept.",
-              marks: sq.marks || Math.floor(markPerQuestion / (q.subQuestions.length || 1)),
-              co,
-              rbt: `L${sq.bloom || q.bloomLevel || 2}`,
+              text: sq.text || "",
+              marks: sq.marks || markPerQuestion,
+              co: sq.co || co,
+              rbt: `L${sq.bloom || q.bloom_level || q.bloomLevel || 2}`,
             }))
 
             questions.push({
               qNo: globalQNo,
               text: subs.map((s: any) => `${s.label}) ${s.text}`).join("\n"),
-              marks: markPerQuestion,
+              marks: q.totalMarks || q.total_marks || markPerQuestion,
               co,
-              rbt: `L${q.bloomLevel || 2}`,
+              rbt: `L${q.bloom_level || q.bloomLevel || 2}`,
               sectionNumber: globalQNo,
               isOrQuestion: isOr,
-              subQuestions: subs.length > 0 ? subs : [
-                { label: "a", text: "Explain the given concept with neat diagrams.", marks: markPerQuestion, co, rbt: "L2" }
-              ],
+              subQuestions: subs,
             })
             globalQNo++
           }
-        }
-
-        while (questions.length < 10) {
-          const qNo = questions.length + 1
-          const co = `CO${Math.ceil(qNo / 2)}`
-          questions.push({
-            qNo,
-            text: "a) Explain the fundamental principles and applications of the topic.",
-            marks: markPerQuestion,
-            co,
-            rbt: "L2",
-            sectionNumber: qNo,
-            isOrQuestion: qNo % 2 === 0,
-            subQuestions: [
-              { label: "a", text: "Explain the fundamental principles and applications of the topic.", marks: markPerQuestion, co, rbt: "L2" }
-            ]
-          })
         }
 
         const paper: GeneratedPaper = {
@@ -221,15 +212,13 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
         toast.success("Question paper generated successfully!")
         onSuccess(paper)
       } else {
-        toast.warning("Fallback to sample paper — AION pipeline returned partial data")
-        onSuccess(buildTestPaper(config))
+        toast.error("Generation Failed — AION pipeline returned incomplete data. No sample paper substituted.")
       }
     } catch (err: any) {
       console.error("[AION] Generation error:", err)
-      toast.warning("AION connection issue — displaying test paper", {
-        description: err?.message || "Using test paper layout"
+      toast.error("AION Generation Failed", {
+        description: err?.message || "Could not generate a valid question paper."
       })
-      onSuccess(buildTestPaper(config))
     } finally {
       setIsGenerating(false)
     }

@@ -169,37 +169,42 @@ class PaperValidator:
             return sum(sq.get("marks", 0) for sq in subs)
         return q.get("totalMarks") or q.get("total_marks") or q.get("marks", 10)
 
+    def _get_partition(self, q: dict) -> list:
+        subs = q.get("subQuestions") or q.get("sub_questions") or []
+        if not subs:
+            return [q.get("totalMarks") or q.get("total_marks") or q.get("marks", 10)]
+        return [int(sq.get("marks", 0)) for sq in subs]
+
     def _validate_or_parity(self, modules: list):
         issues = []
         ok     = True
         for mod in modules:
             qs    = mod.get("questions", [])
             pairs = {}
-            for q in qs:
-                idx      = q.get("mqIndex", 1)
+            for i, q in enumerate(qs):
+                idx      = q.get("mqIndex") or q.get("mq_index") or (i + 1)
                 pair_key = (idx - 1) // 2
                 pairs.setdefault(pair_key, []).append(q)
 
             for pair_key, pair_qs in pairs.items():
                 if len(pair_qs) < 2:
                     continue
-                marks_list = [
-                    sum(sq.get("marks", 0) for sq in q.get("subQuestions", []))
-                    for q in pair_qs
-                ]
-                if len(set(marks_list)) > 1:
+                q_a, q_b = pair_qs[0], pair_qs[1]
+                part_a = self._get_partition(q_a)
+                part_b = self._get_partition(q_b)
+
+                if part_a != part_b:
                     ok = False
-                    q_nums = [q.get("mqIndex") for q in pair_qs]
+                    q_num_a = q_a.get("mqIndex") or q_a.get("mq_index") or "?"
+                    q_num_b = q_b.get("mqIndex") or q_b.get("mq_index") or "?"
                     issues.append(ValidationIssue(
                         severity = "ERROR",
-                        code     = "OR_PARITY",
+                        code     = "OR_PARTITION_MISMATCH",
                         message  = (
-                            f"OR pair Q{q_nums[0]}/Q{q_nums[1]} has unequal marks: "
-                            f"{marks_list}. Both must total the same marks."
+                            f"OR pair Q{q_num_a}/Q{q_num_b} has different sub-question partitions: "
+                            f"{part_a} vs {part_b}. Both alternatives must use the exact same partition."
                         ),
-                        fix = (
-                            f"Adjust Q{q_nums[1]} sub-question marks to sum to {marks_list[0]}."
-                        ),
+                        fix = f"Align Q{q_num_b} sub-question partition to {part_a}.",
                     ))
         return ok, issues
 
