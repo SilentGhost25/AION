@@ -46,6 +46,7 @@ class ExtractionAdapterID(str, Enum):
     DOCLING    = "DOCLING"
     OCR        = "OCR"
     PDFPLUMBER = "PDFPLUMBER"
+    TEXT_ONLY  = "TEXT_ONLY"
     FALLBACK   = "FALLBACK"
 
 

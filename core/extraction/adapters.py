@@ -435,3 +435,64 @@ class PdfPlumberAdapter:
             metrics=metrics,
             text_blocks=[],
         )
+
+
+class TextOnlyAdapter:
+    """Extractor for plain text documents (.txt, .md)."""
+
+    @property
+    def adapter_id(self) -> ExtractionAdapterID:
+        return ExtractionAdapterID.TEXT_ONLY
+
+    @property
+    def extraction_level(self) -> ExtractionLevel:
+        return ExtractionLevel.L1_NATIVE
+
+    def is_available(self) -> bool:
+        return True
+
+    def can_handle(self, source_path: str) -> bool:
+        return source_path.lower().endswith((".txt", ".md"))
+
+    def extract(self, source_path: str) -> ExtractionResult:
+        p = Path(source_path)
+        try:
+            raw_text = p.read_text(encoding="utf-8", errors="ignore")
+        except Exception as e:
+            return ExtractionResult(
+                success=False,
+                adapter_id=self.adapter_id,
+                extraction_level=self.extraction_level,
+                metrics=ExtractionMetrics(adapter_used=self.adapter_id, extraction_level=self.extraction_level),
+                error_type="FILE_READ_ERROR",
+                error_message=str(e),
+            )
+
+        paragraphs = [para.strip() for para in raw_text.split("\n\n") if para.strip()]
+        text_blocks = []
+        for i, para in enumerate(paragraphs):
+            text_blocks.append(
+                TextBlock(
+                    text=para,
+                    reading_order=i+1,
+                    page=1,
+                    adapter_id=self.adapter_id,
+                )
+            )
+
+        metrics = ExtractionMetrics(
+            text_confidence=1.0,
+            unicode_integrity=1.0,
+            adapter_used=self.adapter_id,
+            extraction_level=self.extraction_level,
+            pages_processed=1,
+            pages_native=1,
+        )
+
+        return ExtractionResult(
+            success=True,
+            adapter_id=self.adapter_id,
+            extraction_level=self.extraction_level,
+            metrics=metrics,
+            text_blocks=text_blocks,
+        )

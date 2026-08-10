@@ -141,7 +141,7 @@ def test_gateway_self_correction_of_txt_path(tmp_path):
 
     # Gateway MUST self-correct derived TXT path to original PDF path
     try:
-        artifact = ExtractionGateway.extract(str(derived_txt), document_id="doc_auto_1")
+        artifact = ExtractionGateway.extract(str(derived_txt), document_id="doc_auto_1", store=store)
         assert artifact.source_path == manifest.source.path
     except ExtractionError:
         pass  # Gateway hard stop triggered due to dummy PDF size, but self-correction path executed

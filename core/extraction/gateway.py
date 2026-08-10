@@ -66,16 +66,17 @@ class ExtractionGateway:
     """Extraction Gateway implementing adaptive multi-level document extraction."""
 
     @classmethod
-    def extract(cls, source_path: str, document_id: str = "doc_001") -> DocumentArtifact:
+    def extract(cls, source_path: str, document_id: str = "doc_001", store: Optional[Any] = None) -> DocumentArtifact:
         path = Path(source_path)
 
         # ── MANIFEST SELF-CORRECTION & INTEGRITY CHECK ──────────────────────────
+        manifest = None
         try:
             from core.artifacts.store import ArtifactStore
-            store = ArtifactStore()
+            store_inst = store or ArtifactStore()
             try:
-                manifest = store.get(document_id)
-                if manifest.is_pdf() and path.suffix.lower() == ".txt":
+                manifest = store_inst.get(document_id)
+                if manifest.is_pdf() and path.suffix.lower() in (".txt", ".md"):
                     logger.warning(
                         f"[GATEWAY] ERROR: received TXT path '{source_path}' but source is PDF. "
                         f"Self-correcting to original PDF path: {manifest.source.path}"
@@ -87,20 +88,53 @@ class ExtractionGateway:
         except Exception:
             pass
 
-        # ── HARD REJECTION — TXT AS SOURCE ────────────────────────────────────
-        if path.suffix.lower() == ".txt":
-            raise ExtractionError(
-                code="TXT_AS_SOURCE_REJECTED",
-                message="TXT is a derived representation. Upload the original PDF, DOCX, or image.",
-                action="HARD_REJECT",
-            )
-
         if not path.exists():
             raise ExtractionError(
                 code="INVALID_SOURCE",
                 message=f"Source file not found: {source_path}",
                 action="STOP",
             )
+
+        # ── PLAIN TEXT (.TXT / .MD) UPLOAD ROUTING & SELF-CORRECTION ────────────
+        if path.suffix.lower() in (".txt", ".md"):
+            if manifest and manifest.source.mime_type == "text/plain":
+                logger.info(f"[GATEWAY] Source is TXT — text-only extraction mode; equations/figures unavailable")
+                from .adapters import TextOnlyAdapter
+                txt_adapter = TextOnlyAdapter()
+                res_txt = txt_adapter.extract(source_path)
+                chunks = []
+                for b in res_txt.text_blocks:
+                    chunks.append(
+                        EvidenceChunk(
+                            chunk_id=f"txt_{b.reading_order:04d}",
+                            document_id=document_id,
+                            source_path=source_path,
+                            adapter_id=ExtractionAdapterID.TEXT_ONLY,
+                            page_start=1,
+                            page_end=1,
+                            content_type=ContentType.TEXT,
+                            text=b.text,
+                            status=ChunkStatus.VALID,
+                        )
+                    )
+                report = ChunkValidationReport.from_chunks(chunks)
+                return DocumentArtifact(
+                    document_id=document_id,
+                    source_path=source_path,
+                    mime_type="text/plain",
+                    page_count=1,
+                    text_blocks=[{"text": b.text, "page": 1} for b in res_txt.text_blocks],
+                    chunks=chunks,
+                    report=report,
+                    backends=["TextOnlyAdapter"],
+                )
+            else:
+                # Standalone/unregistered TXT file or derived TXT representation
+                raise ExtractionError(
+                    code="TXT_AS_SOURCE_REJECTED",
+                    message="TXT is a derived representation. Upload the original PDF, DOCX, or image.",
+                    action="HARD_REJECT",
+                )
 
         mime_type = "application/pdf" if path.suffix.lower() == ".pdf" else "application/octet-stream"
         adapters_used: List[str] = []
