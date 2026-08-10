@@ -25,6 +25,7 @@ interface Step1ConfigAndUploadProps {
 
 export function Step1ConfigAndUpload({ config, setConfig, sections, setSections, onSuccess }: Step1ConfigAndUploadProps) {
   const [fileNames, setFileNames] = useState<(string | null)[]>(Array(10).fill(null))
+  const [rawFiles, setRawFiles] = useState<(File | null)[]>(Array(10).fill(null))
   const [isGenerating, setIsGenerating] = useState(false)
   const fileInputRefs = useRef<HTMLInputElement[]>([])
 
@@ -65,23 +66,15 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
     newFileNames[idx] = file.name
     setFileNames(newFileNames)
 
-    const ext = file.name.split(".").pop()?.toLowerCase()
+    const newRawFiles = [...rawFiles]
+    newRawFiles[idx] = file
+    setRawFiles(newRawFiles)
 
-    if (ext === "docx") {
-      toast.info("DOCX uploaded", { description: "File uploaded. Text extraction will happen on the backend." })
-      const newSections = [...sections]
-      newSections[idx] = { ...newSections[idx], notesText: `[DOCX: ${file.name}]` }
-      setSections(newSections)
-    } else {
-      const reader = new FileReader()
-      reader.onload = (event) => {
-        const text = event.target?.result as string
-        const newSections = [...sections]
-        newSections[idx] = { ...newSections[idx], notesText: text }
-        setSections(newSections)
-      }
-      reader.readAsText(file)
-    }
+    const newSections = [...sections]
+    newSections[idx] = { ...newSections[idx], notesText: `[File: ${file.name}]` }
+    setSections(newSections)
+
+    toast.info(`${file.name} attached`, { description: "Original file will be uploaded directly to AION backend." })
   }
 
   const handleGenerate = async () => {
@@ -94,10 +87,18 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
         .map((s, i) => `=== Module ${Math.floor(i / 2) + 1} Question ${i + 1} ===\n${s.notesText}`)
         .join("\n\n")
 
-      const blob = new Blob([combinedNotes], { type: "text/plain" })
-      const file = new File([blob], `${config.subjectCode || 'syllabus'}_notes.txt`, { type: "text/plain" })
-      const uploadRes = await aionAPI.upload(file, config.subjectName || "Subject", "notes")
-      const fileId = uploadRes.id
+      const uploadedFile = rawFiles.find(f => f !== null)
+      let uploadRes: any
+
+      if (uploadedFile) {
+        toast.info(`Uploading original document ${uploadedFile.name}...`)
+        uploadRes = await aionAPI.upload(uploadedFile, config.subjectName || "Subject", "notes")
+      } else {
+        const blob = new Blob([combinedNotes], { type: "text/plain" })
+        const file = new File([blob], `${config.subjectCode || 'syllabus'}_notes.txt`, { type: "text/plain" })
+        uploadRes = await aionAPI.upload(file, config.subjectName || "Subject", "notes")
+      }
+      const fileId = uploadRes.id || uploadRes.document_id
 
       const response = await aionAPI.generateStream({
         file_id: fileId,

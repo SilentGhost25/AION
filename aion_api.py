@@ -295,8 +295,20 @@ def upload():
     print(f"  authoritative_source  : {'PDF' if manifest.is_pdf() else ('DOCX' if manifest.is_docx() else 'TXT')}")
     print("=" * 60)
 
-    # Start background extraction immediately
-    extract_svc.extract_async(doc.id)
+    # Execute extraction synchronously to guarantee ArtifactStore persistence before upload response
+    try:
+        from core.artifacts.lifecycle import ArtifactStatus, ArtifactStatusTransition
+        from core.extraction.gateway import ExtractionGateway
+        ArtifactStatusTransition.transition(manifest, ArtifactStatus.VALIDATING, store=store)
+        ArtifactStatusTransition.transition(manifest, ArtifactStatus.EXTRACTING, store=store)
+        artifact = ExtractionGateway.extract(dest_path, document_id=doc.id, store=store)
+        ArtifactStatusTransition.transition(manifest, ArtifactStatus.EVIDENCE_VALIDATED, store=store)
+        ArtifactStatusTransition.transition(manifest, ArtifactStatus.READY, store=store)
+        manifest = store.get(doc.id)
+        doc.status = DocumentStatus.READY
+    except Exception as exc:
+        print(f"[UPLOAD SYNCHRONOUS EXTRACTION ERROR] {doc.id}: {exc}")
+        extract_svc.extract_async(doc.id)
 
     return jsonify({
         "document_id":            doc.id,
@@ -306,7 +318,7 @@ def upload():
         "derived_text_available": False,
         "id":                     doc.id,
         "filename":               doc.filename,
-        "status":                 doc.status.value,
+        "status":                 manifest.status.value,
         "size_bytes":             doc.size_bytes,
         "sha256":                 manifest.source.sha256,
         "storedPath":             dest_path,
