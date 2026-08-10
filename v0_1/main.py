@@ -177,15 +177,16 @@ def run_unified_pipeline(
 
 
 def run_pipeline(
-    file_path:        str,
-    max_concepts:     int  = 10,
-    mode:             str  = "turbo",
-    exam_type:        str  = "see",
-    difficulty:       str  = "mixed",
-    include_visual:   bool = True,
-    use_unified:      bool = False,
-    request_contract: Optional[Any] = None,
-    pipeline_trace:   Optional[Any] = None,
+    file_path:          str,
+    max_concepts:       int  = 10,
+    mode:               str  = "turbo",
+    exam_type:          str  = "see",
+    difficulty:         str  = "mixed",
+    include_visual:     bool = True,
+    use_unified:        bool = False,
+    request_contract:   Optional[Any] = None,
+    pipeline_trace:     Optional[Any] = None,
+    sub_question_count: Optional[int] = None,  # 1, 2, or 3 — user-specified
 ) -> Tuple[List[dict], List[dict]]:
     """
     Saves and generates an aligned VTU Question Paper grouped strictly by Module.
@@ -331,10 +332,18 @@ def run_pipeline(
             mapper   = None
             selector = None
 
-    # Validate partitions
-    target_marks      = 20 if exam_type.lower() == "see" else 10
-    raw_partitions    = SEE_PARTITIONS if exam_type.lower() == "see" else IA_PARTITIONS
-    target_partitions = [p for p in raw_partitions if len(p) <= 3 and sum(p) == target_marks]
+    # Validate partitions — filter by user-specified sub-question count if provided
+    target_marks   = 20 if exam_type.lower() == "see" else 10
+    raw_partitions = SEE_PARTITIONS if exam_type.lower() == "see" else IA_PARTITIONS
+    base_partitions = [p for p in raw_partitions if len(p) <= 3 and sum(p) == target_marks]
+
+    if sub_question_count and sub_question_count in (1, 2, 3):
+        filtered = [p for p in base_partitions if len(p) == sub_question_count]
+        target_partitions = filtered if filtered else base_partitions
+        print(f"[PIPELINE] Sub-question count locked to {sub_question_count} "
+              f"({len(target_partitions)} matching partitions available)")
+    else:
+        target_partitions = base_partitions
 
     if not target_partitions:
         target_partitions = [[10, 10]] if target_marks == 20 else [[5, 5]]

@@ -111,6 +111,7 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
         notes_text: combinedNotes,
         model: "qwen2.5:14b",
         include_visual: true,
+        sub_question_count: sections[0]?.subQuestionsPerQ ?? 2,
       })
 
       if (!response.ok) {
@@ -415,12 +416,31 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
                         </Badge>
                       )}
                     </h3>
-                    {hasContent && (
-                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">
-                        <CheckCircle2 className="w-3 h-3 mr-1" />
-                        Uploaded
-                      </Badge>
-                    )}
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">Sub-questions</span>
+                        <select
+                          className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                          value={section.subQuestionsPerQ ?? 1}
+                          onChange={e => {
+                            const val = parseInt(e.target.value) || 1
+                            const newSections = [...sections]
+                            newSections[idx] = { ...newSections[idx], subQuestionsPerQ: val }
+                            setSections(newSections)
+                          }}
+                        >
+                          {[1, 2, 3].map(n => (
+                            <option key={n} value={n}>{n}</option>
+                          ))}
+                        </select>
+                      </label>
+                      {hasContent && (
+                        <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3 mr-1" />
+                          Uploaded
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   <CardContent className="pt-6">
                     <div className="flex items-center gap-4">

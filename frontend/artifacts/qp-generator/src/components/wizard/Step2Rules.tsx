@@ -683,14 +683,28 @@ function QuestionCard({
       <CardContent className="p-5 space-y-4">
         {/* Reference material */}
         <div className="space-y-3">
-          <Label className="text-sm font-medium flex justify-between">
-            Reference Material
-            {fileName && (
-              <span className="text-emerald-600 flex items-center text-xs">
-                <CheckCircle2 className="w-3 h-3 mr-1" /> Uploaded
-              </span>
-            )}
-          </Label>
+          <div className="flex items-center justify-between gap-3">
+            <Label className="text-sm font-medium flex items-center gap-2">
+              Reference Material
+              {fileName && (
+                <span className="text-emerald-600 flex items-center text-xs">
+                  <CheckCircle2 className="w-3 h-3 mr-1" /> Uploaded
+                </span>
+              )}
+            </Label>
+            <label className="flex items-center gap-1.5 shrink-0">
+              <span className="text-xs text-muted-foreground whitespace-nowrap">Sub-questions</span>
+              <select
+                className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                value={section.subQuestionsPerQ ?? 1}
+                onChange={e => updateSection({ subQuestionsPerQ: parseInt(e.target.value) || 1 })}
+              >
+                {[1, 2, 3, 4, 5].map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+          </div>
 
           {!fileName && (
             <div onClick={() => fileInputRef.current?.click()}

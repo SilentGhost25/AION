@@ -84,6 +84,8 @@ export const aionAPI = {
     useImages?:             boolean;
     notes_text?:            string;
     notesText?:             string;
+    sub_question_count?:    number;   // 1 | 2 | 3 — user-specified per-question sub-count
+    subQuestionCount?:      number;
   }) => {
     console.log("[AION FRONTEND] Outgoing Payload:", payload);
     const body = JSON.stringify(payload);

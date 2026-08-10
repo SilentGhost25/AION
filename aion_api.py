@@ -423,13 +423,16 @@ def generate_stream():
                 t0 = time.time()
                 try:
                     from v0_1.main import run_pipeline as _run_pipe
+                    _sub_q = body.get("sub_question_count") or body.get("subQuestionCount")
+                    _sub_q = int(_sub_q) if _sub_q and str(_sub_q).isdigit() else None
                     _paper, _qa = _run_pipe(
-                        file_path      = file_path,
-                        exam_type      = gen_req.exam_type,
-                        difficulty     = gen_req.difficulty,
-                        include_visual = False,
-                        max_concepts   = 10,
-                        mode           = "turbo",
+                        file_path          = file_path,
+                        exam_type          = gen_req.exam_type,
+                        difficulty         = gen_req.difficulty,
+                        include_visual     = False,
+                        max_concepts       = 10,
+                        mode               = "turbo",
+                        sub_question_count = _sub_q,
                     )
                     dur = (time.time() - t0) * 1000
                     trace.stage("PipelineExecution", status="PASS", duration_ms=dur,
