@@ -477,17 +477,68 @@ def generate_stream():
     def stream():
         import time
         import threading
+        import traceback as tb
         result_sent = False
         start_time = time.time()
 
         try:
-            yield _sse("status", {
-                "status":     "started",
-                "request_id": trace.request_id,
-                "message":    f"Processing: {Path(file_path).name}",
+            # Stage 1: Validation
+            yield _sse("stage_update", {
+                "stage": "validation",
+                "message": "Validating request payload and files..."
             })
-            yield _sse("log", {
-                "message": f"Running pipeline trace {trace.request_id} ({gen_req.model}, {gen_req.difficulty.upper()} difficulty)..."
+            time.sleep(0.1)
+
+            # Stage 2: Document Check
+            yield _sse("stage_update", {
+                "stage": "document_check",
+                "message": "Checking document status in AION repository..."
+            })
+            time.sleep(0.1)
+
+            if gen_req.file_id:
+                try:
+                    from core.artifacts.lifecycle import GenerationGuard
+                    guard = GenerationGuard.check(gen_req.file_id)
+                    if not guard.allowed:
+                        yield _sse("pipeline_error", {
+                            "success": False,
+                            "error": {
+                                "status": "FAILED",
+                                "code": guard.code,
+                                "stage": "document_check",
+                                "message": guard.message,
+                                "recoverable": False,
+                                "debug": {"status": guard.status.value if guard.status else "UNKNOWN"}
+                            }
+                        })
+                        yield _sse("done", {"status": "FAILED"})
+                        return
+                except Exception as guard_exc:
+                    yield _sse("pipeline_error", {
+                        "success": False,
+                        "error": {
+                            "status": "FAILED",
+                            "code": "INTERNAL_PIPELINE_ERROR",
+                            "stage": "document_check",
+                            "message": f"Internal pipeline error during guard check: {guard_exc}",
+                            "recoverable": False
+                        }
+                    })
+                    yield _sse("done", {"status": "FAILED"})
+                    return
+
+            # Stage 3: Extraction / Evidence Validation
+            yield _sse("stage_update", {
+                "stage": "extraction",
+                "message": f"Extracting from original source {Path(file_path).name}..."
+            })
+            time.sleep(0.1)
+
+            # Stage 4: Generation
+            yield _sse("stage_update", {
+                "stage": "generation",
+                "message": "Generating questions via Qwen LLM..."
             })
 
             pipeline_done = threading.Event()
@@ -515,7 +566,6 @@ def generate_stream():
                     result_holder["paper"]     = _paper
                     result_holder["qa_report"] = _qa or {}
                 except Exception as e:
-                    import traceback as tb
                     dur = (time.time() - t0) * 1000
                     trace.stage("PipelineExecution", status="FAIL", duration_ms=dur, message=str(e))
                     trace.fail(str(e))
@@ -536,31 +586,55 @@ def generate_stream():
                 pipeline_done.wait(timeout=0.5)
                 now = time.time()
                 if now - last_keepalive >= KEEPALIVE_INTERVAL:
-                    yield _sse("log", {
-                        "message": f"Processing... ({int(now - start_time)}s elapsed)",
-                        "type": "keepalive",
+                    yield _sse("stage_update", {
+                        "stage": "generation",
+                        "message": f"Processing questions... ({int(now - start_time)}s elapsed)"
                     })
                     last_keepalive = now
 
             elapsed = time.time() - start_time
 
             if result_holder["error"]:
-                yield _sse("error", {
-                    "message": f"Pipeline failed: {result_holder['error']}",
-                    "trace":   result_holder["trace"],
+                yield _sse("pipeline_error", {
+                    "success": False,
+                    "error": {
+                        "status": "FAILED",
+                        "code": "GENERATION_FAILED",
+                        "stage": "generation",
+                        "message": f"Pipeline failed: {result_holder['error']}",
+                        "recoverable": True,
+                        "debug": {
+                            "error_type": "PipelineException",
+                            "traceback": result_holder["trace"]
+                        }
+                    }
                 })
+                yield _sse("done", {"status": "FAILED"})
                 return
 
             paper = result_holder["paper"]
             qa_report = result_holder["qa_report"]
 
             if not paper:
-                yield _sse("error", {
-                    "message": "Pipeline returned empty result. Check your file content."
+                yield _sse("pipeline_error", {
+                    "success": False,
+                    "error": {
+                        "status": "FAILED",
+                        "code": "INCOMPLETE_PAPER",
+                        "stage": "generation",
+                        "message": "Pipeline returned empty result paper.",
+                        "recoverable": True
+                    }
                 })
+                yield _sse("done", {"status": "FAILED"})
                 return
 
-            result_sent = False
+            # Stage 5: Quality Gate & Formatting
+            yield _sse("stage_update", {
+                "stage": "qa",
+                "message": "Validating paper structure and CO mappings..."
+            })
+
             try:
                 _subject   = getattr(gen_req, "subject",   None) or body.get("subject",  "Unknown")
                 _exam_type = getattr(gen_req, "exam_type", None) or body.get("examType", "IA")
@@ -568,17 +642,21 @@ def generate_stream():
                 result     = _format_paper(paper, _subject, _exam_type, _mode, qa_report=qa_report)
                 print(f"[STREAM] Formatted paper in {elapsed:.1f}s: {len(result.get('modules', []))} modules", flush=True)
             except Exception as fmt_err:
-                import traceback
                 print(f"[STREAM] Format error: {fmt_err}", flush=True)
-                traceback.print_exc()
-                yield _sse("error", {
-                    "message": f"Paper formatting failed: {fmt_err}",
-                    "trace":   traceback.format_exc()[-500:],
+                yield _sse("pipeline_error", {
+                    "success": False,
+                    "error": {
+                        "status": "FAILED",
+                        "code": "FORMATTING_FAILED",
+                        "stage": "qa",
+                        "message": f"Paper formatting failed: {fmt_err}",
+                        "recoverable": True,
+                        "debug": {"traceback": tb.format_exc()[-500:]}
+                    }
                 })
+                yield _sse("done", {"status": "FAILED"})
                 return
 
-
-            # ── Enforce correct marks and OR partition parity before sending to frontend ──────────
             result["modules"] = _enforce_marks(
                 result.get("modules", []),
                 _exam_type
@@ -589,13 +667,17 @@ def generate_stream():
                 validate_final_paper_contract(result, _exam_type)
             except Exception as contract_err:
                 print(f"[CONTRACT GATE HARD-STOP] REJECTED: {contract_err}", flush=True)
-                yield _sse("error", {
+                yield _sse("pipeline_error", {
                     "success": False,
                     "error": {
+                        "status": "FAILED",
                         "code": "CONTRACT_VIOLATION",
+                        "stage": "qa",
                         "message": f"Final Paper Contract Violation: {contract_err}",
+                        "recoverable": False
                     }
                 })
+                yield _sse("done", {"status": "FAILED"})
                 return
 
             # ── FINAL QUALITY GATE HARD-STOP ENFORCEMENT ─────────────────
@@ -608,44 +690,50 @@ def generate_stream():
             if qa_score < 40 or not val_report.passed:
                 err_details = ", ".join(e.message for e in val_report.errors()) if not val_report.passed else f"Quality Score ({qa_score}/100) below 40 threshold"
                 print(f"[QUALITY GATE HARD-STOP] REJECTED: {err_details}", flush=True)
-                yield _sse("error", {
+                yield _sse("pipeline_error", {
                     "success": False,
                     "error": {
+                        "status": "FAILED",
                         "code": "QUALITY_GATE_FAILURE",
+                        "stage": "qa",
                         "message": f"Quality Gate Failure: {err_details}",
-                        "detail": {"qa_score": qa_score, "errors": [e.message for e in val_report.errors()]}
+                        "recoverable": True,
+                        "debug": {"qa_score": qa_score, "errors": [e.message for e in val_report.errors()]}
                     }
                 })
+                yield _sse("done", {"status": "FAILED"})
                 return
 
             print(f"[QUALITY GATE HARD-STOP] EXPORTABLE — Paper passed all QA and structural validation gates (QA Score: {qa_score}/100)", flush=True)
 
-            yield _sse("result", {
-                "success": True,
-                "paper": result
+            yield _sse("paper_ready", {
+                "paper": result,
+                "question_count": len(result.get("questions", []))
             })
-            yield _sse("done", {"status": "done", "elapsed": elapsed})
-            result_sent = True
-            print(f"[STREAM] Complete event sent in {elapsed:.1f}s", flush=True)
 
-        except GeneratorExit:
-            print("[STREAM] Client disconnected", flush=True)
+            yield _sse("done", {
+                "status": "SUCCESS",
+                "paper_id": result.get("id", "unknown")
+            })
+            result_sent = True
 
         except Exception as e:
-            print(f"[STREAM] Unexpected error: {e}", flush=True)
-            try:
-                yield _sse("error", {
-                    "message": str(e),
-                    "trace":   traceback.format_exc(),
-                })
-            except Exception:
-                pass
-        finally:
-            if not result_sent:
-                try:
-                    yield _sse("error", {"message": "Stream ended without result"})
-                except Exception:
-                    pass
+            print(f"[STREAM] Unhandled exception: {e}", flush=True)
+            yield _sse("pipeline_error", {
+                "success": False,
+                "error": {
+                    "status": "FAILED",
+                    "code": "INTERNAL_ERROR",
+                    "stage": "unknown",
+                    "message": f"Internal server error: {str(e)}",
+                    "recoverable": False,
+                    "debug": {
+                        "error_type": type(e).__name__,
+                        "traceback": tb.format_exc()[-1000:]
+                    }
+                }
+            })
+            yield _sse("done", {"status": "FAILED"})
 
     return Response(
         stream_with_context(stream()),

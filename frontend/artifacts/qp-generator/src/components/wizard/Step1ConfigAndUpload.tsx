@@ -7,13 +7,81 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DatePicker } from "@/components/ui/date-picker"
 import { Badge } from "@/components/ui/badge"
-import { BookOpen, Clock, Hash, GraduationCap, UploadCloud, CheckCircle2, FileText, Wand2, Info } from "lucide-react"
+import { BookOpen, Clock, Hash, GraduationCap, UploadCloud, CheckCircle2, FileText, Wand2, Info, AlertCircle, ChevronDown, ChevronUp, RefreshCw } from "lucide-react"
 import { format } from "date-fns"
 import { toast } from "sonner"
 import { Spinner } from "@/components/ui/spinner"
 import { buildTestPaper } from "./mockPaper"
 import { aionAPI } from "@/lib/aion-api"
 import { QuestionWithSubs } from "./Step2Preview"
+
+interface PipelineError {
+  code: string
+  stage: string
+  message: string
+  recoverable: boolean
+  debug?: any
+}
+
+const STAGE_LABELS: Record<string, string> = {
+  connecting: "Connecting to AION...",
+  validation: "Validating request...",
+  document_check: "Checking document in repository...",
+  extraction: "Extracting document content...",
+  generation: "Generating questions via Qwen LLM...",
+  qa: "Running quality gate validation...",
+}
+
+const ERROR_MESSAGES: Record<string, { title: string; hint: string }> = {
+  MISSING_DOCUMENT_ID: {
+    title: "Upload not linked to request",
+    hint: "Re-upload your PDF files and try again.",
+  },
+  DOCUMENT_NOT_FOUND: {
+    title: "Uploaded document not found on server",
+    hint: "Re-upload your PDF files. The upload may have expired.",
+  },
+  EXTRACTION_FAILED: {
+    title: "PDF extraction failed",
+    hint: "Ensure you uploaded a valid, non-password-protected PDF.",
+  },
+  INSUFFICIENT_EVIDENCE: {
+    title: "Not enough usable content in uploaded PDF",
+    hint: "Upload a complete module PDF, not a summary or slide deck.",
+  },
+  GENERATION_FAILED: {
+    title: "Question generation failed",
+    hint: "The AI model encountered an error. Try again or upload a different PDF.",
+  },
+  INCOMPLETE_PAPER: {
+    title: "Generation produced an incomplete paper",
+    hint: "Try again. If this persists, check server logs.",
+  },
+  GENERATION_TIMEOUT: {
+    title: "Generation timed out",
+    hint: "The server took too long. Try with fewer questions or a smaller PDF.",
+  },
+  FORMATTING_FAILED: {
+    title: "Paper formatting failed",
+    hint: "Generated content could not be structured into a paper.",
+  },
+  CONTRACT_VIOLATION: {
+    title: "Paper structure contract violated",
+    hint: "The generated paper has incorrect structure (e.g. missing OR questions or mismatched partitions).",
+  },
+  QUALITY_GATE_FAILURE: {
+    title: "Quality gate rejected the paper",
+    hint: "The paper did not pass Bloom taxonomy or CO mapping validation. Try regenerating.",
+  },
+  INTERNAL_PIPELINE_ERROR: {
+    title: "Internal pipeline error",
+    hint: "An internal error occurred. Check the server logs.",
+  },
+  INTERNAL_ERROR: {
+    title: "Internal server error",
+    hint: "An unexpected error occurred on the server. Check the server logs.",
+  },
+}
 
 interface Step1ConfigAndUploadProps {
   config: PaperConfig
@@ -27,6 +95,10 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
   const [fileNames, setFileNames] = useState<(string | null)[]>(Array(10).fill(null))
   const [rawFiles, setRawFiles] = useState<(File | null)[]>(Array(10).fill(null))
   const [isGenerating, setIsGenerating] = useState(false)
+  const [currentStage, setCurrentStage] = useState<string | null>(null)
+  const [stageMessage, setStageMessage] = useState<string | null>(null)
+  const [pipelineError, setPipelineError] = useState<PipelineError | null>(null)
+  const [showDebug, setShowDebug] = useState(false)
   const fileInputRefs = useRef<HTMLInputElement[]>([])
 
   const generateMutation = useGeneratePaper({
@@ -80,7 +152,11 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
   const handleGenerate = async () => {
     if (!canGenerate) return
     setIsGenerating(true)
-    toast.info("Sending reference material to AION AI...", { description: "Generating questions with Ollama..." })
+    setPipelineError(null)
+    setShowDebug(false)
+    setCurrentStage("connecting")
+    setStageMessage("Establishing connection to AION...")
+    toast.info("Sending reference material to AION AI...", { description: "Generating questions with Qwen LLM..." })
 
     try {
       const combinedNotes = sections
@@ -91,7 +167,7 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
       let uploadRes: any
 
       if (uploadedFile) {
-        toast.info(`Uploading original document ${uploadedFile.name}...`)
+        toast.info(`Uploading ${uploadedFile.name}...`)
         uploadRes = await aionAPI.upload(uploadedFile, config.subjectName || "Subject", "notes")
       } else {
         const blob = new Blob([combinedNotes], { type: "text/plain" })
@@ -116,13 +192,22 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
       })
 
       if (!response.ok) {
-        throw new Error(`Generation failed: ${response.statusText}`)
+        const err: PipelineError = {
+          code: "HTTP_ERROR",
+          stage: "connection",
+          message: `Server returned ${response.status}: ${response.statusText}`,
+          recoverable: response.status >= 500,
+        }
+        setPipelineError(err)
+        toast.error("Connection failed", { description: err.message })
+        return
       }
 
       const reader = response.body!.getReader()
       const decoder = new TextDecoder()
       let buffer = ""
       let formattedResult: any = null
+      let terminalReceived = false
 
       while (true) {
         const { done, value } = await reader.read()
@@ -141,22 +226,62 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
           }
           if (!trimmed.startsWith("data:")) continue
 
+          let data: any
           try {
-            const data = JSON.parse(trimmed.slice(5).trim())
-            if (currentEvent === "error" || data.code === "QUALITY_GATE_FAILURE" || data.code === "CONTRACT_VIOLATION") {
-              const errText = data.message || "AION Quality/Contract Gate Rejected Paper";
-              console.error("[AION] SSE Error:", data);
-              throw new Error(errText);
+            data = JSON.parse(trimmed.slice(5).trim())
+          } catch {
+            console.warn("[AION] Malformed SSE data:", trimmed)
+            continue
+          }
+
+          if (currentEvent === "stage_update") {
+            setCurrentStage(data.stage)
+            setStageMessage(data.message || STAGE_LABELS[data.stage] || data.stage)
+
+          } else if (currentEvent === "pipeline_error") {
+            terminalReceived = true
+            const errData = data.error || data
+            const err: PipelineError = {
+              code: errData.code || "UNKNOWN_ERROR",
+              stage: errData.stage || "unknown",
+              message: errData.message || "An error occurred during generation.",
+              recoverable: errData.recoverable !== undefined ? errData.recoverable : true,
+              debug: errData.debug,
             }
-            if (currentEvent === "result" || data.modules) {
-              formattedResult = data
-            }
-          } catch (pErr: any) {
-            if (pErr.message && pErr.message.includes("Quality Gate")) {
-              throw pErr;
+            console.error("[AION] pipeline_error:", err)
+            setPipelineError(err)
+            const errInfo = ERROR_MESSAGES[err.code] ?? { title: `Error: ${err.code}`, hint: err.message }
+            toast.error(errInfo.title, { description: errInfo.hint })
+            return
+
+          } else if (currentEvent === "paper_ready") {
+            const paper = data.paper || data
+            formattedResult = paper
+
+          } else if (currentEvent === "result") {
+            // Legacy compat — accept both wrapped and flat
+            formattedResult = data.paper || data
+
+          } else if (currentEvent === "done") {
+            terminalReceived = true
+            if (data.status !== "SUCCESS") {
+              // If done arrived without paper_ready, pipeline_error should have already fired
+              return
             }
           }
         }
+      }
+
+      if (!terminalReceived) {
+        const err: PipelineError = {
+          code: "STREAM_ENDED_WITHOUT_TERMINAL",
+          stage: currentStage || "unknown",
+          message: "Server closed connection without sending a completion event.",
+          recoverable: true,
+        }
+        setPipelineError(err)
+        toast.error("Generation incomplete", { description: err.message })
+        return
       }
 
       if (formattedResult && formattedResult.modules && formattedResult.modules.length > 0) {
@@ -170,20 +295,20 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
 
           for (let qIdx = 0; qIdx < modQuestions.length; qIdx++) {
             const q = modQuestions[qIdx]
-            const isOr = q.isOr ?? (qIdx % 2 === 1)
+            const isOr = q.isOr ?? q.is_or ?? (qIdx % 2 === 1)
             const co = `CO${mIdx + 1}`
             const rawSubs = q.subQuestions || q.sub_questions || []
             const subs = rawSubs.map((sq: any) => ({
-              label: sq.letter || "a",
+              label: sq.letter || sq.label || "a",
               text: sq.text || "",
-              marks: sq.marks || markPerQuestion,
+              marks: sq.marks,
               co: sq.co || co,
               rbt: `L${sq.bloom || q.bloom_level || q.bloomLevel || 2}`,
             }))
 
             questions.push({
               qNo: globalQNo,
-              text: subs.map((s: any) => `${s.label}) ${s.text}`).join("\n"),
+              text: "",   // Pure renderer — text is in subQuestions
               marks: q.totalMarks || q.total_marks || markPerQuestion,
               co,
               rbt: `L${q.bloom_level || q.bloomLevel || 2}`,
@@ -209,16 +334,30 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
           syllabusCoverage: { s1: 20, s2: 20, s3: 20, s4: 20, s5: 20 },
         }
 
+        setCurrentStage(null)
+        setStageMessage(null)
         toast.success("Question paper generated successfully!")
         onSuccess(paper)
       } else {
-        toast.error("Generation Failed — AION pipeline returned incomplete data. No sample paper substituted.")
+        const err: PipelineError = {
+          code: "INCOMPLETE_PAPER",
+          stage: "qa",
+          message: "Backend returned no modules. Generation may have failed silently.",
+          recoverable: true,
+        }
+        setPipelineError(err)
+        toast.error("Generation Failed", { description: err.message })
       }
     } catch (err: any) {
       console.error("[AION] Generation error:", err)
-      toast.error("AION Generation Failed", {
-        description: err?.message || "Could not generate a valid question paper."
-      })
+      const netErr: PipelineError = {
+        code: "NETWORK_ERROR",
+        stage: "connection",
+        message: err?.message || "A network error occurred during generation.",
+        recoverable: true,
+      }
+      setPipelineError(netErr)
+      toast.error("AION Generation Failed", { description: netErr.message })
     } finally {
       setIsGenerating(false)
     }
@@ -490,6 +629,109 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
           })}
         </div>
       </div>
+
+      {/* ── Generation Status Panel ─────────────────────────────────── */}
+      {isGenerating && currentStage && (
+        <div className="mt-6 rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 p-5 shadow-sm">
+          <div className="flex items-center gap-4">
+            <div className="relative flex-shrink-0">
+              <div className="h-10 w-10 rounded-full border-2 border-blue-200 bg-white flex items-center justify-center">
+                <Spinner className="h-5 w-5 text-blue-600" />
+              </div>
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-blue-800 capitalize">
+                {STAGE_LABELS[currentStage] || currentStage}
+              </p>
+              {stageMessage && (
+                <p className="text-xs text-blue-600 mt-0.5">{stageMessage}</p>
+              )}
+            </div>
+            <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[11px]">
+              {currentStage?.replace(/_/g, " ").toUpperCase()}
+            </Badge>
+          </div>
+          <div className="mt-3 flex gap-1.5">
+            {["validation", "document_check", "extraction", "generation", "qa"].map((stage) => (
+              <div
+                key={stage}
+                className={`h-1 flex-1 rounded-full transition-all duration-500 ${
+                  ["validation", "document_check", "extraction", "generation", "qa"].indexOf(currentStage || "") >=
+                  ["validation", "document_check", "extraction", "generation", "qa"].indexOf(stage)
+                    ? "bg-blue-500"
+                    : "bg-blue-100"
+                }`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Pipeline Error Panel ─────────────────────────────────────── */}
+      {!isGenerating && pipelineError && (
+        <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-5 shadow-sm">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-red-500 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <h3 className="font-semibold text-red-800">
+                {ERROR_MESSAGES[pipelineError.code]?.title ?? `Error: ${pipelineError.code}`}
+              </h3>
+              <p className="text-sm text-red-700 mt-1">{pipelineError.message}</p>
+              <p className="text-sm text-red-500 mt-2">
+                <span className="font-medium">Hint:</span>{" "}
+                {ERROR_MESSAGES[pipelineError.code]?.hint ?? pipelineError.message}
+              </p>
+              <div className="flex flex-wrap gap-2 mt-3">
+                <span className="text-[11px] text-red-400 bg-red-100 px-2 py-0.5 rounded">
+                  Stage: {pipelineError.stage}
+                </span>
+                <span className="text-[11px] text-red-400 bg-red-100 px-2 py-0.5 rounded">
+                  Code: {pipelineError.code}
+                </span>
+                {pipelineError.recoverable && (
+                  <span className="text-[11px] text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                    Recoverable
+                  </span>
+                )}
+              </div>
+              <div className="mt-4 flex gap-2">
+                {pipelineError.recoverable && (
+                  <Button
+                    size="sm"
+                    className="bg-red-600 hover:bg-red-700 text-white gap-1.5"
+                    onClick={() => { setPipelineError(null); handleGenerate() }}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Retry Generation
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50"
+                  onClick={() => setShowDebug(!showDebug)}
+                >
+                  {showDebug ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  {showDebug ? "Hide" : "Show"} Debug Info
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-slate-400 hover:text-slate-600"
+                  onClick={() => setPipelineError(null)}
+                >
+                  Dismiss
+                </Button>
+              </div>
+              {showDebug && (
+                <pre className="mt-4 text-[11px] bg-slate-900 text-slate-100 p-3 rounded-lg overflow-auto max-h-64 leading-relaxed">
+                  {JSON.stringify(pipelineError, null, 2)}
+                </pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Floating Bottom Bar */}
       <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t p-4 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] z-10 print:hidden">
