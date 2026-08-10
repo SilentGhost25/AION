@@ -26,7 +26,7 @@ export default function Wizard() {
     Array.from({ length: 10 }).map((_, i) => ({
       sectionNumber: i + 1,
       mainQuestions: 1,
-      subQuestionsPerQ: 1,
+      subQuestionsPerQ: 2,
       marks: 0,
       notesText: "",
     }))

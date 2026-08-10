@@ -88,11 +88,11 @@ class RobustSegmenter:
         # Strategy 4: Sentence boundary split
         segments = self._by_sentence_boundaries(text, target_n)
         if self._is_valid(segments, min_words):
-            print(f"[SEGMENTER] Strategy: sentence boundary → {len(segments)} segments")
+            print(f"[SEGMENTER] Strategy: sentence boundary -> {len(segments)} segments")
             return segments
 
         # Final fallback: sentence-aware equal split
-        print(f"[SEGMENTER] Strategy: sentence-aware equal split → {target_n} segments")
+        print(f"[SEGMENTER] Strategy: sentence-aware equal split -> {target_n} segments")
         return self._by_sentence_aware_equal(text, target_n)
 
     def _by_explicit_markers(self, text: str, target_n: int) -> List[ModuleSegment]:

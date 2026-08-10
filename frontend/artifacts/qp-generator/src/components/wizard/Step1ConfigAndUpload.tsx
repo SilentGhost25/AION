@@ -167,7 +167,7 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
               text: sq.text || "Explain the concept.",
               marks: sq.marks || Math.floor(markPerQuestion / (q.subQuestions.length || 1)),
               co,
-              rbt: `L${q.bloomLevel || 2}`,
+              rbt: `L${sq.bloom || q.bloomLevel || 2}`,
             }))
 
             questions.push({
@@ -384,11 +384,31 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
 
       {/* Upload Section */}
       <div className="mb-8">
-        <div className="flex items-center gap-2 text-primary mb-4">
-          <UploadCloud className="h-5 w-5" />
-          <span className="font-semibold uppercase tracking-wider text-xs">Reference Material Upload</span>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+          <div>
+            <div className="flex items-center gap-2 text-primary mb-1">
+              <UploadCloud className="h-5 w-5" />
+              <span className="font-semibold uppercase tracking-wider text-xs">Reference Material Upload</span>
+            </div>
+            <h2 className="text-2xl font-bold text-slate-800">Upload Content for Each Question</h2>
+          </div>
+          <div className="flex items-center gap-3 bg-white p-3 rounded-lg border shadow-sm">
+            <Label className="text-sm font-semibold text-slate-700 whitespace-nowrap">Sub-questions per Question:</Label>
+            <select
+              className="h-9 rounded-md border border-input bg-background px-3 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary"
+              value={sections[0]?.subQuestionsPerQ ?? 2}
+              onChange={e => {
+                const val = parseInt(e.target.value) || 2
+                const newSections = sections.map(s => ({ ...s, subQuestionsPerQ: val }))
+                setSections(newSections)
+              }}
+            >
+              <option value={1}>1 Sub-question (10 Marks)</option>
+              <option value={2}>2 Sub-questions (6+4 Marks)</option>
+              <option value={3}>3 Sub-questions (4+3+3 Marks)</option>
+            </select>
+          </div>
         </div>
-        <h2 className="text-2xl font-bold text-slate-800 mb-2">Upload Content for Each Question</h2>
         <p className="text-slate-600 mb-6">
           Upload reference material for all 10 questions (5 OR pairs). The backend AI will generate sub-questions, assign marks, CO, and Bloom's levels.
         </p>
@@ -420,18 +440,17 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
                       <label className="flex items-center gap-1.5">
                         <span className="text-xs text-muted-foreground whitespace-nowrap">Sub-questions</span>
                         <select
-                          className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                          value={section.subQuestionsPerQ ?? 1}
+                          className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring font-medium"
+                          value={sections[idx]?.subQuestionsPerQ ?? 2}
                           onChange={e => {
-                            const val = parseInt(e.target.value) || 1
-                            const newSections = [...sections]
-                            newSections[idx] = { ...newSections[idx], subQuestionsPerQ: val }
+                            const val = parseInt(e.target.value) || 2
+                            const newSections = sections.map(s => ({ ...s, subQuestionsPerQ: val }))
                             setSections(newSections)
                           }}
                         >
-                          {[1, 2, 3].map(n => (
-                            <option key={n} value={n}>{n}</option>
-                          ))}
+                          <option value={1}>1 (10M)</option>
+                          <option value={2}>2 (6+4M)</option>
+                          <option value={3}>3 (4+3+3M)</option>
                         </select>
                       </label>
                       {hasContent && (

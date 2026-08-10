@@ -631,7 +631,7 @@ def _enforce_marks(modules: list, exam_type: str) -> list:
     exam_upper = str(exam_type).upper() if exam_type else "IA"
     is_ia      = exam_upper in ("IA", "IAT1", "IAT2", "IAT3", "MID")
     q_marks    = 10 if is_ia else 20
-    max_parts  = 2  if is_ia else 3
+    max_parts  = 3
 
     for mod in modules:
         questions = mod.get("questions", [])
@@ -713,12 +713,17 @@ def _format_paper(paper, subject, exam_type, mode, qa_report=None):
 
             exam_upper = str(exam_type).upper() if exam_type else "IA"
             is_ia      = exam_upper in ("IA", "IAT1", "IAT2", "IAT3", "MID")
-            max_parts  = 2 if is_ia else 3
+            max_parts  = 3  # Allow 1, 2, or 3 sub-questions for both IA and SEE
             q_marks    = 10 if is_ia else 20
 
             n_parts = min(max(1, len(raw_subs)), max_parts)
             if is_ia:
-                split = [10] if n_parts == 1 else [6, 4]
+                if n_parts == 1:
+                    split = [10]
+                elif n_parts == 2:
+                    split = [6, 4]
+                else:
+                    split = [4, 3, 3]
             else:
                 if n_parts == 1:
                     split = [20]
