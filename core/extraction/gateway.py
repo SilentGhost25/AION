@@ -69,6 +69,24 @@ class ExtractionGateway:
     def extract(cls, source_path: str, document_id: str = "doc_001") -> DocumentArtifact:
         path = Path(source_path)
 
+        # ── MANIFEST SELF-CORRECTION & INTEGRITY CHECK ──────────────────────────
+        try:
+            from core.artifacts.store import ArtifactStore
+            store = ArtifactStore()
+            try:
+                manifest = store.get(document_id)
+                if manifest.is_pdf() and path.suffix.lower() == ".txt":
+                    logger.warning(
+                        f"[GATEWAY] ERROR: received TXT path '{source_path}' but source is PDF. "
+                        f"Self-correcting to original PDF path: {manifest.source.path}"
+                    )
+                    source_path = manifest.source.path
+                    path = Path(source_path)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
         # ── HARD REJECTION — TXT AS SOURCE ────────────────────────────────────
         if path.suffix.lower() == ".txt":
             raise ExtractionError(

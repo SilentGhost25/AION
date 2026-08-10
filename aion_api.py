@@ -238,7 +238,7 @@ def upload():
             "allowed": sorted(ALLOWED),
         }), 400
 
-    # Save file and register document
+    # Register document record
     doc = doc_registry.register(
         filename = f.filename,
         path     = "",                          # set after save
@@ -246,15 +246,35 @@ def upload():
         category = request.form.get("category", "notes"),
     )
 
-    dest = UPLOAD_DIR / f"{doc.id}{ext}"
-    f.save(str(dest))
-    doc.path       = str(dest)
-    doc.size_bytes = dest.stat().st_size
+    # Save original via ArtifactStore
+    from core.artifacts.store import ArtifactStore
+    from core.artifacts.mime_detector import detect_mime_from_header
+
+    store = ArtifactStore()
+    temp_dir = ROOT / "workspace" / "tmp"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_path = temp_dir / f"upload_{doc.id}_temp"
+    f.save(str(temp_path))
+
+    actual_mime = detect_mime_from_header(str(temp_path))
+    manifest = store.store_from_temp(
+        temp_path=str(temp_path),
+        filename=f.filename,
+        mime_type=actual_mime,
+        document_id=doc.id,
+    )
+    temp_path.unlink(missing_ok=True)
+
+    dest_path = manifest.source.path
+    doc.path       = dest_path
+    doc.size_bytes = manifest.source.size_bytes
 
     record = {
         "id":          doc.id,
         "filename":    doc.filename,
-        "storedPath":  str(dest),
+        "storedPath":  dest_path,
+        "mimeType":    manifest.source.mime_type,
+        "sha256":      manifest.source.sha256,
         "subject":     doc.subject,
         "category":    doc.category,
         "uploadedAt":  doc.uploaded_at,
@@ -263,17 +283,25 @@ def upload():
     }
     file_registry[doc.id] = record
 
-    print(f"[UPLOAD] {f.filename} → {doc.id} ({doc.size_bytes:,} bytes)")
+    print(f"[STORE] document_id  : {doc.id}")
+    print(f"[STORE] original file: {dest_path}")
+    print(f"[STORE] mime_type    : {manifest.source.mime_type}")
+    print(f"[STORE] size_bytes   : {manifest.source.size_bytes:,} bytes")
+    print(f"[STORE] sha256       : {manifest.source.sha256[:16]}...")
+    print(f"[STORE] derived      : (none yet — built on demand)")
 
     # Start background extraction immediately
     extract_svc.extract_async(doc.id)
 
     return jsonify({
-        "id":         doc.id,
-        "filename":   doc.filename,
-        "status":     doc.status.value,
-        "size_bytes": doc.size_bytes,
-        "storedPath": str(dest),
+        "id":          doc.id,
+        "filename":    doc.filename,
+        "status":      doc.status.value,
+        "size_bytes":  doc.size_bytes,
+        "mime_type":   manifest.source.mime_type,
+        "sha256":      manifest.source.sha256,
+        "storedPath":  dest_path,
+        "multimodal":  manifest.is_pdf(),
     }), 201
 
 
@@ -375,14 +403,18 @@ def generate_stream():
         with open(notes_file, "w", encoding="utf-8") as f:
             f.write(gen_req.notes_text)
         file_path = str(notes_file)
-    # Enforce original document authority if a PDF exists for this document ID
-    p_file = Path(file_path)
-    if p_file.suffix.lower() == ".txt":
-        possible_pdf = p_file.with_suffix(".pdf")
-        if possible_pdf.exists():
-            print(f"[API ROUTE] Overriding derived TXT '{p_file.name}' with authoritative PDF '{possible_pdf.name}'")
-            file_path = str(possible_pdf)
-            gen_req.file_path = file_path
+    # Resolve authoritative ExtractionSource via GenerationRequestResolver
+    from core.artifacts.resolver import GenerationRequestResolver, ExtractionSourceMissingError
+
+    try:
+        source = GenerationRequestResolver.resolve({"file_id": gen_req.file_id, "file_path": file_path})
+        file_path = source.path
+        gen_req.file_path = file_path
+        print(f"[GENERATE] Resolved document_id : {source.document_id}")
+        print(f"[GENERATE] Authoritative source  : {source.path}")
+        print(f"[GENERATE] MIME type             : {source.mime_type}")
+    except Exception as e:
+        print(f"[GENERATE RESOLVE WARN] {e}")
 
     trace.stage("RequestContract", status="PASS", metrics={"subject": gen_req.subject, "exam": gen_req.exam_type, "model": gen_req.model})
 
