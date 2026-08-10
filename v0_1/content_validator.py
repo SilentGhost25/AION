@@ -29,22 +29,27 @@ ACADEMIC_INDICATORS = {
     "method", "process", "function", "equation", "formula",
     "module", "chapter", "unit", "example", "solution",
     "problem", "given", "find", "calculate", "prove",
-    "state", "list", "discuss", "illustrate", "derive",
+    "state", "list", "discuss", "illustrate", "data",
+    "learning", "model", "network", "layer", "output",
+    "input", "code", "node", "tree", "graph", "memory",
+    "state", "time", "space", "user", "value", "key",
+    "type", "class", "object", "set", "vector", "matrix",
+    "control", "signal", "circuit", "device", "driver",
+    "engine", "motor", "sensor", "bus", "hardware", "software",
+    "architecture", "interface", "protocol", "structure",
 }
 
-# Patterns that indicate corrupted content
+# Patterns that indicate actual corrupted content (excluding math symbols & short words)
 CORRUPTION_PATTERNS = [
     r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]',  # control characters
-    r'[^\x00-\x7f]{5,}',                           # long non-ASCII runs
-    r'\$[a-zA-Z0-9]{6,}',                          # binary artifacts
-    r'[^\w\s.,;:?!\-\(\)\/\[\]]{4,}',             # symbol runs
-    r'(?:[^\w])\w{1,2}(?:[^\w])\w{1,2}(?:[^\w])', # fragmented chars
+    r'\$[a-zA-Z0-9+/]{8,}',                        # binary artifacts
+    r'[^\x00-\x7f]{10,}',                          # long non-ASCII garbage runs
 ]
 
-MIN_CONFIDENCE   = 0.60
-MAX_NOISE        = 0.30
-MIN_WORD_COUNT   = 30
-MIN_ACADEMIC     = 2     # minimum academic indicator words
+MIN_CONFIDENCE   = 0.50
+MAX_NOISE        = 0.45
+MIN_WORD_COUNT   = 20
+MIN_ACADEMIC     = 1     # minimum academic indicator words
 
 
 class ContentValidator:

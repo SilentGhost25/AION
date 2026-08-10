@@ -75,7 +75,10 @@ class LayeredExtractionResult:
 def _layer1_native_text(path: Path) -> ExtractionLayerResult:
     """Extract digital text via PyMuPDF without OCR."""
     try:
-        import fitz
+        try:
+            import pymupdf as fitz
+        except ImportError:
+            import fitz
         doc = fitz.open(str(path))
         blocks = []
         pages = len(doc)
@@ -135,7 +138,10 @@ def _layer2_layout_analysis(path: Path) -> ExtractionLayerResult:
 
     # Fallback: heading-aware line classification via pymupdf dict
     try:
-        import fitz
+        try:
+            import pymupdf as fitz
+        except ImportError:
+            import fitz
         doc = fitz.open(str(path))
         headings = []
         for page in doc:
@@ -169,7 +175,10 @@ def _layer2_layout_analysis(path: Path) -> ExtractionLayerResult:
 def _layer3_image_detection(path: Path) -> ExtractionLayerResult:
     """Detect images/figures: captions + bbox. Returns descriptive text for downstream."""
     try:
-        import fitz
+        try:
+            import pymupdf as fitz
+        except ImportError:
+            import fitz
         doc = fitz.open(str(path))
         figures = []
         for i, page in enumerate(doc, 1):
@@ -215,7 +224,10 @@ def _layer4_ocr(path: Path) -> ExtractionLayerResult:
     # RapidOCR path
     try:
         from rapidocr import RapidOCR  # type: ignore
-        import fitz  # type: ignore
+        try:
+            import pymupdf as fitz
+        except ImportError:
+            import fitz  # type: ignore
         ocr = RapidOCR()
         doc = fitz.open(str(path))
         blocks = []

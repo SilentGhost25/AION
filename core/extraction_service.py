@@ -58,8 +58,18 @@ class ExtractionService:
                 from v0_1.extractor import Extractor
                 extractor = Extractor()
                 extraction = extractor.extract(str(path))
-                text       = extraction.get("text", "")
-                confidence = extraction.get("confidence", 0.0)
+                if isinstance(extraction, dict):
+                    text       = extraction.get("text", "")
+                    confidence = extraction.get("confidence", 0.90)
+                elif hasattr(extraction, "raw_text"):
+                    text       = getattr(extraction, "raw_text", "")
+                    confidence = getattr(extraction, "confidence", 0.90)
+                elif hasattr(extraction, "text"):
+                    text       = getattr(extraction, "text", "")
+                    confidence = getattr(extraction, "confidence", 0.90)
+                else:
+                    text       = str(extraction)
+                    confidence = 0.85
             except Exception as e:
                 print(f"[EXTRACT] Extractor failed: {e} — using fallback")
                 text, confidence = self._fallback_extract(path)

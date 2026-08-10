@@ -74,7 +74,10 @@ class ConfidenceGatedExtractor:
     def _validate_with_ocr(self, pdf_path: str, primary_text: str) -> str:
         try:
             from rapidocr import RapidOCR
-            import fitz
+            try:
+                import pymupdf as fitz
+            except ImportError:
+                import fitz
             ocr = RapidOCR()
             doc = fitz.open(pdf_path)
             enhanced_pages = []
@@ -98,7 +101,10 @@ class ConfidenceGatedExtractor:
     def _extract_full_ocr(self, pdf_path: str) -> str:
         try:
             from rapidocr import RapidOCR
-            import fitz
+            try:
+                import pymupdf as fitz
+            except ImportError:
+                import fitz
             ocr = RapidOCR()
             doc = fitz.open(pdf_path)
             blocks = []
