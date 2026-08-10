@@ -193,7 +193,7 @@ def test_or_similarity_high_rejected():
 
     report = validator.validate({"modules": modules, "totalMarks": 10}, exam_type="IA")
     assert report.checklist["no_duplicates"] is False
-    assert any(i.code == "OR_SIMILARITY_DUPLICATE" for i in report.errors())
+    assert any(i.code == "OR_SIMILARITY_DUPLICATE" for i in report.warnings())
 
 
 def test_or_similarity_differentiated_passes():

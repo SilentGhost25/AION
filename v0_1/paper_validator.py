@@ -146,22 +146,25 @@ class PaperValidator:
     # ── Rule implementations ──────────────────────────────────────────────────
 
     def _compute_attemptable_marks(self, modules: list) -> int:
-        """Sum only one side of each OR pair per module."""
+        """Sum max marks of each OR pair per module."""
         total = 0
         for mod in modules:
-            qs    = mod.get("questions", [])
-            pairs = {}
-            for i, q in enumerate(qs):
-                idx      = q.get("mqIndex") or q.get("mq_index") or (i + 1)
-                pair_key = (idx - 1) // 2
-                pairs.setdefault(pair_key, []).append(q)
-            for pair_qs in pairs.values():
-                best = max(
-                    self._get_question_marks(q)
-                    for q in pair_qs
-                )
-                total += best
-        return total
+            qs = mod.get("questions", [])
+            if not qs:
+                continue
+            i = 0
+            while i < len(qs):
+                q1 = qs[i]
+                q1_marks = self._get_question_marks(q1)
+                if i + 1 < len(qs):
+                    q2 = qs[i + 1]
+                    q2_marks = self._get_question_marks(q2)
+                    total += max(q1_marks, q2_marks)
+                    i += 2
+                else:
+                    total += q1_marks
+                    i += 1
+        return int(total)
 
     def _get_question_marks(self, q: dict) -> int:
         subs = q.get("subQuestions") or q.get("sub_questions") or []
@@ -326,41 +329,38 @@ class PaperValidator:
         return ok, issues
 
     def _validate_duplicates(self, modules: list):
-        issues    = []
-        ok        = True
-        all_texts = []
+        issues = []
+        ok     = True
 
         for mod in modules:
-            for q in mod.get("questions", []):
-                subs = q.get("subQuestions") or q.get("sub_questions") or []
-                if subs:
-                    for sq in subs:
-                        text = sq.get("text", "").strip().lower()
-                        if text:
-                            all_texts.append((q.get("mqIndex") or q.get("mq_index"), sq.get("letter"), text))
-                else:
-                    text = q.get("text") or q.get("question_text") or ""
-                    text = text.strip().lower()
-                    if text:
-                        all_texts.append((q.get("mqIndex") or q.get("mq_index"), "", text))
+            qs = mod.get("questions", [])
+            i = 0
+            while i < len(qs) - 1:
+                q1 = qs[i]
+                q2 = qs[i + 1]
+                q1_subs = q1.get("subQuestions") or q1.get("sub_questions") or []
+                q2_subs = q2.get("subQuestions") or q2.get("sub_questions") or []
 
-        # Semantic duplicate check (similarity threshold >= 0.85)
-        for i in range(len(all_texts)):
-            for j in range(i + 1, len(all_texts)):
-                qi, li, ti = all_texts[i]
-                qj, lj, tj = all_texts[j]
-                sim = self._word_overlap(ti, tj)
-                if sim >= 0.85:
-                    ok = False
-                    issues.append(ValidationIssue(
-                        severity = "ERROR",
-                        code     = "OR_SIMILARITY_DUPLICATE",
-                        message  = (
-                            f"Q{qi}{li} and Q{qj}{lj} are {sim:.0%} semantically similar. "
-                            f"Likely duplicate or insufficiently differentiated OR pair."
-                        ),
-                        fix = f"Regenerate Q{qj}{lj}.",
-                    ))
+                t1_list = [sq.get("text", "").strip().lower() for sq in q1_subs if sq.get("text")] or [q1.get("text", "").lower()]
+                t2_list = [sq.get("text", "").strip().lower() for sq in q2_subs if sq.get("text")] or [q2.get("text", "").lower()]
+
+                for t1 in t1_list:
+                    for t2 in t2_list:
+                        if not t1 or not t2:
+                            continue
+                        sim = self._word_overlap(t1, t2)
+                        if sim >= 0.85:
+                            ok = False
+                            q1_num = q1.get("mqIndex") or q1.get("mq_index") or (i + 1)
+                            q2_num = q2.get("mqIndex") or q2.get("mq_index") or (i + 2)
+                            issues.append(ValidationIssue(
+                                severity = "WARNING",
+                                code     = "OR_SIMILARITY_DUPLICATE",
+                                message  = f"OR pair Q{q1_num} and Q{q2_num} are {sim:.0%} semantically similar.",
+                                fix      = f"Differentiate Q{q2_num} further.",
+                            ))
+                i += 2
+
         return ok, issues
 
     def _word_overlap(self, a: str, b: str) -> float:

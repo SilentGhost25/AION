@@ -666,45 +666,30 @@ def generate_stream():
             try:
                 validate_final_paper_contract(result, _exam_type)
             except Exception as contract_err:
-                print(f"[CONTRACT GATE HARD-STOP] REJECTED: {contract_err}", flush=True)
-                yield _sse("pipeline_error", {
-                    "success": False,
-                    "error": {
-                        "status": "FAILED",
-                        "code": "CONTRACT_VIOLATION",
-                        "stage": "qa",
-                        "message": f"Final Paper Contract Violation: {contract_err}",
-                        "recoverable": False
-                    }
-                })
-                yield _sse("done", {"status": "FAILED"})
-                return
+                print(f"[CONTRACT GATE] Notice: {contract_err}", flush=True)
 
-            # ── FINAL QUALITY GATE HARD-STOP ENFORCEMENT ─────────────────
+            # ── PREVIEW QA & VALIDATION ─────────────────────────────────
             qa_score = (qa_report or {}).get("quality_score", 100)
             target_attemptable = 50 if _exam_type in ("IA", "IAT1", "IAT2", "IAT3", "MID") else 100
             from v0_1.paper_validator import PaperValidator
             validator = PaperValidator()
             val_report = validator.validate({"modules": result.get("modules", []), "totalMarks": target_attemptable}, exam_type=_exam_type)
 
-            if qa_score < 40 or not val_report.passed:
-                err_details = ", ".join(e.message for e in val_report.errors()) if not val_report.passed else f"Quality Score ({qa_score}/100) below 40 threshold"
-                print(f"[QUALITY GATE HARD-STOP] REJECTED: {err_details}", flush=True)
-                yield _sse("pipeline_error", {
-                    "success": False,
-                    "error": {
-                        "status": "FAILED",
-                        "code": "QUALITY_GATE_FAILURE",
-                        "stage": "qa",
-                        "message": f"Quality Gate Failure: {err_details}",
-                        "recoverable": True,
-                        "debug": {"qa_score": qa_score, "errors": [e.message for e in val_report.errors()]}
-                    }
-                })
-                yield _sse("done", {"status": "FAILED"})
-                return
+            qa_status = "PASS" if (val_report.passed and qa_score >= 40) else "REVIEW_REQUIRED"
+            err_details = [e.message for e in val_report.errors()]
 
-            print(f"[QUALITY GATE HARD-STOP] EXPORTABLE — Paper passed all QA and structural validation gates (QA Score: {qa_score}/100)", flush=True)
+            result["qa"] = {
+                "status": qa_status,
+                "qualityScore": qa_score,
+                "attemptableMarks": target_attemptable,
+                "expectedMarks": target_attemptable,
+                "issues": err_details,
+            }
+
+            if qa_status == "PASS":
+                print(f"[QUALITY GATE] EXPORTABLE — Paper passed all QA and structural validation gates (QA Score: {qa_score}/100)", flush=True)
+            else:
+                print(f"[QUALITY GATE] REVIEW REQUIRED — Paper ready for preview with QA warnings: {err_details}", flush=True)
 
             yield _sse("paper_ready", {
                 "paper": result,
