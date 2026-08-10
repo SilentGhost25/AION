@@ -412,8 +412,21 @@ def run_pipeline(
         bloom_levels = [pair1_bloom, pair1_bloom, pair2_bloom, pair2_bloom]
 
         # Lock mark partitions per OR pair (Pair 1: Q1/Q2, Pair 2: Q3/Q4)
-        pair1_partition = random.choice(target_partitions)
-        pair2_partition = random.choice(target_partitions)
+        if isinstance(sub_question_count, list) and len(sub_question_count) >= (mod_idx * 2):
+            q1_c = sub_question_count[(mod_idx - 1) * 2]
+            q2_c = sub_question_count[(mod_idx - 1) * 2 + 1]
+            p1_filtered = [p for p in base_partitions if len(p) == q1_c] or base_partitions
+            p2_filtered = [p for p in base_partitions if len(p) == q2_c] or base_partitions
+            pair1_partition = random.choice(p1_filtered)
+            pair2_partition = random.choice(p2_filtered)
+        elif sub_question_count and isinstance(sub_question_count, int):
+            filtered = [p for p in base_partitions if len(p) == sub_question_count] or base_partitions
+            pair1_partition = random.choice(filtered)
+            pair2_partition = random.choice(filtered)
+        else:
+            pair1_partition = random.choice(base_partitions)
+            pair2_partition = random.choice(base_partitions)
+
         partitions_for_questions = [pair1_partition, pair1_partition, pair2_partition, pair2_partition]
 
         used_chunk_ids: set[str] = set()

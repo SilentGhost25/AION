@@ -548,8 +548,11 @@ def generate_stream():
                 t0 = time.time()
                 try:
                     from v0_1.main import run_pipeline as _run_pipe
-                    _sub_q = body.get("sub_question_count") or body.get("subQuestionCount")
-                    _sub_q = int(_sub_q) if _sub_q and str(_sub_q).isdigit() else None
+                    _sub_q = body.get("sub_question_counts") or body.get("subQuestionCounts") or body.get("sub_question_count") or body.get("subQuestionCount")
+                    if isinstance(_sub_q, str) and _sub_q.isdigit():
+                        _sub_q = int(_sub_q)
+                    elif isinstance(_sub_q, list):
+                        _sub_q = [int(x) for x in _sub_q if str(x).isdigit()]
                     _paper, _qa = _run_pipe(
                         file_path          = file_path,
                         exam_type          = gen_req.exam_type,

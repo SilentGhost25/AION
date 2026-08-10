@@ -187,8 +187,8 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
         difficulty: "mixed",
         notes_text: combinedNotes,
         model: "qwen2.5:14b",
-        include_visual: true,
         sub_question_count: sections[0]?.subQuestionsPerQ ?? 2,
+        sub_question_counts: sections.map(s => s.subQuestionsPerQ ?? 2),
       })
 
       if (!response.ok) {
