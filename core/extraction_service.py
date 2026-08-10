@@ -53,25 +53,17 @@ class ExtractionService:
             if not path.exists():
                 raise FileNotFoundError(f"File not found: {doc.path}")
 
-            # Use existing AION extraction pipeline
+            # Stage 1: Extracting using canonical ExtractionGateway
             try:
-                from v0_1.extractor import Extractor
-                extractor = Extractor()
-                extraction = extractor.extract(str(path))
-                if isinstance(extraction, dict):
-                    text       = extraction.get("text", "")
-                    confidence = extraction.get("confidence", 0.90)
-                elif hasattr(extraction, "raw_text"):
-                    text       = getattr(extraction, "raw_text", "")
-                    confidence = getattr(extraction, "confidence", 0.90)
-                elif hasattr(extraction, "text"):
-                    text       = getattr(extraction, "text", "")
-                    confidence = getattr(extraction, "confidence", 0.90)
-                else:
-                    text       = str(extraction)
-                    confidence = 0.85
+                from core.extraction.gateway import ExtractionGateway, ExtractionError
+                artifact = ExtractionGateway.extract(str(path), document_id=doc_id)
+                
+                # Combine validated text chunks
+                valid_chunks = [c for c in artifact.chunks if c.is_retrieval_eligible()]
+                text = "\n\n".join(c.text for c in valid_chunks)
+                confidence = artifact.report.get_retrieval_eligible_count() / max(artifact.report.total_chunks, 1) if artifact.report else 0.90
             except Exception as e:
-                print(f"[EXTRACT] Extractor failed: {e} — using fallback")
+                print(f"[EXTRACT] ExtractionGateway failed: {e} — using fallback")
                 text, confidence = self._fallback_extract(path)
 
             doc.word_count = len(text.split())

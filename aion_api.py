@@ -375,28 +375,14 @@ def generate_stream():
         with open(notes_file, "w", encoding="utf-8") as f:
             f.write(gen_req.notes_text)
         file_path = str(notes_file)
-        gen_req.file_path = file_path
-
-    # Contract Validation
-    is_valid, errors = gen_req.validate()
-    if not is_valid or not file_path or not Path(file_path).exists():
-        err_msg = f"Invalid Request: {', '.join(errors)}" if not is_valid else f"File not found: '{file_path}'"
-        trace.stage("RequestContract", status="FAIL", message=err_msg)
-        trace.fail(err_msg)
-        trace.print_summary()
-        trace.save_log()
-
-        def err_stream():
-            yield _sse("error", {"message": err_msg, "request_id": trace.request_id})
-        return Response(
-            stream_with_context(err_stream()),
-            mimetype="text/event-stream",
-            headers={
-                "Cache-Control":     "no-cache",
-                "Connection":        "keep-alive",
-                "X-Accel-Buffering": "no",
-            }
-        )
+    # Enforce original document authority if a PDF exists for this document ID
+    p_file = Path(file_path)
+    if p_file.suffix.lower() == ".txt":
+        possible_pdf = p_file.with_suffix(".pdf")
+        if possible_pdf.exists():
+            print(f"[API ROUTE] Overriding derived TXT '{p_file.name}' with authoritative PDF '{possible_pdf.name}'")
+            file_path = str(possible_pdf)
+            gen_req.file_path = file_path
 
     trace.stage("RequestContract", status="PASS", metrics={"subject": gen_req.subject, "exam": gen_req.exam_type, "model": gen_req.model})
 

@@ -260,8 +260,33 @@ def run_pipeline(
                 except Exception as e:
                     print(f"  [ERROR] Failed to process {file_item.name}: {e}")
         else:
-            raw_document = extract(validated_path)
-            content = raw_document.raw_text
+            try:
+                from core.extraction.gateway import ExtractionGateway, ExtractionError
+                artifact = ExtractionGateway.extract(validated_path)
+                valid_chunks = [c for c in artifact.chunks if c.is_retrieval_eligible()]
+                content = "\n\n".join(c.text for c in valid_chunks)
+
+                # PRINT RESOLVED OBJECT TYPES BEFORE CHUNKING & GENERATION
+                print("=" * 60)
+                print("[RUNTIME EXTRACTION RESOLUTION]")
+                print(f"  Source path     : {artifact.source_path}")
+                print(f"  Source type     : {artifact.mime_type}")
+                print(f"  Source authority: ORIGINAL")
+                print(f"  Adapters used   : {artifact.backends}")
+                print(f"  Text blocks     : {len(artifact.text_blocks)}")
+                print(f"  Equations       : {len(artifact.equations)}")
+                print(f"  Tables          : {len(artifact.tables)}")
+                print(f"  Figures         : {len(artifact.figures)}")
+                print(f"  Valid chunks    : {len(valid_chunks)}")
+                print(f"  Hard stop decision: PROCEED")
+                print("=" * 60)
+            except ExtractionError as ee:
+                print(f"[EXTRACTION HARD STOP] {ee.code}: {ee.message}")
+                raise RuntimeError(f"Extraction Hard Stop: [{ee.code}] {ee.message}")
+            except Exception as ex:
+                print(f"[EXTRACTION FALLBACK] Gateway error: {ex}")
+                raw_document = extract(validated_path)
+                content = raw_document.raw_text
 
             # Modular Academic Validation Gate
             acad_res = validate_academic_quality(content)
