@@ -104,6 +104,9 @@ def safe_build_planner(
         return None
 
 
+from ..vre import VREEngine, VRERequest, VREOutput, VREDecisionState
+
+
 __all__ = [
     "extract_figures",
     "FigureCard",
@@ -116,4 +119,8 @@ __all__ = [
     "register_asset_routes",
     "safe_build_planner",
     "_build_module_map",
+    "VREEngine",
+    "VRERequest",
+    "VREOutput",
+    "VREDecisionState",
 ]

@@ -196,7 +196,7 @@ def _clean(text: str) -> str:
     t = re.sub(r"\*+", "", t)
     t = re.sub(r"\s{2,}", " ", t)
     t = re.sub(r"\s+([.,;:?!])", r"\1", t)
-    t = t.strip().rstrip(",:;")
+    t = t.strip().rstrip()
     if t and t[-1] not in ".?!":
         t += "."
     return t
@@ -365,7 +365,15 @@ def _temp_for_difficulty(d: DifficultyLevel) -> float:
 
 
 def _tokens_for_marks(marks: int) -> int:
-    return 50  # Strictly capped at 50 tokens for fast local CPU generation
+    """Token budget per question. Never below 200 or questions truncate."""
+    if marks <= 3:
+        return 300
+    elif marks <= 5:
+        return 500
+    elif marks <= 8:
+        return 700
+    else:
+        return 900
 
 
 def generate_turbo(concept, marks: int = 5) -> GeneratedQuestion:
@@ -392,3 +400,5 @@ def generate(concept: Concept, mode: str = "balanced") -> GeneratedQuestion:
         marks=10,
         bloom_level=3
     )
+
+

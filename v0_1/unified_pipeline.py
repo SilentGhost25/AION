@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 from .contracts import (
     RawFile, ExtractionResult, CleanedContent, ChunkedContent,
@@ -162,39 +162,15 @@ def run_unified(
 
 def _extract(raw: RawFile) -> Optional[ExtractionResult]:
     require_contract(raw, RawFile, "S1_EXTRACT")
-    path = Path(raw.path)
-    ext  = path.suffix.lower()
-
+    from .extractor_gateway import extract_document
     try:
-        if ext == ".txt":
-            text = path.read_text(encoding="utf-8", errors="ignore")
-            return ExtractionResult(
-                doc_id=raw.doc_id, raw_text=text,
-                word_count=len(text.split()), confidence=0.90,
-                pipeline_used="text_direct",
-            )
-        elif ext == ".pdf":
-            import fitz
-            doc  = fitz.open(str(path))
-            text = "\n".join(p.get_text() for p in doc)
-            doc.close()
-            return ExtractionResult(
-                doc_id=raw.doc_id, raw_text=text,
-                word_count=len(text.split()), confidence=0.85,
-                pipeline_used="pymupdf", pages=len(doc),
-            )
-        elif ext in (".docx", ".doc"):
-            import docx as _docx
-            d    = _docx.Document(str(path))
-            text = "\n".join(p.text for p in d.paragraphs if p.text.strip())
-            return ExtractionResult(
-                doc_id=raw.doc_id, raw_text=text,
-                word_count=len(text.split()), confidence=0.88,
-                pipeline_used="docx_parser",
-            )
+        res = extract_document(raw.path, health=raw.health)
+        # Ensure doc_id matches raw doc_id
+        res.doc_id = raw.doc_id
+        return res
     except Exception as e:
         print(f"[S1] Extraction failed: {e}")
-    return None
+        return None
 
 
 def _clean(ext: ExtractionResult) -> Optional[CleanedContent]:
@@ -318,9 +294,10 @@ def _build_generation_request(
 ) -> GenerationRequest:
     from .paper_template import PaperTemplateBuilder
     builder  = PaperTemplateBuilder()
+    n_mods = max(5, len(evidence.evidence_by_module)) if raw.exam_type in (ExamType.IA, ExamType.SEE) else max(1, len(evidence.evidence_by_module))
     template = builder.build(
         exam_type = raw.exam_type.value,
-        n_modules = len(evidence.evidence_by_module),
+        n_modules = n_mods,
         subject   = raw.subject,
     )
 
@@ -357,13 +334,37 @@ def _generate(
 ) -> tuple[list[GeneratedQuestion], int]:
     require_contract(req, GenerationRequest, "S6_GENERATE")
     from .slot_filler import fill_slot
+    from .vre import VREEngine, VRERequest, FigureInput, VREDecisionState
 
     generated   = []
     n_fallbacks = 0
 
     for spec in req.specs:
         ctx  = spec.evidence.combined_text[:1000]
-        text = fill_slot(spec, ctx, req.subject)
+        text = ""
+        v_output = None
+
+        # Execute VRE check
+        vre_req = VRERequest(
+            request_id=spec.spec_id,
+            subject=req.subject,
+            department="",
+            module=f"module_{spec.module_index}",
+            topic=spec.evidence.query,
+            bloom_level=f"L{spec.bloom_level}",
+            marks=spec.marks,
+            figure_candidates=[FigureInput(image_path=req.doc_id)],
+        )
+
+        try:
+            v_output = VREEngine.execute(vre_req)
+            if v_output.success and v_output.decision_state == VREDecisionState.IMAGE_NEEDED_AND_VALID:
+                text = v_output.text
+        except Exception:
+            text = ""
+
+        if not text:
+            text = fill_slot(spec, ctx, req.subject)
 
         try:
             q = GeneratedQuestion(
@@ -371,6 +372,9 @@ def _generate(
                 question_text = text,
                 spec          = spec,
             )
+            if v_output and v_output.figure_svg:
+                setattr(q, "figure_svg", v_output.figure_svg)
+                setattr(q, "provenance", v_output.provenance)
             generated.append(q)
         except ContractViolation:
             n_fallbacks += 1
@@ -380,10 +384,20 @@ def _generate(
 
 def _critic(
     questions: list[GeneratedQuestion],
-    chunked:   ChunkedContent,
+    chunked:   Any,
 ) -> list[ValidatedQuestion]:
     from .critic import review_extended
-    all_texts = [c.text for c in chunked.chunks]
+    from core.validators.evidence_validator import EvidenceValidator
+    from .module_alignment import ModuleAlignmentValidator
+    from .question_completeness import QuestionCompletenessValidator
+
+    chunks_list = getattr(chunked, "chunks", [])
+    all_texts = [getattr(c, "text", getattr(c, "content", "")) for c in chunks_list]
+    retrieved_dict_list = [
+        {"chunk_id": getattr(c, "chunk_id", f"chk_{i}"), "text": getattr(c, "text", getattr(c, "content", "")), "page": getattr(c, "page", 1)}
+        for i, c in enumerate(chunks_list)
+    ]
+
     validated = []
 
     for q in questions:
@@ -392,11 +406,26 @@ def _critic(
             evidence_chunks = all_texts,
             bloom_level     = q.spec.bloom_level,
         )
+
+        comp_valid, comp_errors = QuestionCompletenessValidator.validate(q.question_text)
+        ev_res = EvidenceValidator.validate(
+            question_text=q.question_text,
+            retrieved_chunks=retrieved_dict_list,
+            target_module=q.spec.module_index,
+            target_bloom=q.spec.bloom_level,
+        )
+        mod_res = ModuleAlignmentValidator.validate(
+            question_text=q.question_text,
+            target_module=q.spec.module_index,
+        )
+
+        passed = verdict_obj.passed and comp_valid and ev_res.passed and mod_res.passed
+
         vq = ValidatedQuestion(
             question = q,
-            verdict  = ValidationVerdict.PASS if verdict_obj.passed else ValidationVerdict.FAIL,
-            score    = verdict_obj.score,
-            issues   = [verdict_obj.reason] if not verdict_obj.passed else [],
+            verdict  = ValidationVerdict.PASS if passed else ValidationVerdict.FAIL,
+            score    = verdict_obj.score if passed else 0.40,
+            issues   = [verdict_obj.reason] if not passed else [],
         )
         validated.append(vq)
 
@@ -422,7 +451,7 @@ def _assemble(
         q_num   = spec.q_number
         q_entry = next(
             (q for q in modules_dict[mi]["questions"]
-             if q["mqIndex"] == q_num),
+             if q["mqIndex"] == q_num and q["isOr"] == spec.is_or),
             None
         )
         if q_entry is None:
@@ -436,13 +465,29 @@ def _assemble(
             }
             modules_dict[mi]["questions"].append(q_entry)
 
-        q_entry["subQuestions"].append({
+        sub_item = {
             "letter": spec.part_letter,
             "text":   vq.question.question_text,
             "marks":  spec.marks,
             "co":     spec.co,
             "bloom":  spec.bloom_level,
-        })
+        }
+
+        # Include VRE figure SVG & provenance if attached
+        if hasattr(vq.question, "figure_svg"):
+            sub_item["figure_svg"] = getattr(vq.question, "figure_svg")
+        if hasattr(vq.question, "provenance"):
+            prov = getattr(vq.question, "provenance")
+            if prov and hasattr(prov, "__dict__"):
+                sub_item["provenance"] = prov.__dict__
+
+        q_entry["subQuestions"].append(sub_item)
+
+    # Check for total mark completeness
+    total_paper_marks = sum(q["totalMarks"] for m in modules_dict.values() for q in m["questions"])
+    expected_total = 50 if raw.exam_type == ExamType.IA else 100
+    if total_paper_marks < expected_total:
+        health.deduct(25, f"Marks mismatch: {total_paper_marks}/{expected_total}")
 
     qa_score = int(
         sum(vq.score for vq in validated) / max(1, len(validated)) * 100
@@ -453,7 +498,7 @@ def _assemble(
         modules     = list(modules_dict.values()),
         exam_type   = raw.exam_type.value,
         subject     = raw.subject,
-        total_marks = 50 if raw.exam_type == ExamType.IA else 100,
+        total_marks = expected_total,
         qa_score    = qa_score,
         health      = health,
     )

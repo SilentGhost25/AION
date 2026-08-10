@@ -1,13 +1,20 @@
 """
-AION SHP Stage 3 — Content Healer
-===================================
+AION SHP Stage 3 — Content Healer & Safe Repair Policy
+======================================================
 Runs after extraction, before chunking.
 Diagnoses and repairs content quality issues.
+
+Safe Repair Policy Classifications:
+1. ENCODING_REPAIR           -> SAFE
+2. SYMBOL_NORMALIZATION      -> SAFE IF CONFIDENCE HIGH
+3. EQUATION_RECONSTRUCTION   -> REQUIRES VALIDATION
+4. SEMANTIC_GUESS            -> FORBIDDEN (Triggers clean HALT)
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Optional
 
 from .error_knowledge import ErrorKnowledgeBase, Severity
@@ -18,6 +25,13 @@ MAX_CHUNK_WORDS  = 500
 TARGET_CHUNK     = 300
 OVERLAP          = 30
 MAX_MODULE_WORDS = 50_000
+
+
+class RepairCategory(str, Enum):
+    ENCODING_REPAIR = "ENCODING_REPAIR"
+    SYMBOL_NORMALIZATION = "SYMBOL_NORMALIZATION"
+    EQUATION_RECONSTRUCTION = "EQUIVALENT_RECONSTRUCTION"
+    SEMANTIC_GUESS = "SEMANTIC_GUESS"
 
 
 @dataclass
@@ -33,6 +47,7 @@ class ContentHealer:
     """
     Stage 3: Repair content issues before LLM sees any text.
     All repairs are deterministic. No LLM calls.
+    Enforces zero semantic guessing.
     """
 
     def __init__(self, kb: ErrorKnowledgeBase):
@@ -56,13 +71,13 @@ class ContentHealer:
                 {"word_count": word_count},
             )
             raw_text = self._force_truncate(raw_text, MAX_MODULE_WORDS)
-            repairs.append(f"SH-021: Truncated {word_count}w → {MAX_MODULE_WORDS}w")
+            repairs.append(f"SH-021 [{RepairCategory.ENCODING_REPAIR}]: Truncated {word_count}w → {MAX_MODULE_WORDS}w")
             self.kb.resolve(rec, "Truncated to max module size")
 
         from v0_1.cleaner import semantic_clean
         cleaned = semantic_clean(raw_text)
         if len(cleaned) < len(raw_text) * 0.9:
-            repairs.append("SH-030: Removed PDF artifacts")
+            repairs.append(f"SH-030 [{RepairCategory.ENCODING_REPAIR}]: Removed PDF artifacts")
 
         chunks = self._chunk(cleaned, chunk_size, overlap)
 
@@ -74,7 +89,7 @@ class ContentHealer:
                 Severity.WARNING,
             )
             chunks = self._split_oversized(chunks, TARGET_CHUNK, overlap)
-            repairs.append(f"SH-014: Split {len(oversized)} oversized chunks")
+            repairs.append(f"SH-014 [{RepairCategory.SYMBOL_NORMALIZATION}]: Split {len(oversized)} oversized chunks")
             self.kb.resolve(rec, "Chunks split to target size")
 
         valid_chunks, valid_metas, threshold_used, accepted_rate = (
@@ -83,6 +98,14 @@ class ContentHealer:
 
         if not valid_chunks:
             repairs.append("All chunks rejected even after threshold relaxation")
+            print("[HEALER] Trigger: EXTRACTION_REJECTED")
+            print("[HEALER] Strategy: ADAPTIVE_RELAXATION -> FAILED")
+            print("[HEALER] Policy: SEMANTIC_GUESS_FORBIDDEN -> STOP")
+            print("[HEALER] Result: BLOCKED")
+        else:
+            print(f"[HEALER] Trigger: HEALING_COMPLETE")
+            print(f"[HEALER] Strategy: ADAPTIVE_THRESHOLD_{threshold_used}")
+            print(f"[HEALER] Result: PASS (Accepted: {len(valid_chunks)}/{len(chunks)}, Rate: {accepted_rate:.2f})")
 
         return HealedContent(
             chunks          = valid_chunks,

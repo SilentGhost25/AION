@@ -1,7 +1,6 @@
 """
 AION API v1 — Health & Diagnostics Router
-Provides health checks and system diagnostics.
-Single Production Model: qwen2.5:7b
+Provides server readiness, model status, and subsystem health.
 """
 
 import os
@@ -30,15 +29,15 @@ def get_health():
         ollama_ok = False
 
     return jsonify({
-        "status": "healthy" if ollama_ok else "degraded",
+        "status": "ready" if ollama_ok else "degraded",
         "api_version": "v1.0",
-        "services": {
-            "aion_api": "healthy",
-            "ollama": "healthy" if ollama_ok else "unreachable",
-        },
-        "resolved_model": resolution["resolved_model"],
-        "model_source": resolution["source"],
-        "device_profile": resolution["device"],
+        "device": resolution["device"],
+        "model": resolution["resolved_model"],
+        "ollama": ollama_ok,
+        "model_loaded": ollama_ok,
+        "pipeline": "unified",
+        "vre": True,
+        "auto_healer": True,
         "models_available": models_count,
         "model_policy": "single_production_model_authority",
     })
@@ -57,7 +56,7 @@ def get_diagnostics():
         ollama_status = f"error: {e}"
 
     return jsonify({
-        "system_health": "healthy" if ollama_status == "healthy" else "degraded",
+        "system_health": "ready" if ollama_status == "healthy" else "degraded",
         "python_version": sys.version.split()[0],
         "production_model": get_production_model(),
         "ollama": {

@@ -65,7 +65,7 @@ class GroundedRetriever:
         result = scored[:self.max_chunks]
 
         for i, c in enumerate(result):
-            print(f"[RETRIEVER] Chunk {i+1}: score={c.score:.3f} | {c.text[:60].strip()!r}")
+            print(f"[RETRIEVER] Chunk {i+1}: score={c.score:.3f} | {c.text[:500].strip()!r}")
 
         return result
 
@@ -153,3 +153,4 @@ def retrieve(
     module_id: Optional[str] = None,
 ) -> list[str]:
     return _retriever.retrieve_texts(query, chunks, metas, module_id)
+

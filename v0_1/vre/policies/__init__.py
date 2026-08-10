@@ -1,0 +1,7 @@
+"""
+AION VRE Policies Package
+"""
+
+from .vtu_visual_policy import BLOOM_VISUAL_PRIORS, VISUAL_DISCOURAGED, VISUAL_PREFERRED
+
+__all__ = ["VISUAL_PREFERRED", "VISUAL_DISCOURAGED", "BLOOM_VISUAL_PRIORS"]

@@ -176,7 +176,7 @@ class CriticExtended:
             return CriticVerdict(
                 passed=False, score=coverage,
                 reason_code="RC-12",
-                reason=f"Question grounding failed. Key terms not in evidence: {list(missing)[:3]}. Coverage: {coverage:.0%}.",
+                reason=f"Question grounding failed. Key terms not in evidence: {list(missing)[:300]}. Coverage: {coverage:.0%}.",
                 fix="Retrieve chunks that cover the missing concepts.",
             )
 
@@ -197,7 +197,7 @@ class CriticExtended:
             return CriticVerdict(
                 passed=False, score=0.3,
                 reason_code="RC-05",
-                reason=f"Potential hallucination: {unsupported[:3]} not found in evidence.",
+                reason=f"Potential hallucination: {unsupported[:300]} not found in evidence.",
                 fix="Verify these concepts exist in source material.",
             )
 
@@ -213,7 +213,7 @@ class CriticExtended:
             6: {"design","develop","create","propose","formulate"},
         }
 
-        first_word = question.strip().split()[0].lower().rstrip('.,;:')
+        first_word = question.strip().split()[0].lower().rstrip()
         expected   = bloom_verbs.get(bloom_level, set())
 
         if expected and first_word not in expected:
@@ -222,7 +222,7 @@ class CriticExtended:
                 return CriticVerdict(
                     passed=False, score=0.6, reason_code="RC-02",
                     reason=f"Bloom mismatch: verb '{first_word}' maps to L{actual_level} but question is declared L{bloom_level}.",
-                    fix=f"Replace '{first_word}' with: {list(expected)[:2]}",
+                    fix=f"Replace '{first_word}' with: {list(expected)[:300]}",
                 )
 
         return CriticVerdict(passed=True, score=0.9, reason_code="PASS", reason="Bloom verb check passed.")
