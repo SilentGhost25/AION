@@ -590,9 +590,11 @@ def generate_stream():
             except Exception as contract_err:
                 print(f"[CONTRACT GATE HARD-STOP] REJECTED: {contract_err}", flush=True)
                 yield _sse("error", {
-                    "code": "CONTRACT_VIOLATION",
-                    "status": "REJECT",
-                    "message": f"Final Paper Contract Violation: {contract_err}",
+                    "success": False,
+                    "error": {
+                        "code": "CONTRACT_VIOLATION",
+                        "message": f"Final Paper Contract Violation: {contract_err}",
+                    }
                 })
                 return
 
@@ -607,16 +609,21 @@ def generate_stream():
                 err_details = ", ".join(e.message for e in val_report.errors()) if not val_report.passed else f"Quality Score ({qa_score}/100) below 40 threshold"
                 print(f"[QUALITY GATE HARD-STOP] REJECTED: {err_details}", flush=True)
                 yield _sse("error", {
-                    "code": "QUALITY_GATE_FAILURE",
-                    "status": "REJECT",
-                    "message": f"Quality Gate Failure: {err_details}",
-                    "detail": {"qa_score": qa_score, "errors": [e.message for e in val_report.errors()]}
+                    "success": False,
+                    "error": {
+                        "code": "QUALITY_GATE_FAILURE",
+                        "message": f"Quality Gate Failure: {err_details}",
+                        "detail": {"qa_score": qa_score, "errors": [e.message for e in val_report.errors()]}
+                    }
                 })
                 return
 
             print(f"[QUALITY GATE HARD-STOP] EXPORTABLE — Paper passed all QA and structural validation gates (QA Score: {qa_score}/100)", flush=True)
 
-            yield _sse("result", result)
+            yield _sse("result", {
+                "success": True,
+                "paper": result
+            })
             yield _sse("done", {"status": "done", "elapsed": elapsed})
             result_sent = True
             print(f"[STREAM] Complete event sent in {elapsed:.1f}s", flush=True)
