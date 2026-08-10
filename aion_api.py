@@ -431,21 +431,34 @@ def generate_stream():
 
     # Enforce GenerationGuard — Document must be in READY state
     if gen_req.file_id:
-        from core.artifacts.lifecycle import GenerationGuard
-        from core.sse.events import make_failure_event
-        guard = GenerationGuard.check(gen_req.file_id)
-        if not guard.allowed:
-            print(f"[GENERATION GUARD REJECT] {gen_req.file_id}: {guard.code} — {guard.message}")
-            def guard_error_stream():
+        try:
+            from core.artifacts.lifecycle import GenerationGuard
+            from core.sse.events import make_failure_event
+            guard = GenerationGuard.check(gen_req.file_id)
+            if not guard.allowed:
+                print(f"[GENERATION GUARD REJECT] {gen_req.file_id}: {guard.code} — {guard.message}")
+                def guard_error_stream():
+                    evt = make_failure_event(
+                        code=guard.code,
+                        stage="generation_guard",
+                        message=guard.message,
+                        recoverable=False,
+                        detail={"status": guard.status.value if guard.status else "UNKNOWN"}
+                    )
+                    yield evt.serialize()
+                return Response(stream_with_context(guard_error_stream()), mimetype="text/event-stream")
+        except Exception as guard_exc:
+            print(f"[GENERATION GUARD ERROR] {gen_req.file_id}: {guard_exc}")
+            def guard_exc_stream():
+                from core.sse.events import make_failure_event
                 evt = make_failure_event(
-                    code=guard.code,
+                    code="INTERNAL_PIPELINE_ERROR",
                     stage="generation_guard",
-                    message=guard.message,
-                    recoverable=False,
-                    detail={"status": guard.status.value if guard.status else "UNKNOWN"}
+                    message=f"Internal pipeline error during artifact guard: {guard_exc}",
+                    recoverable=False
                 )
                 yield evt.serialize()
-            return Response(stream_with_context(guard_error_stream()), mimetype="text/event-stream")
+            return Response(stream_with_context(guard_exc_stream()), mimetype="text/event-stream")
 
     trace.stage("RequestContract", status="PASS", metrics={"subject": gen_req.subject, "exam": gen_req.exam_type, "model": gen_req.model})
 

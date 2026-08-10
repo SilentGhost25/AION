@@ -99,8 +99,13 @@ class GenerationGuard:
     """Guards generation execution to ensure document is in READY state."""
 
     @classmethod
-    def check(cls, document_id: str, store: Optional[ArtifactStore] = None) -> GuardDecision:
-        store_inst = store or ArtifactStore()
+    def check(cls, document_id: str, store: Optional[Any] = None) -> GuardDecision:
+        if store is None:
+            from .store import ArtifactStore
+            store_inst = ArtifactStore()
+        else:
+            store_inst = store
+
         try:
             manifest = store_inst.get(document_id)
         except Exception as e:
@@ -108,6 +113,14 @@ class GenerationGuard:
                 allowed=False,
                 code="MANIFEST_NOT_FOUND",
                 message=f"Document manifest not found for id '{document_id}': {e}"
+            )
+
+        if not manifest.source.authoritative:
+            return GuardDecision(
+                allowed=False,
+                code="SOURCE_AUTHORITY_INVALID",
+                message="Generation requires an original authoritative document.",
+                status=manifest.status
             )
 
         if manifest.status not in GENERATION_ELIGIBLE_STATUSES:
