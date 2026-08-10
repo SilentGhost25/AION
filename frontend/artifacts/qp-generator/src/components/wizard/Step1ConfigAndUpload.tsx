@@ -513,30 +513,12 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
 
       {/* Upload Section */}
       <div className="mb-8">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-          <div>
-            <div className="flex items-center gap-2 text-primary mb-1">
-              <UploadCloud className="h-5 w-5" />
-              <span className="font-semibold uppercase tracking-wider text-xs">Reference Material Upload</span>
-            </div>
-            <h2 className="text-2xl font-bold text-slate-800">Upload Content for Each Question</h2>
+        <div className="mb-4">
+          <div className="flex items-center gap-2 text-primary mb-1">
+            <UploadCloud className="h-5 w-5" />
+            <span className="font-semibold uppercase tracking-wider text-xs">Reference Material Upload</span>
           </div>
-          <div className="flex items-center gap-3 bg-white p-3 rounded-lg border shadow-sm">
-            <Label className="text-sm font-semibold text-slate-700 whitespace-nowrap">Sub-questions per Question:</Label>
-            <select
-              className="h-9 rounded-md border border-input bg-background px-3 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary"
-              value={sections[0]?.subQuestionsPerQ ?? 2}
-              onChange={e => {
-                const val = parseInt(e.target.value) || 2
-                const newSections = sections.map(s => ({ ...s, subQuestionsPerQ: val }))
-                setSections(newSections)
-              }}
-            >
-              <option value={1}>1 Sub-question (10 Marks)</option>
-              <option value={2}>2 Sub-questions (6+4 Marks)</option>
-              <option value={3}>3 Sub-questions (4+3+3 Marks)</option>
-            </select>
-          </div>
+          <h2 className="text-2xl font-bold text-slate-800">Upload Content for Each Question</h2>
         </div>
         <p className="text-slate-600 mb-6">
           Upload reference material for all 10 questions (5 OR pairs). The backend AI will generate sub-questions, assign marks, CO, and Bloom's levels.
@@ -573,7 +555,8 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
                           value={sections[idx]?.subQuestionsPerQ ?? 2}
                           onChange={e => {
                             const val = parseInt(e.target.value) || 2
-                            const newSections = sections.map(s => ({ ...s, subQuestionsPerQ: val }))
+                            const newSections = [...sections]
+                            newSections[idx] = { ...newSections[idx], subQuestionsPerQ: val }
                             setSections(newSections)
                           }}
                         >
