@@ -637,19 +637,27 @@ def _enforce_marks(modules: list, exam_type: str) -> list:
         questions = mod.get("questions", [])
         for q in questions:
             subs   = q.get("subQuestions", [])
-            n_subs = min(max(1, len(subs)), max_parts)
-
+            
+            # Respect the actual sub-question count from the pipeline.
+            # Fall back to a single question only if the pipeline gave nothing.
+            n_parts = len(subs) if subs else 1
+            
             if is_ia:
-                split = [10] if n_subs == 1 else [6, 4]
+                if n_parts <= 1:
+                    split = [10]
+                elif n_parts == 2:
+                    split = [6, 4]
+                else:
+                    split = [4, 3, 3]
             else:
-                if n_subs == 1:
+                if n_parts <= 1:
                     split = [20]
-                elif n_subs == 2:
+                elif n_parts == 2:
                     split = [10, 10]
                 else:
                     split = [8, 6, 6]
 
-            # Assign marks to subQuestions up to n_subs
+            # Assign marks to subQuestions up to n_parts
             for j, sq in enumerate(subs[:len(split)]):
                 sq["marks"] = split[j]
 

@@ -190,6 +190,13 @@ def _clean(text: str) -> str:
         r",?\s*as (described|outlined|mentioned) in the.*",
         r",?\s*per the (source|notes|textbook).*",
         r",?\s*from the (source|notes|material).*",
+        # Strip leaked meta-instructions the LLM echoes back
+        r"\.?\s*Include the (term|phrase|word)[^.]*in your answer[^.]*",
+        r"\.?\s*Use the (term|phrase|word)[^.]*in your answer[^.]*",
+        r"\.?\s*Start (your answer |the question )?with the verb[^.]*",
+        r"\.?\s*Output ONLY the question text[^.]*",
+        r"\.?\s*No answers?,? notes? or explanations?[^.]*",
+        r"\.?\s*Begin (your )?(question |answer )?with[^.]{0,60}",
     ]:
         t = re.sub(pat, "", t, flags=re.S | re.I).strip()
 

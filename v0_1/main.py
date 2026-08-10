@@ -548,10 +548,14 @@ def _generate_main_question(
 
     actual_total = sum(sq["marks"] for sq in sub_questions)
 
+    # For a single sub-question, report the bloom of that sub-question
+    # (the one that drove the verb selection), not the module-level placeholder.
+    reported_bloom = sub_questions[0]["bloom"] if len(sub_questions) == 1 else bloom
+
     return {
         "mq_index":      mq_idx,
-        "bloom_level":   bloom,
-        "bloom_name":    get_bloom_level_name(bloom),
+        "bloom_level":   reported_bloom,
+        "bloom_name":    get_bloom_level_name(reported_bloom),
         "total_marks":   actual_total,
         "sub_questions": sub_questions,
     }
