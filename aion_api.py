@@ -964,6 +964,14 @@ def question_generate_compat():
     }), 200
 
 
+@app.route("/api/v1/diagnostics/<document_id>", methods=["GET"])
+def document_diagnostics(document_id):
+    from core.production.safe_pipeline import ProductionPipeline
+    pipe = ProductionPipeline()
+    diag = pipe.get_diagnostics(document_id)
+    return jsonify(diag), 200
+
+
 # ─────────────────────────────────────────────────────────────
 # Entry point
 # ─────────────────────────────────────────────────────────────
