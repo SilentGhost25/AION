@@ -483,11 +483,20 @@ def _assemble(
 
         q_entry["subQuestions"].append(sub_item)
 
-    # Check for total mark completeness
-    total_paper_marks = sum(q["totalMarks"] for m in modules_dict.values() for q in m["questions"])
+    # Check for total attemptable mark completeness (taking max per OR pair per module)
+    total_paper_marks = 0
+    for m in modules_dict.values():
+        pairs = {}
+        for idx, q in enumerate(m.get("questions", [])):
+            m_idx = q.get("mqIndex") or q.get("mq_index") or (idx + 1)
+            p_key = (m_idx - 1) // 2
+            pairs.setdefault(p_key, []).append(q)
+        for p_qs in pairs.values():
+            total_paper_marks += max(q.get("totalMarks", 10) for q in p_qs)
+
     expected_total = 50 if raw.exam_type == ExamType.IA else 100
     if total_paper_marks < expected_total:
-        health.deduct(25, f"Marks mismatch: {total_paper_marks}/{expected_total}")
+        health.deduct(25, f"Attemptable marks mismatch: {total_paper_marks}/{expected_total}")
 
     qa_score = int(
         sum(vq.score for vq in validated) / max(1, len(validated)) * 100

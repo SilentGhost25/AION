@@ -151,17 +151,23 @@ class PaperValidator:
         for mod in modules:
             qs    = mod.get("questions", [])
             pairs = {}
-            for q in qs:
-                idx      = q.get("mqIndex", 1)
+            for i, q in enumerate(qs):
+                idx      = q.get("mqIndex") or q.get("mq_index") or (i + 1)
                 pair_key = (idx - 1) // 2
                 pairs.setdefault(pair_key, []).append(q)
             for pair_qs in pairs.values():
                 best = max(
-                    sum(sq.get("marks", 0) for sq in q.get("subQuestions", []))
+                    self._get_question_marks(q)
                     for q in pair_qs
                 )
                 total += best
         return total
+
+    def _get_question_marks(self, q: dict) -> int:
+        subs = q.get("subQuestions") or q.get("sub_questions") or []
+        if subs:
+            return sum(sq.get("marks", 0) for sq in subs)
+        return q.get("totalMarks") or q.get("total_marks") or q.get("marks", 10)
 
     def _validate_or_parity(self, modules: list):
         issues = []
@@ -321,29 +327,60 @@ class PaperValidator:
 
         for mod in modules:
             for q in mod.get("questions", []):
-                for sq in q.get("subQuestions", []):
-                    text = sq.get("text", "").strip().lower()
+                subs = q.get("subQuestions") or q.get("sub_questions") or []
+                if subs:
+                    for sq in subs:
+                        text = sq.get("text", "").strip().lower()
+                        if text:
+                            all_texts.append((q.get("mqIndex") or q.get("mq_index"), sq.get("letter"), text))
+                else:
+                    text = q.get("text") or q.get("question_text") or ""
+                    text = text.strip().lower()
                     if text:
-                        all_texts.append((q.get("mqIndex"), sq.get("letter"), text))
+                        all_texts.append((q.get("mqIndex") or q.get("mq_index"), "", text))
 
-        # Simple word-overlap duplicate check (no LLM needed)
+        # Semantic duplicate check (similarity threshold >= 0.85)
         for i in range(len(all_texts)):
             for j in range(i + 1, len(all_texts)):
                 qi, li, ti = all_texts[i]
                 qj, lj, tj = all_texts[j]
                 sim = self._word_overlap(ti, tj)
-                if sim > 0.80:
+                if sim >= 0.85:
                     ok = False
                     issues.append(ValidationIssue(
                         severity = "ERROR",
-                        code     = "DUPLICATE",
+                        code     = "OR_SIMILARITY_DUPLICATE",
                         message  = (
-                            f"Q{qi}{li} and Q{qj}{lj} are {sim:.0%} similar. "
-                            f"Likely duplicate."
+                            f"Q{qi}{li} and Q{qj}{lj} are {sim:.0%} semantically similar. "
+                            f"Likely duplicate or insufficiently differentiated OR pair."
                         ),
                         fix = f"Regenerate Q{qj}{lj}.",
                     ))
         return ok, issues
+
+    def _word_overlap(self, a: str, b: str) -> float:
+        stopwords = {
+            "a", "an", "the", "and", "or", "but", "if", "because", "as", "what",
+            "which", "this", "that", "these", "those", "then", "just", "so", "than",
+            "such", "both", "through", "about", "against", "between", "into", "through",
+            "during", "before", "after", "above", "below", "to", "from", "up", "down",
+            "in", "out", "on", "off", "over", "under", "again", "further", "then", "once",
+            "here", "there", "when", "where", "why", "how", "all", "any", "both", "each",
+            "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only",
+            "own", "same", "so", "than", "too", "very", "can", "will", "should", "now",
+            "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do",
+            "does", "did", "for", "with", "of", "at", "by", "for", "with", "about"
+        }
+        import re
+        words_a = {w for w in re.findall(r'\b[a-z]{2,}\b', a.lower()) if w not in stopwords}
+        words_b = {w for w in re.findall(r'\b[a-z]{2,}\b', b.lower()) if w not in stopwords}
+        if not words_a or not words_b:
+            return 0.0
+        intersection = len(words_a & words_b)
+        union = len(words_a | words_b)
+        jaccard = intersection / union if union > 0 else 0.0
+        overlap = intersection / max(1, min(len(words_a), len(words_b)))
+        return round(0.5 * jaccard + 0.5 * overlap, 4)
 
     def _validate_numbering(self, modules: list) -> bool:
         expected = 1

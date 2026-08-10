@@ -33,13 +33,19 @@ HARD_FAILURE_PATTERNS: Tuple[str, ...] = (
 )
 
 INVALID_GRAMMAR_PATTERNS: Tuple[str, ...] = (
+    r"\bcreate\s+how\b",
     r"\bcreate\s+between\b",
+    r"\bcreate\s+the\s+(effectiveness|implications|differences)\b",
+    r"\bapply\s+why\b",
+    r"\bevaluate\s+why\b",
+    r"\blist\s+how\b",
+    r"\bdescribe\s+between\b",
+    r"\bexplain\s+between\b",
     r"\bevaluate\s+between\b",
     r"\banalyze\s+between\b",
-    r"\bapply\s+why\b",
-    r"\bdescribe\s+why\s+by\b",
-    r"\blist\s+how\b",
-    r"\bexplain\s+between\b",
+    r"\bthat\s+the\s+evaluate\b",
+    r"\bthat\s+the\s+create\b",
+    r"\bthat\s+the\s+justify\b",
 )
 
 PROMPT_LEAKAGE_PATTERNS: Tuple[str, ...] = (

@@ -50,6 +50,7 @@ class GroundedRetriever:
         """
         Score and rank chunks against the query.
         Returns top-K RetrievedChunk objects.
+        Enforces strict module lock if module_id is provided.
         """
         if not chunks:
             return []
@@ -58,6 +59,14 @@ class GroundedRetriever:
 
         scored: list[RetrievedChunk] = []
         for chunk, meta in zip(chunks, metas):
+            # Strict module lock: reject chunks explicitly belonging to another module
+            if module_id:
+                c_mod = str(meta.get("module_id") or meta.get("module_num") or meta.get("module") or "").strip()
+                t_mod = str(module_id).strip()
+                if c_mod and t_mod and c_mod != t_mod:
+                    print(f"[RETRIEVER] Rejected cross-module chunk (chunk module '{c_mod}' != target '{t_mod}')", flush=True)
+                    continue
+
             score = self._score(chunk, query, meta, module_id)
             scored.append(RetrievedChunk(text=chunk, score=score, meta=meta))
 
@@ -100,11 +109,12 @@ class GroundedRetriever:
         base = self._lexical_score(chunk, query)
 
         if module_id:
-            chunk_mod = meta.get("module_id", "")
-            if chunk_mod == module_id:
+            c_mod = str(meta.get("module_id") or meta.get("module_num") or meta.get("module") or "").strip()
+            t_mod = str(module_id).strip()
+            if c_mod == t_mod:
                 base = min(1.0, base + 0.15)
-            elif chunk_mod and chunk_mod != module_id:
-                base = base * 0.60
+            elif c_mod and c_mod != t_mod:
+                base = 0.0
 
         return base
 
