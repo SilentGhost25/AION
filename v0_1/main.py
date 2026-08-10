@@ -411,13 +411,18 @@ def run_pipeline(
         pair2_bloom = random.choice([4, 5])
         bloom_levels = [pair1_bloom, pair1_bloom, pair2_bloom, pair2_bloom]
 
+        # Lock mark partitions per OR pair (Pair 1: Q1/Q2, Pair 2: Q3/Q4)
+        pair1_partition = random.choice(target_partitions)
+        pair2_partition = random.choice(target_partitions)
+        partitions_for_questions = [pair1_partition, pair1_partition, pair2_partition, pair2_partition]
+
         used_chunk_ids: set[str] = set()
         module_questions         = []
         futures = []
 
         for mq_idx in range(1, 5):
             bloom     = bloom_levels[mq_idx - 1]
-            partition = random.choice(target_partitions)
+            partition = partitions_for_questions[mq_idx - 1]
 
             if mapper and module_chunks:
                 prefer_img = (mq_idx == 1)

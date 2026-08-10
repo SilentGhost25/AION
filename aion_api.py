@@ -583,6 +583,23 @@ def generate_stream():
                 result.get("modules", []),
                 _exam_type
             )
+
+            # ── FINAL QUALITY GATE HARD-STOP ENFORCEMENT ─────────────────
+            qa_score = (qa_report or {}).get("quality_score", 100)
+            from v0_1.paper_validator import PaperValidator
+            validator = PaperValidator()
+            val_report = validator.validate({"modules": result.get("modules", []), "totalMarks": 50}, exam_type=_exam_type)
+
+            if qa_score < 40 or not val_report.passed:
+                err_details = ", ".join(e.message for e in val_report.errors()) if not val_report.passed else f"Quality Score ({qa_score}/100) below 40 threshold"
+                print(f"[QUALITY GATE HARD-STOP] REJECTED: {err_details}", flush=True)
+                yield _sse("error", {
+                    "code": "QUALITY_GATE_FAILURE",
+                    "message": f"Quality Gate Failure: {err_details}",
+                    "detail": {"qa_score": qa_score, "errors": [e.message for e in val_report.errors()]}
+                })
+                return
+
             yield _sse("result", result)
             yield _sse("done", {"status": "done", "elapsed": elapsed})
             result_sent = True

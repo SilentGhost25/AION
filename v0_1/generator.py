@@ -180,6 +180,13 @@ def _is_valid(q: str) -> bool:
         return False
     if _OFF_DOMAIN.search(q):
         return False
+    try:
+        from core.validators.question_quality_firewall import QuestionQualityFirewall
+        fw = QuestionQualityFirewall.validate(q)
+        if not fw.passed:
+            return False
+    except Exception:
+        pass
     return True
 
 
