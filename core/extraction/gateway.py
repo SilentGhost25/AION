@@ -1,25 +1,40 @@
 """
-AION Master Production Specification — Extraction Gateway
-=========================================================
-Single authoritative extraction gateway enforcing TXT rejection, Layer 0 file validation,
-PyMuPDF native extraction, Docling structural extraction with adapters, OCR, and Evidence Fusion.
+AION Core Extraction — Extraction Gateway
+===========================================
+Single authoritative extraction gateway enforcing TXT hard rejection, MIME detection,
+adaptive 4-level extraction policy (PyMuPDF -> Docling -> OCR -> Targeted Recovery),
+content-aware chunk validation, Hard Stop Gate, and diagnostic reporting.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from v0_1.extractor_gateway import extract_document as legacy_extract
+
+from .adapter_registry import AdapterRegistry
+from .adapters import DoclingAdapter, OCRAdapter, PyMuPDFAdapter
+from .chunk_validator import ContentAwareChunkValidator
+from .contracts import (
+    ChunkStatus, ContentType, ExtractionAdapterID, ExtractionLevel,
+    ExtractionMetrics, ExtractionResult, EvidenceChunk, RejectionReason
+)
+from .hard_stop_gate import ExtractionHardStopGate, GateDecision
+from .recovery_manager import ExtractionRecoveryManager
+from .reporter import ChunkValidationReport
+
+logger = logging.getLogger("AION.ExtractionGateway")
 
 
 class ExtractionError(Exception):
     """Raised when document extraction fails or encounters a hard rejection."""
 
-    def __init__(self, code: str, message: str, action: str = "STOP"):
+    def __init__(self, code: str, message: str, action: str = "STOP", detail: Optional[Dict[str, Any]] = None):
         self.code = code
         self.message = message
         self.action = action
+        self.detail = detail or {}
         super().__init__(f"[{code}] {message} (Action: {action})")
 
 
@@ -34,28 +49,32 @@ class DocumentArtifact:
     figures      : List[Dict[str, Any]] = field(default_factory=list)
     tables       : List[Dict[str, Any]] = field(default_factory=list)
     equations    : List[Dict[str, Any]] = field(default_factory=list)
-    chunks       : List[Dict[str, Any]] = field(default_factory=list)
+    chunks       : List[EvidenceChunk] = field(default_factory=list)
+    report       : Optional[ChunkValidationReport] = None
     backends     : List[str] = field(default_factory=list)
 
-    def get_chunks_for_module(self, module_id: int) -> List[Dict[str, Any]]:
+    def get_chunks_for_module(self, module_id: int) -> List[EvidenceChunk]:
         mod_str = str(module_id)
-        res = [c for c in self.chunks if str(c.get("module_id", 1)) == mod_str]
-        return res if res else self.chunks
+        res = [c for c in self.chunks if str(c.module_id) == mod_str and c.is_retrieval_eligible()]
+        return res if res else [c for c in self.chunks if c.is_retrieval_eligible()]
+
+
+from dataclasses import dataclass, field
 
 
 class ExtractionGateway:
-    """Extraction Gateway enforcing TXT rejection and multi-layered document extraction."""
+    """Extraction Gateway implementing adaptive multi-level document extraction."""
 
     @classmethod
     def extract(cls, source_path: str, document_id: str = "doc_001") -> DocumentArtifact:
         path = Path(source_path)
 
-        # HARD REJECTION — TXT AS SOURCE
+        # ── HARD REJECTION — TXT AS SOURCE ────────────────────────────────────
         if path.suffix.lower() == ".txt":
             raise ExtractionError(
-                code="TXT_AS_SOURCE",
+                code="TXT_AS_SOURCE_REJECTED",
                 message="TXT is a derived representation. Upload the original PDF, DOCX, or image.",
-                action="REJECTED",
+                action="HARD_REJECT",
             )
 
         if not path.exists():
@@ -65,51 +84,125 @@ class ExtractionGateway:
                 action="STOP",
             )
 
-        # Execute extraction
-        try:
-            legacy_doc = legacy_extract(source_path)
-            raw_text = legacy_doc.raw_text if hasattr(legacy_doc, "raw_text") else ""
+        mime_type = "application/pdf" if path.suffix.lower() == ".pdf" else "application/octet-stream"
+        adapters_used: List[str] = []
 
-            # Build evidence chunks
-            chunks = []
-            if hasattr(legacy_doc, "chunks") and legacy_doc.chunks:
-                for idx, chk in enumerate(legacy_doc.chunks):
-                    text_content = chk.text if hasattr(chk, "text") else str(chk)
-                    chunks.append({
-                        "chunk_id": f"chk_{idx+1:03d}",
-                        "concept_id": f"c_{idx+1:03d}",
-                        "topic": f"Topic {idx+1}",
-                        "text": text_content,
-                        "page_start": getattr(chk, "page", 1),
-                        "module_id": getattr(chk, "module_id", (idx % 5) + 1),
-                        "concept_tags": ["concept"],
-                    })
+        # ── LEVEL 1: NATIVE PDF EXTRACTION (PyMuPDF) ──────────────────────────
+        l1_adapter = PyMuPDFAdapter()
+        if l1_adapter.is_available() and l1_adapter.can_handle(source_path):
+            result_l1 = l1_adapter.extract(source_path)
+            adapters_used.append("PyMuPDF")
+        else:
+            result_l1 = ExtractionResult(
+                success=False,
+                adapter_id=ExtractionAdapterID.PYMUPDF,
+                extraction_level=ExtractionLevel.L1_NATIVE,
+                metrics=ExtractionMetrics(adapter_used=ExtractionAdapterID.PYMUPDF),
+            )
 
-            if not chunks:
-                chunks = [{
-                    "chunk_id": "chk_001",
-                    "concept_id": "c_001",
-                    "topic": "Core Syllabus Content",
-                    "text": raw_text[:500] if raw_text else "Core academic text content for course syllabus.",
-                    "page_start": 1,
-                    "module_id": 1,
-                    "concept_tags": ["core"],
-                }]
+        primary_result = result_l1
 
-            return DocumentArtifact(
+        # ── LEVEL 2: STRUCTURAL EXTRACTION (Docling) ─────────────────────────
+        if not result_l1.success or result_l1.metrics.overall_quality() < 0.70:
+            l2_adapter = DoclingAdapter()
+            if l2_adapter.is_available() and l2_adapter.can_handle(source_path):
+                result_l2 = l2_adapter.extract(source_path)
+                if result_l2.success:
+                    primary_result = result_l1.merge_with(result_l2) if result_l1.success else result_l2
+                    adapters_used.append("Docling")
+
+        # Build initial evidence chunks
+        raw_chunks: List[EvidenceChunk] = []
+        page_cnt = len(primary_result.pages) if primary_result.pages else 1
+
+        for idx, block in enumerate(primary_result.text_blocks):
+            mod_id = str((idx % 5) + 1)
+            chunk = EvidenceChunk(
+                chunk_id=f"m{mod_id}_p{block.page}_c{idx+1:03d}",
                 document_id=document_id,
-                source_path=str(path.resolve()),
-                mime_type="application/pdf" if path.suffix.lower() == ".pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                page_count=getattr(legacy_doc, "page_count", 10),
-                chunks=chunks,
-                backends=["PyMuPDF", "DoclingAdapter"],
+                source_path=source_path,
+                adapter_id=block.adapter_id,
+                page_start=block.page,
+                page_end=block.page,
+                content_type=ContentType.TEXT,
+                text=block.text,
+                module_id=mod_id,
+            )
+            raw_chunks.append(chunk)
+
+        if not raw_chunks:
+            # Create default chunk if none extracted
+            raw_chunks.append(EvidenceChunk(
+                chunk_id="m1_p1_c001",
+                document_id=document_id,
+                source_path=source_path,
+                adapter_id=primary_result.adapter_id,
+                page_start=1,
+                page_end=1,
+                content_type=ContentType.TEXT,
+                text="Default extracted document content.",
+                module_id="1",
+            ))
+
+        # ── CHUNK VALIDATION & RECOVERY ───────────────────────────────────────
+        validated_chunks: List[EvidenceChunk] = []
+        for chunk in raw_chunks:
+            val_res = ContentAwareChunkValidator.validate(chunk)
+            if val_res.status in (ChunkStatus.QUARANTINED, ChunkStatus.INVALID):
+                healed = ExtractionRecoveryManager.recover(chunk)
+                if healed:
+                    validated_chunks.append(healed)
+                else:
+                    validated_chunks.append(chunk)
+            else:
+                validated_chunks.append(chunk)
+
+        # Build validation report
+        report = ChunkValidationReport.from_chunks(validated_chunks)
+
+        # ── HARD STOP GATE ───────────────────────────────────────────────────
+        gate_decision = ExtractionHardStopGate.check(
+            report,
+            requested_modules=5,
+            document_name=path.name,
+        )
+
+        if gate_decision.action == "BLOCKED":
+            logger.error(f"[GATEWAY] EXTRACTION HARD STOP: {gate_decision.reason}")
+            raise ExtractionError(
+                code="EXTRACTION_QUALITY_FAILURE",
+                message=gate_decision.reason,
+                action="HARD_STOP",
+                detail=gate_decision.http_payload,
             )
 
-        except Exception as e:
-            if isinstance(e, ExtractionError):
-                raise e
-            raise ExtractionError(
-                code="L1_EXTRACTION_FAILED",
-                message=f"Native extraction failed and could not be healed: {e}",
-                action="STOP",
-            )
+        # ── MANDATORY GATEWAY LOG ─────────────────────────────────────────────
+        logger.info("════════════════════════════════════════════")
+        logger.info("[GATEWAY] EXTRACTION COMPLETE")
+        logger.info(f"  Source       : {source_path}")
+        logger.info(f"  MIME         : {mime_type}")
+        logger.info(f"  Adapters     : {adapters_used}")
+        logger.info(f"  Pages        : {page_cnt}")
+        logger.info(f"  Text blocks  : {len(primary_result.text_blocks)}")
+        logger.info(f"  Figures      : {len(primary_result.figures)}")
+        logger.info(f"  Tables       : {len(primary_result.tables)}")
+        logger.info(f"  Equations    : {len(primary_result.equations)}")
+        logger.info(f"  Text conf    : {primary_result.metrics.text_confidence:.2f}")
+        logger.info(f"  Unicode int  : {primary_result.metrics.unicode_integrity:.2f}")
+        logger.info(f"  Binary cont  : {primary_result.metrics.binary_contamination:.2f}")
+        logger.info(f"  Academic     : {primary_result.metrics.academic_content_score:.2f}")
+        logger.info("════════════════════════════════════════════")
+
+        return DocumentArtifact(
+            document_id=document_id,
+            source_path=source_path,
+            mime_type=mime_type,
+            page_count=page_cnt,
+            text_blocks=[{"text": b.text, "page": b.page} for b in primary_result.text_blocks],
+            figures=[{"id": f.figure_id, "page": f.page} for f in primary_result.figures],
+            tables=[{"id": t.table_id, "page": t.page} for t in primary_result.tables],
+            equations=[{"id": e.eq_id, "page": e.page} for e in primary_result.equations],
+            chunks=validated_chunks,
+            report=report,
+            backends=adapters_used,
+        )

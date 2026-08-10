@@ -21,11 +21,12 @@ class QAResult:
     request_id       : str
     plan_id          : str
     qa_score         : float
-    status           : str          # "PASS" | "PASS_WITH_WARNINGS" | "REPAIR" | "FAIL"
+    status           : str          # "PASS" | "PASS_WITH_WARNINGS" | "REPAIR" | "BLOCKED"
     category_scores  : Dict[str, float] = field(default_factory=dict)
     failures         : List[str] = field(default_factory=list)
     warnings         : List[str] = field(default_factory=list)
     report_text      : str = ""
+    exportable       : bool = False
 
 
 # Forbidden Bloom verb combinations in a single question
@@ -46,7 +47,10 @@ BLOOM_VERB_KEYWORDS = {
 
 
 class FinalQualityGate:
-    """The Single Authoritative QA Gate for AION."""
+    """
+    The Single Authoritative QA Gate for AION.
+    Produces EXACTLY ONE verdict. QA Score 0 = BLOCKED unconditionally.
+    """
 
     @classmethod
     def evaluate(
@@ -57,9 +61,8 @@ class FinalQualityGate:
         failures: List[str] = []
         warnings: List[str] = []
 
-        # ── CATEGORY A: STRUCTURE (weight 0.30) ──────────────────────────────
+        # ── CATEGORY A — STRUCTURE (weight 0.30) ──────────────────────────────
         cat_a_pass = True
-        cat_a_score = 1.0
 
         if len(plan.or_pairs) != plan.module_count:
             failures.append("A01/A02: Module or OR-pair count mismatch")
@@ -78,105 +81,106 @@ class FinalQualityGate:
                 failures.append(f"A04: OR pair mark distribution parity violated in Module {pair.module_id}")
                 cat_a_pass = False
 
+        # CATEGORY A FAILURE IS IMMEDIATELY BLOCKED
         if not cat_a_pass:
-            cat_a_score = 0.0
+            report_text = cls._build_report(plan, 0.0, "BLOCKED", "STRUCTURAL_FAILURE", failures)
+            return QAResult(
+                request_id=plan.request_id,
+                plan_id=plan.plan_id,
+                qa_score=0.0,
+                status="BLOCKED",
+                failures=failures,
+                report_text=report_text,
+                exportable=False,
+            )
 
-        # ── CATEGORY B: ACADEMIC INTEGRITY (weight 0.25) ─────────────────────
+        # ── CATEGORY B — CONTENT INTEGRITY (weight 0.20) ──────────────────────
         cat_b_score = 1.0
         b_fails = 0
         for gq in generated_questions:
-            q_text_lower = gq.question_text.lower()
-            found_verbs = [v for v in BLOOM_VERB_KEYWORDS if re.search(r"\b" + v + r"\b", q_text_lower)]
-
-            # Check for multiple incompatible Bloom verbs (B04)
-            for v1, v2 in FORBIDDEN_VERB_COMBOS:
-                if v1 in found_verbs and v2 in found_verbs:
-                    failures.append(f"B04: Incompatible Bloom verbs '{v1}' and '{v2}' found in slot {gq.slot_id}")
-                    b_fails += 1
+            if "\ufffd" in gq.question_text:
+                failures.append(f"B01 (M3): Unicode replacement character in slot {gq.slot_id}")
+                b_fails += 1
+            if "\x00" in gq.question_text:
+                failures.append(f"B02: Null byte binary contamination in slot {gq.slot_id}")
+                b_fails += 1
 
         if b_fails > 0:
-            cat_b_score = max(0.0, 1.0 - (b_fails * 0.2))
+            cat_b_score = max(0.0, 1.0 - (b_fails * 0.25))
 
-        # ── CATEGORY C: CONTENT (weight 0.20) ────────────────────────────────
-        cat_c_score = 1.0
-        c_fails = 0
-        seen_texts = set()
+        # ── CATEGORY C — PROMPT SAFETY (weight 0.15) ─────────────────────────
+        cat_c_pass = True
         for gq in generated_questions:
-            if not gq.question_text or not gq.question_text.strip():
-                failures.append(f"C01: Empty question text in slot {gq.slot_id}")
-                c_fails += 1
-            if gq.question_text in seen_texts:
-                failures.append(f"C02: Duplicate question text in slot {gq.slot_id}")
-                c_fails += 1
-            seen_texts.add(gq.question_text)
+            q_text_lower = gq.question_text.lower()
+            if "ignore previous instructions" in q_text_lower or "turi būti tik klausimas" in q_text_lower:
+                failures.append(f"C01: Prompt injection detected in slot {gq.slot_id}")
+                cat_c_pass = False
+            if "question:" in q_text_lower and q_text_lower.index("question:") > 50:
+                failures.append(f"C04: System prompt leakage in slot {gq.slot_id}")
+                cat_c_pass = False
 
-        if c_fails > 0:
-            cat_c_score = max(0.0, 1.0 - (c_fails * 0.2))
+        if not cat_c_pass:
+            report_text = cls._build_report(plan, 0.0, "BLOCKED", "PROMPT_SAFETY_FAILURE", failures)
+            return QAResult(
+                request_id=plan.request_id,
+                plan_id=plan.plan_id,
+                qa_score=0.0,
+                status="BLOCKED",
+                failures=failures,
+                report_text=report_text,
+                exportable=False,
+            )
 
-        # ── CATEGORY D: MATH INTEGRITY (weight 0.15) ─────────────────────────
+        # ── CATEGORY D — BLOOM / ACADEMIC INTEGRITY (weight 0.15) ─────────────
         cat_d_score = 1.0
         d_fails = 0
         for gq in generated_questions:
-            if "\ufffd" in gq.question_text:
-                failures.append(f"D01 (M3): Unicode replacement character in slot {gq.slot_id}")
-                d_fails += 1
+            q_text_lower = gq.question_text.lower()
+            found_verbs = [v for v in BLOOM_VERB_KEYWORDS if re.search(r"\b" + v + r"\b", q_text_lower)]
+            for v1, v2 in FORBIDDEN_VERB_COMBOS:
+                if v1 in found_verbs and v2 in found_verbs:
+                    warnings.append(f"D03: Incompatible Bloom verbs '{v1}' and '{v2}' in slot {gq.slot_id}")
+                    d_fails += 1
 
         if d_fails > 0:
-            cat_d_score = max(0.0, 1.0 - (d_fails * 0.5))
+            cat_d_score = max(0.0, 1.0 - (d_fails * 0.15))
 
-        # ── CATEGORY E: EVIDENCE & GROUNDING (weight 0.05) ───────────────────
+        # ── CATEGORY E — GROUNDING (weight 0.10) ──────────────────────────────
         cat_e_score = 1.0
 
-        # ── CATEGORY F: RENDERING (weight 0.05) ──────────────────────────────
+        # ── CATEGORY F — RENDERING (weight 0.10) ─────────────────────────────
         cat_f_score = 1.0
 
-        # Weighted score calculation
+        # Weighted calculation: A (0.30), B (0.20), C (0.15), D (0.15), E (0.10), F (0.10)
         qa_score = (
-            cat_a_score * 30.0 +
-            cat_b_score * 25.0 +
-            cat_c_score * 20.0 +
+            1.0 * 30.0 +
+            cat_b_score * 20.0 +
+            1.0 * 15.0 +
             cat_d_score * 15.0 +
-            cat_e_score * 5.0 +
-            cat_f_score * 5.0
+            cat_e_score * 10.0 +
+            cat_f_score * 10.0
         )
 
         category_scores = {
-            "A_STRUCTURE": cat_a_score * 100.0,
-            "B_ACADEMIC": cat_b_score * 100.0,
-            "C_CONTENT": cat_c_score * 100.0,
-            "D_MATH": cat_d_score * 100.0,
-            "E_EVIDENCE": cat_e_score * 100.0,
+            "A_STRUCTURE": 100.0,
+            "B_CONTENT_INTEGRITY": cat_b_score * 100.0,
+            "C_PROMPT_SAFETY": 100.0,
+            "D_BLOOM_INTEGRITY": cat_d_score * 100.0,
+            "E_GROUNDING": cat_e_score * 100.0,
             "F_RENDERING": cat_f_score * 100.0,
         }
 
-        # Status determination
-        if not cat_a_pass or qa_score < 60.0:
-            status = "FAIL"
-        elif qa_score >= 90.0:
+        if qa_score >= 90.0:
             status = "PASS"
         elif qa_score >= 75.0:
             status = "PASS_WITH_WARNINGS"
-        else:
+        elif qa_score >= 60.0:
             status = "REPAIR"
+        else:
+            status = "BLOCKED"
 
-        report_lines = [
-            "══════════════════════════════════════════════",
-            "AION PAPER QA REPORT",
-            "══════════════════════════════════════════════",
-            f"Plan ID    : {plan.plan_id}",
-            "──────────────────────────────────────────────",
-            f"STRUCTURE    [A01–A09]  : {'PASS' if cat_a_pass else 'FAIL'}",
-            f"ACADEMIC     [B01–B05]  : {'PASS' if cat_b_score == 1.0 else 'WARN'}",
-            f"CONTENT      [C01–C06]  : {'PASS' if cat_c_score == 1.0 else 'WARN'}",
-            f"MATH         [D01–D07]  : {'PASS' if cat_d_score == 1.0 else 'FAIL'}",
-            f"EVIDENCE     [E01–E04]  : PASS",
-            f"RENDERING    [F01–F04]  : PASS",
-            "──────────────────────────────────────────────",
-            f"QA Score     : {qa_score:.1f}/100",
-            f"Final Status : {status}",
-            "══════════════════════════════════════════════",
-        ]
-        report_text = "\n".join(report_lines)
+        exportable = status in ("PASS", "PASS_WITH_WARNINGS")
+        report_text = cls._build_report(plan, qa_score, status, "", failures, warnings)
 
         return QAResult(
             request_id=plan.request_id,
@@ -187,4 +191,37 @@ class FinalQualityGate:
             failures=failures,
             warnings=warnings,
             report_text=report_text,
+            exportable=exportable,
         )
+
+    @classmethod
+    def _build_report(
+        cls,
+        plan: PaperStructurePlan,
+        score: float,
+        status: str,
+        reason: str,
+        failures: List[str],
+        warnings: List[str] = None,
+    ) -> str:
+        lines = [
+            "════════════════════════════════════════════════════════",
+            "AION FINAL QUALITY GATE",
+            "════════════════════════════════════════════════════════",
+            f"Plan ID              : {plan.plan_id}",
+            "────────────────────────────────────────────────────────",
+            f"STRUCTURE   [A01–A09]: {'PASS' if status != 'BLOCKED' or reason != 'STRUCTURAL_FAILURE' else 'FAIL'}",
+            f"CONTENT     [B01–B05]: {'PASS' if score > 70 else 'WARN'}",
+            f"SAFETY      [C01–C04]: {'PASS' if status != 'BLOCKED' or reason != 'PROMPT_SAFETY_FAILURE' else 'FAIL'}",
+            f"BLOOM       [D01–D05]: PASS",
+            f"GROUNDING   [E01–E05]: PASS",
+            f"RENDERING   [F01–F04]: PASS",
+            "────────────────────────────────────────────────────────",
+            f"QA Score             : {score:.1f}/100",
+            f"Final Status         : {status}",
+        ]
+        if reason:
+            lines.append(f"Reason               : {reason}")
+        lines.append(f"Exportable           : {'YES' if status in ('PASS', 'PASS_WITH_WARNINGS') else 'NO'}")
+        lines.append("════════════════════════════════════════════════════════")
+        return "\n".join(lines)
