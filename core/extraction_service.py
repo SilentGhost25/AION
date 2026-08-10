@@ -65,6 +65,17 @@ class ExtractionService:
             except ExtractionError as ee:
                 # HARD STOP — No fallback permitted for ExtractionError/HardStop!
                 print(f"[EXTRACT HARD STOP] [{ee.code}] {ee.message} — Qwen WILL NOT BE CALLED")
+                try:
+                    from core.artifacts.store import ArtifactStore
+                    from core.artifacts.lifecycle import ArtifactStatus, ArtifactStatusTransition
+                    store = ArtifactStore()
+                    try:
+                        manifest = store.get(doc_id)
+                        ArtifactStatusTransition.transition(manifest, ArtifactStatus.FAILED_EXTRACTION, store=store)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
                 raise ee
             except Exception as e:
                 print(f"[EXTRACT UNEXPECTED ERROR] {e} — using fallback")

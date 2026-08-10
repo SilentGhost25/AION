@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from .lifecycle import ArtifactStatus
+
 
 @dataclass
 class SourceArtifact:
@@ -97,6 +99,8 @@ class DocumentManifest:
     derived           : Dict[str, DerivedArtifact] = field(default_factory=dict)
     extraction_status : str = "PENDING"      # PENDING | COMPLETE | FAILED
     extraction_report : Optional[Dict[str, Any]] = None
+    status            : ArtifactStatus = ArtifactStatus.UPLOADED
+    status_changed_at : Optional[str] = None
 
     def get_extraction_source(self) -> str:
         """
@@ -126,6 +130,7 @@ class DocumentManifest:
         """Called when source is re-uploaded or extraction is reset."""
         self.derived.clear()
         self.extraction_status = "PENDING"
+        self.status = ArtifactStatus.UPLOADED
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -135,19 +140,25 @@ class DocumentManifest:
             "derived": {k: v.to_dict() for k, v in self.derived.items()},
             "extraction_status": self.extraction_status,
             "extraction_report": self.extraction_report,
+            "status": self.status.value if isinstance(self.status, ArtifactStatus) else str(self.status),
+            "status_changed_at": self.status_changed_at,
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> DocumentManifest:
-        source = SourceArtifact.from_dict(data["source"])
-        derived_dict = {
-            k: DerivedArtifact.from_dict(v) for k, v in data.get("derived", {}).items()
-        }
+        raw_status = data.get("status", ArtifactStatus.UPLOADED.value)
+        try:
+            status_enum = ArtifactStatus(raw_status)
+        except ValueError:
+            status_enum = ArtifactStatus.UPLOADED
+
         return cls(
             document_id=data["document_id"],
             created_at=data["created_at"],
-            source=source,
-            derived=derived_dict,
+            source=SourceArtifact.from_dict(data["source"]),
+            derived={k: DerivedArtifact.from_dict(v) for k, v in data.get("derived", {}).items()},
             extraction_status=data.get("extraction_status", "PENDING"),
             extraction_report=data.get("extraction_report"),
+            status=status_enum,
+            status_changed_at=data.get("status_changed_at"),
         )
