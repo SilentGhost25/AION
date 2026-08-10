@@ -1,1 +1,3 @@
-# AION Core Modules
+"""
+AION Core Package
+"""

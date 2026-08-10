@@ -1,20 +1,18 @@
 """
-AION Question Planner
-=====================
+AION Legacy Question Planner
+============================
 Decides what questions to generate from a GenerationContext.
 No LLM calls. Pure rule-based planning.
-
-Output: a list of QuestionSpec objects, one per question to generate.
-The generator consumes these specs one at a time.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
-from core.generation_context import GenerationContext
+try:
+    from core.generation_context import GenerationContext
+except ImportError:
+    GenerationContext = Any
 
-
-# ── Bloom taxonomy ────────────────────────────────────────────────────────────
 
 BLOOM_VERBS = {
     "L1": ["Define", "State", "List", "Identify", "Name"],
@@ -25,8 +23,6 @@ BLOOM_VERBS = {
     "L6": ["Design", "Develop", "Propose", "Create", "Formulate"],
 }
 
-# VTU IA exam: 10 marks, max 2 sub-questions
-# VTU SEE exam: 20 marks, max 3 sub-questions
 EXAM_CONFIG = {
     "IA": {
         "marks":      10,
@@ -40,7 +36,6 @@ EXAM_CONFIG = {
     },
 }
 
-# Bloom distribution by difficulty
 BLOOM_DISTRIBUTIONS = {
     "Easy":   ["L1", "L1", "L2", "L2", "L3"],
     "Medium": ["L2", "L2", "L3", "L3", "L4"],
@@ -51,10 +46,6 @@ BLOOM_DISTRIBUTIONS = {
 
 @dataclass
 class QuestionSpec:
-    """
-    Specification for a single question to be generated.
-    The generator receives this and produces the actual question.
-    """
     spec_id:       str
     module_id:     str
     module_number: int
@@ -64,16 +55,16 @@ class QuestionSpec:
     marks:         int
     bloom_level:   str
     command_verb:  str
-    marks_split:   list[int]
+    marks_split:   List[int]
 
-    chunks:        list[dict]    = field(default_factory=list)
-    is_numerical:  bool          = False
-    numerical_template: Optional[dict] = None
+    chunks:        List[Dict[str, Any]] = field(default_factory=list)
+    is_numerical:  bool                 = False
+    numerical_template: Optional[Dict[str, Any]] = None
 
     subject:       str = ""
     chapter:       str = ""
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "spec_id":      self.spec_id,
             "module_id":    self.module_id,
@@ -91,21 +82,10 @@ class QuestionSpec:
 
 
 class Planner:
-    """
-    Plans question generation from a GenerationContext.
-    Decides: which modules, how many questions,
-    what Bloom level, what marks split.
-    No LLM calls.
-    """
-
     def __init__(self):
         pass
 
-    def plan(self, ctx: GenerationContext) -> list[QuestionSpec]:
-        """
-        Generate a list of QuestionSpecs from the context.
-        One spec per question to generate.
-        """
+    def plan(self, ctx: Any) -> List[QuestionSpec]:
         specs        = []
         exam_cfg     = EXAM_CONFIG.get(ctx.exam_type, EXAM_CONFIG["IA"])
         bloom_dist   = BLOOM_DISTRIBUTIONS.get(ctx.difficulty, BLOOM_DISTRIBUTIONS["Mixed"])
@@ -124,25 +104,19 @@ class Planner:
             module_num   = module.get("number", mod_idx + 1)
             module_title = module.get("title", f"Module {module_num}")
 
-            # Get chunks for this module
             mod_chunks = ctx.get_chunks_for_module(module_id)
             if not mod_chunks:
                 print(f"[PLAN] No chunks for {module_id} — skipping")
                 continue
 
-            # Determine Bloom level for this module
             bloom_level = bloom_dist[mod_idx % len(bloom_dist)]
-
-            # Select marks split
             splits    = exam_cfg["splits"]
             split_idx = mod_idx % len(splits)
             marks_split = list(splits[split_idx])
 
-            # Select command verb
             verbs       = BLOOM_VERBS.get(bloom_level, BLOOM_VERBS["L2"])
             verb        = verbs[mod_idx % len(verbs)]
 
-            # Select best chunks (top 3 by word count, no more)
             best_chunks = sorted(
                 mod_chunks,
                 key     = lambda c: c.get("word_count", 0),
@@ -167,10 +141,5 @@ class Planner:
 
             specs.append(spec)
             spec_counter += 1
-            print(
-                f"[PLAN] {module_id} | {bloom_level} | "
-                f"{verb} | {marks_split} | {len(best_chunks)} chunks"
-            )
 
-        print(f"[PLAN] Generated {len(specs)} question specs")
         return specs
