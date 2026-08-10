@@ -1,0 +1,9 @@
+MODULE 1: Linear Data Structures. Arrays, Stacks, and Queues are fundamental linear data structures. A stack is a Last-In First-Out (LIFO) data structure supporting push and pop operations. Queues operate on First-In First-Out (FIFO) principles for task scheduling. Circular queues solve array boundary overflow issues.
+
+MODULE 2: Trees and Hierarchical Data Structures. Binary Search Trees maintain left child less than root and right child greater. AVL trees perform LL, RR, LR, and RL rotations to ensure balance factor remains between -1 and +1. B-Trees and B+ Trees optimize disk block index access in database systems.
+
+MODULE 3: Graph Algorithms & Network Analysis. Dijkstra's algorithm finds single-source shortest paths in weighted graphs with non-negative edge weights. Prim's and Kruskal's algorithms construct Minimum Spanning Trees (MST) for connected weighted graphs. Topological sorting orders vertices in Directed Acyclic Graphs (DAG).
+
+MODULE 4: Sorting and Searching Strategies. Quick sort uses divide-and-conquer strategy with pivot partitioning. Merge sort achieves O(n log n) worst-case time complexity using recursive merging. Binary search requires sorted arrays and operates in O(log n) time.
+
+MODULE 5: Hashing and File Organization. Hash functions convert key values into array indices. Collision resolution techniques include linear probing, quadratic probing, and separate chaining. Sequential and indexed file structures optimize secondary storage reads.
