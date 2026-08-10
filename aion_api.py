@@ -283,25 +283,34 @@ def upload():
     }
     file_registry[doc.id] = record
 
-    print(f"[STORE] document_id  : {doc.id}")
-    print(f"[STORE] original file: {dest_path}")
-    print(f"[STORE] mime_type    : {manifest.source.mime_type}")
-    print(f"[STORE] size_bytes   : {manifest.source.size_bytes:,} bytes")
-    print(f"[STORE] sha256       : {manifest.source.sha256[:16]}...")
-    print(f"[STORE] derived      : (none yet — built on demand)")
+    print("=" * 60)
+    print("[UPLOAD DIAGNOSTICS]")
+    print(f"  original_filename     : {f.filename}")
+    print(f"  original_mimetype     : {actual_mime}")
+    print(f"  original_extension    : {Path(f.filename).suffix.lower()}")
+    print(f"  original_size         : {doc.size_bytes:,} bytes")
+    print(f"  stored_source_path    : {dest_path}")
+    print(f"  stored_source_mimetype: {manifest.source.mime_type}")
+    print(f"  derived_text_path     : (none yet — built on demand)")
+    print(f"  authoritative_source  : {'PDF' if manifest.is_pdf() else ('DOCX' if manifest.is_docx() else 'TXT')}")
+    print("=" * 60)
 
     # Start background extraction immediately
     extract_svc.extract_async(doc.id)
 
     return jsonify({
-        "id":          doc.id,
-        "filename":    doc.filename,
-        "status":      doc.status.value,
-        "size_bytes":  doc.size_bytes,
-        "mime_type":   manifest.source.mime_type,
-        "sha256":      manifest.source.sha256,
-        "storedPath":  dest_path,
-        "multimodal":  manifest.is_pdf(),
+        "document_id":            doc.id,
+        "source_type":            manifest.source.mime_type,
+        "source_filename":        doc.filename,
+        "source_authority":       "original",
+        "derived_text_available": False,
+        "id":                     doc.id,
+        "filename":               doc.filename,
+        "status":                 doc.status.value,
+        "size_bytes":             doc.size_bytes,
+        "sha256":                 manifest.source.sha256,
+        "storedPath":             dest_path,
+        "multimodal":             manifest.is_pdf(),
     }), 201
 
 
@@ -410,9 +419,13 @@ def generate_stream():
         source = GenerationRequestResolver.resolve({"file_id": gen_req.file_id, "file_path": file_path})
         file_path = source.path
         gen_req.file_path = file_path
-        print(f"[GENERATE] Resolved document_id : {source.document_id}")
-        print(f"[GENERATE] Authoritative source  : {source.path}")
-        print(f"[GENERATE] MIME type             : {source.mime_type}")
+        print("=" * 60)
+        print("[SOURCE RESOLUTION DIAGNOSTICS]")
+        print(f"  file_id          : {gen_req.file_id or source.document_id}")
+        print(f"  source_path      : {source.path}")
+        print(f"  source_type      : {source.mime_type}")
+        print(f"  source_authority : {'ORIGINAL' if source.manifest.source.authoritative else 'UNKNOWN'}")
+        print("=" * 60)
     except Exception as e:
         print(f"[GENERATE RESOLVE WARN] {e}")
 

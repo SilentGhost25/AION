@@ -40,8 +40,11 @@ def extract_document(source: str, health: Optional[PipelineHealth] = None) -> Ex
         valid_chunks = [c for c in artifact.chunks if c.is_retrieval_eligible()]
         raw_text = "\n\n".join(c.text for c in valid_chunks)
         pipeline_used = f"gateway_{artifact.backends[0] if artifact.backends else 'native'}"
+    except ExtractionError as ee:
+        print(f"[EXTRACTOR_GATEWAY HARD STOP] [{ee.code}] {ee.message}")
+        raise ContractViolation(f"Extraction Hard Stop: [{ee.code}] {ee.message}")
     except Exception as e:
-        print(f"[EXTRACTOR_GATEWAY] ExtractionGateway failed: {e} — falling back")
+        print(f"[EXTRACTOR_GATEWAY UNEXPECTED ERROR] {e} — falling back")
         ext = path.suffix.lower()
         if ext in (".txt", ".md"):
             raw_text = path.read_text(encoding="utf-8", errors="ignore")

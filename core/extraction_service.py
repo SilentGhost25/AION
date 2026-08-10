@@ -62,8 +62,12 @@ class ExtractionService:
                 valid_chunks = [c for c in artifact.chunks if c.is_retrieval_eligible()]
                 text = "\n\n".join(c.text for c in valid_chunks)
                 confidence = artifact.report.get_retrieval_eligible_count() / max(artifact.report.total_chunks, 1) if artifact.report else 0.90
+            except ExtractionError as ee:
+                # HARD STOP — No fallback permitted for ExtractionError/HardStop!
+                print(f"[EXTRACT HARD STOP] [{ee.code}] {ee.message} — Qwen WILL NOT BE CALLED")
+                raise ee
             except Exception as e:
-                print(f"[EXTRACT] ExtractionGateway failed: {e} — using fallback")
+                print(f"[EXTRACT UNEXPECTED ERROR] {e} — using fallback")
                 text, confidence = self._fallback_extract(path)
 
             doc.word_count = len(text.split())
