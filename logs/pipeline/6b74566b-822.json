@@ -1,0 +1,28 @@
+{
+  "request_id": "6b74566b-822",
+  "subject": "Computer Networks",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-17T11:15:20.115259",
+  "finished_at": "2026-08-17T11:15:20.642259",
+  "fail_reason": "Slot module_1_Q3 failed with ANSWERABILITY_FAILURE 2 consecutive times. Recovery not converging \u2014 blocking slot.",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-17T11:15:20.141984",
+      "metrics": {
+        "subject": "Computer Networks",
+        "exam": "IAT-1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-17T11:15:20.642175",
+      "message": "Slot module_1_Q3 failed with ANSWERABILITY_FAILURE 2 consecutive times. Recovery not converging \u2014 blocking slot.",
+      "duration_ms": 196.1
+    }
+  ]
+}

@@ -40,6 +40,7 @@ class TextChunk:
     chunk_idx:    int        # 1-based within module
     total_chunks: int        # total chunks in module
     word_count:   int
+    depth:        str        = "CORE"  # CORE, SUPPORTING, ADVANCED, EXTERNAL
 
     # Positional estimates
     page_start:   int   = 0
@@ -93,6 +94,52 @@ _HEADING_RE      = re.compile(
     r"|(?:Definition|Theorem|Algorithm|Lemma)\s)",
     re.M,
 )
+
+
+def classify_chunk_depth(text: str, target_module_idx: int) -> str:
+    """Classifies chunk depth into CORE, SUPPORTING, ADVANCED, or EXTERNAL based on semantic alignment."""
+    text_lower = text.lower()
+    
+    # Standard VTU Computer Science syllabus module concept mapping
+    syllabus_concepts = {
+        1: {"array", "stack", "queue", "linear", "lifo", "fifo", "push", "pop", "enqueue", "dequeue"},
+        2: {"tree", "binary", "bst", "avl", "balance", "rotation", "heap", "priority"},
+        3: {"graph", "dijkstra", "prim", "kruskal", "mst", "shortest", "path", "dfs", "bfs"},
+        4: {"sort", "search", "quick", "merge", "partition", "divide", "conquer", "binary search"},
+        5: {"hash", "hashing", "probe", "chain", "probing", "collision", "index", "file"},
+    }
+
+    # Get target module concepts
+    target_concepts = syllabus_concepts.get(target_module_idx, set())
+    other_concepts = set()
+    for m, concepts in syllabus_concepts.items():
+        if m != target_module_idx:
+            other_concepts.update(concepts)
+
+    # 1. Check for cross-module external bleed
+    matched_others = [c for c in other_concepts if c in text_lower]
+    matched_target = [c for c in target_concepts if c in text_lower]
+    
+    if len(matched_others) > len(matched_target) + 1:
+        return "EXTERNAL"
+
+    # 2. Check for advanced technical detail / appendix / specific implementation
+    advanced_terms = {
+        "appendix", "advanced", "further reading", "proof", "derivation",
+        "implementation details", "optimization", "complex", "specific parameter",
+        "register values", "byte offset", "rfc number"
+    }
+    if any(term in text_lower for term in advanced_terms):
+        return "ADVANCED"
+
+    # 3. CORE: Explicitly contains target syllabus concept keywords
+    if any(concept in text_lower for concept in target_concepts):
+        supporting_terms = {"example", "application", "illustration", "case study", "scenario", "practical"}
+        if any(term in text_lower for term in supporting_terms):
+            return "SUPPORTING"
+        return "CORE"
+
+    return "SUPPORTING"
 
 
 def split_module_into_chunks(
@@ -187,6 +234,7 @@ def split_module_into_chunks(
     total = len(chunks)
     for c in chunks:
         c.total_chunks = total
+        c.depth = classify_chunk_depth(c.text, module_idx)
 
     return chunks
 
@@ -242,9 +290,76 @@ def _keyword_overlap(text_a: str, text_b: str) -> float:
     return len(overlap) / max(len(a), len(b))
 
 
-# ─────────────────────────────────────────────────────────────
-# Main mapper
-# ─────────────────────────────────────────────────────────────
+def calculate_retrieval_score(
+    chunk: TextChunk,
+    target_bloom: int,
+    target_module_idx: int,
+    semantic_weight: float = 0.45,
+    syllabus_weight: float = 0.25,
+    bloom_weight: float = 0.15,
+    depth_weight: float = 0.10,
+    quality_weight: float = 0.05
+) -> float:
+    """Computes a multi-dimensional retrieval score for a text chunk."""
+    # 1. Semantic Similarity / Concept Density
+    syllabus_concepts = {
+        1: {"array", "stack", "queue", "linear", "lifo", "fifo", "push", "pop", "enqueue", "dequeue"},
+        2: {"tree", "binary", "bst", "avl", "balance", "rotation", "heap", "priority"},
+        3: {"graph", "dijkstra", "prim", "kruskal", "mst", "shortest", "path", "dfs", "bfs"},
+        4: {"sort", "search", "quick", "merge", "partition", "divide", "conquer", "binary search"},
+        5: {"hash", "hashing", "probe", "chain", "probing", "collision", "index", "file"},
+    }
+    target_concepts = syllabus_concepts.get(target_module_idx, set())
+    text_lower = chunk.text.lower()
+    
+    matched_target = sum(1 for c in target_concepts if c in text_lower)
+    semantic_score = matched_target / max(1, len(target_concepts))
+
+    # 2. Syllabus Alignment (lack of cross-module concept bleed)
+    other_concepts = set()
+    for m, concepts in syllabus_concepts.items():
+        if m != target_module_idx:
+            other_concepts.update(concepts)
+    matched_others = sum(1 for c in other_concepts if c in text_lower)
+    alignment_score = max(0.0, 1.0 - (matched_others * 0.2))
+
+    # 3. Bloom Suitability
+    has_formulas = ("\\frac" in text_lower or "$" in text_lower or "=" in text_lower)
+    has_numbers = any(char.isdigit() for char in text_lower)
+    
+    bloom_suitability = 0.5
+    if target_bloom >= 3:
+        if has_formulas or has_numbers or "algorithm" in text_lower or "complex" in text_lower:
+            bloom_suitability = 1.0
+        else:
+            bloom_suitability = 0.3
+    else:
+        if "define" in text_lower or "explain" in text_lower or "what is" in text_lower:
+            bloom_suitability = 1.0
+        elif has_formulas:
+            bloom_suitability = 0.4
+
+    # 4. Depth Suitability
+    depth_suitability = {
+        "CORE": 1.0,
+        "SUPPORTING": 0.8,
+        "ADVANCED": 0.4,
+        "EXTERNAL": 0.0
+    }.get(chunk.depth, 0.5)
+
+    # 5. Evidence Quality
+    quality_score = min(1.0, chunk.word_count / 500.0)
+    if "\ufffd" in chunk.text:
+        quality_score *= 0.1
+
+    return (
+        semantic_weight * semantic_score +
+        syllabus_weight * alignment_score +
+        bloom_weight * bloom_suitability +
+        depth_weight * depth_suitability +
+        quality_weight * quality_score
+    )
+
 
 class ChunkImageMapper:
     """
@@ -346,12 +461,12 @@ class ChunkImageMapper:
     ) -> list[TextChunk]:
         group = self._module_groups.get(module_id)
         return group.chunks if group else []
-
     def get_best_chunk_for_question(
         self,
         module_id:       str,
         prefer_image:    bool  = True,
         used_chunk_ids:  set   = None,
+        target_bloom:    int   = 2,
     ) -> Optional[TextChunk]:
         group = self._module_groups.get(module_id)
         if not group:
@@ -363,18 +478,30 @@ class ChunkImageMapper:
         if not available:
             return None
 
-        if prefer_image:
-            with_img = [c for c in available if c.has_image()]
-            if with_img:
-                return max(
-                    with_img,
-                    key=lambda c: (
-                        c.nearby_images[0].provenance_score
-                        if c.nearby_images else 0
-                    )
-                )
+        # Exclude chunks categorized as EXTERNAL
+        available = [c for c in available if c.depth != "EXTERNAL"]
+        if not available:
+            return None
 
-        return available[0]
+        try:
+            mod_idx = int(module_id.replace("module_", ""))
+        except ValueError:
+            mod_idx = 1
+
+        # Calculate scores and sort available chunks
+        scored_chunks = [
+            (c, calculate_retrieval_score(c, target_bloom, mod_idx))
+            for c in available
+        ]
+        scored_chunks = sorted(scored_chunks, key=lambda x: x[1], reverse=True)
+        available_sorted = [x[0] for x in scored_chunks]
+
+        if prefer_image:
+            with_img = [c for c in available_sorted if c.has_image()]
+            if with_img:
+                return with_img[0]
+
+        return available_sorted[0]
 
     def get_image_for_chunk(
         self,
@@ -528,6 +655,78 @@ class ChunkImageMapper:
             )
         except Exception:
             return False
+
+def calculate_retrieval_score(
+    chunk: TextChunk,
+    target_bloom: int,
+    target_module_idx: int,
+    semantic_weight: float = 0.45,
+    syllabus_weight: float = 0.25,
+    bloom_weight: float = 0.15,
+    depth_weight: float = 0.10,
+    quality_weight: float = 0.05
+) -> float:
+    """Computes a multi-dimensional retrieval score for a text chunk."""
+    # 1. Semantic Similarity / Concept Density
+    syllabus_concepts = {
+        1: {"array", "stack", "queue", "linear", "lifo", "fifo", "push", "pop", "enqueue", "dequeue"},
+        2: {"tree", "binary", "bst", "avl", "balance", "rotation", "heap", "priority"},
+        3: {"graph", "dijkstra", "prim", "kruskal", "mst", "shortest", "path", "dfs", "bfs"},
+        4: {"sort", "search", "quick", "merge", "partition", "divide", "conquer", "binary search"},
+        5: {"hash", "hashing", "probe", "chain", "probing", "collision", "index", "file"},
+    }
+    target_concepts = syllabus_concepts.get(target_module_idx, set())
+    text_lower = chunk.text.lower()
+    
+    matched_target = sum(1 for c in target_concepts if c in text_lower)
+    semantic_score = matched_target / max(1, len(target_concepts))
+
+    # 2. Syllabus Alignment (lack of cross-module concept bleed)
+    other_concepts = set()
+    for m, concepts in syllabus_concepts.items():
+        if m != target_module_idx:
+            other_concepts.update(concepts)
+    matched_others = sum(1 for c in other_concepts if c in text_lower)
+    alignment_score = max(0.0, 1.0 - (matched_others * 0.2))
+
+    # 3. Bloom Suitability
+    has_formulas = ("\\frac" in text_lower or "$" in text_lower or "=" in text_lower)
+    has_numbers = any(char.isdigit() for char in text_lower)
+    
+    bloom_suitability = 0.5
+    if target_bloom >= 3:
+        if has_formulas or has_numbers or "algorithm" in text_lower or "complex" in text_lower:
+            bloom_suitability = 1.0
+        else:
+            bloom_suitability = 0.3
+    else:
+        if "define" in text_lower or "explain" in text_lower or "what is" in text_lower:
+            bloom_suitability = 1.0
+        elif has_formulas:
+            bloom_suitability = 0.4
+
+    # 4. Depth Suitability
+    depth_suitability = {
+        "CORE": 1.0,
+        "SUPPORTING": 0.8,
+        "ADVANCED": 0.4,
+        "EXTERNAL": 0.0
+    }.get(chunk.depth, 0.5)
+
+    # 5. Evidence Quality
+    quality_score = min(1.0, chunk.word_count / 500.0)
+    if "\ufffd" in chunk.text:
+        quality_score *= 0.1
+
+    return (
+        semantic_weight * semantic_score +
+        syllabus_weight * alignment_score +
+        bloom_weight * bloom_suitability +
+        depth_weight * depth_suitability +
+        quality_weight * quality_score
+    )
+
+
 
 
 # ─────────────────────────────────────────────────────────────

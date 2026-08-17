@@ -1,0 +1,30 @@
+{
+  "request_id": "072c0699-2e9",
+  "subject": "Computer Networks",
+  "model": "qwen2.5:14b",
+  "status": "complete",
+  "started_at": "2026-08-17T11:49:30.730085",
+  "finished_at": "2026-08-17T11:49:31.357809",
+  "fail_reason": null,
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-17T11:49:30.750018",
+      "metrics": {
+        "subject": "Computer Networks",
+        "exam": "IAT-1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "PASS",
+      "time": "2026-08-17T11:49:31.357763",
+      "metrics": {
+        "questions": 2
+      },
+      "duration_ms": 304.8
+    }
+  ]
+}

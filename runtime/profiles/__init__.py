@@ -1,0 +1,187 @@
+# runtime/profiles/__init__.py
+
+from dataclasses import dataclass, field
+from enum import Enum
+import os, platform, subprocess, logging
+
+LOG = logging.getLogger("aion.runtime")
+
+class ProfileName(str, Enum):
+    PRODUCTION   = "PRODUCTION"
+    LAPTOP_FAST  = "LAPTOP_FAST"
+    LAPTOP_DEMO  = "LAPTOP_DEMO"
+
+class MemoryState(str, Enum):
+    SAFE     = "SAFE"
+    CAUTION  = "CAUTION"
+    CRITICAL = "CRITICAL"
+
+
+@dataclass(frozen=True)
+class TimeoutBudget:
+    hard_deadline    : float = 600.0
+    target           : float = 540.0
+    dataset_discovery: float = 10.0
+    extraction       : float = 60.0
+    indexing         : float = 20.0
+    planning         : float = 10.0
+    generation       : float = 360.0
+    validation       : float = 60.0
+    assembly_export  : float = 30.0
+    per_slot         : float = 120.0
+
+
+@dataclass(frozen=True)
+class RuntimeProfile:
+    name                    : ProfileName
+    model_name              : str
+    allowed_models          : frozenset[str]
+    backend                 : str           # "ollama" | "openvino" | "llamacpp"
+    concurrency             : int
+    request_timeout_sec     : int
+    slot_budget_sec         : int
+    global_budget_sec       : int
+    max_slot_attempts       : int
+    use_visual_rag          : bool
+    retrieval_backend       : str           # "dense" | "bm25" | "hybrid"
+    memory_caution_gb       : float
+    memory_critical_gb      : float
+
+    @property
+    def max_retries(self) -> int:
+        return self.max_slot_attempts
+
+    @property
+    def timeout_budget(self) -> TimeoutBudget:
+        return TimeoutBudget(
+            hard_deadline = float(self.global_budget_sec),
+            per_slot      = float(self.slot_budget_sec),
+        )
+
+    def validate_environment(self) -> None:
+        """
+        P0.1 — Hard profile integrity check.
+        Raises RuntimeError before any generation if mismatch found.
+        """
+        resolved = _resolve_active_model(self.backend)
+
+        if resolved != "unknown" and resolved not in self.allowed_models:
+            raise RuntimeError(
+                f"[PROFILE INTEGRITY VIOLATION]\n"
+                f"  Profile         : {self.name}\n"
+                f"  Expected models : {self.allowed_models}\n"
+                f"  Resolved model  : {resolved}\n"
+                f"  Action          : BLOCK — generation refused\n"
+                f"\n"
+                f"  Never allow production to silently use a demo/laptop model.\n"
+                f"  Configure Ollama to serve the correct model and restart."
+            )
+
+        LOG.info(
+            f"[PROFILE] {self.name} | model={resolved} | "
+            f"backend={self.backend} | concurrency={self.concurrency}"
+        )
+
+    def to_health_dict(self) -> dict:
+        return {
+            "profile"    : self.name,
+            "model"      : self.model_name,
+            "backend"    : self.backend,
+            "concurrency": self.concurrency,
+            "budget_sec" : self.global_budget_sec,
+        }
+
+
+def _resolve_active_model(backend: str) -> str:
+    """Query the actual backend for the currently loaded model."""
+    if backend == "ollama":
+        try:
+            import requests
+            resp = requests.get("http://localhost:11434/api/tags", timeout=5)
+            if resp.ok:
+                models = [m["name"] for m in resp.json().get("models", [])]
+                return models[0] if models else "unknown"
+        except Exception:
+            pass
+    return "unknown"
+
+
+# ── Profile Registry ──────────────────────────────────────────────────────────
+
+PRODUCTION_PROFILE = RuntimeProfile(
+    name               = ProfileName.PRODUCTION,
+    model_name         = "qwen2.5:14b",
+    allowed_models     = frozenset({"qwen2.5:14b", "qwen2.5:14b-instruct-q4_K_M", "qwen2.5:7b"}),
+    backend            = "ollama",
+    concurrency        = 3,
+    request_timeout_sec= 120,
+    slot_budget_sec    = 90,
+    global_budget_sec  = 1800,
+    max_slot_attempts  = 4,
+    use_visual_rag     = True,
+    retrieval_backend  = "dense",
+    memory_caution_gb  = 4.0,
+    memory_critical_gb = 2.0,
+)
+
+LAPTOP_FAST_PROFILE = RuntimeProfile(
+    name               = ProfileName.LAPTOP_FAST,
+    model_name         = "AUTO",          # resolved by benchmark
+    allowed_models     = frozenset({
+        "qwen2.5:1.5b", "qwen2.5:3b", "qwen2.5:7b",
+        "qwen2.5:1.5b-instruct-q4_K_M", "qwen2.5:3b-instruct-q4_K_M",
+        "qwen2.5:3b-instruct", "qwen2.5:1.5b-instruct"
+    }),
+    backend            = "ollama",
+    concurrency        = 1,
+    request_timeout_sec= 120,
+    slot_budget_sec    = 120,
+    global_budget_sec  = 1200,
+    max_slot_attempts  = 3,
+    use_visual_rag     = False,
+    retrieval_backend  = "bm25",
+    memory_caution_gb  = 2.0,
+    memory_critical_gb = 1.0,
+)
+
+LAPTOP_DEMO_PROFILE = RuntimeProfile(
+    name               = ProfileName.LAPTOP_DEMO,
+    model_name         = "AUTO",
+    allowed_models     = LAPTOP_FAST_PROFILE.allowed_models,
+    backend            = "ollama",
+    concurrency        = 1,
+    request_timeout_sec= 120,
+    slot_budget_sec    = 120,
+    global_budget_sec  = 1200,
+    max_slot_attempts  = 2,
+    use_visual_rag     = False,
+    retrieval_backend  = "bm25",
+    memory_caution_gb  = 2.0,
+    memory_critical_gb = 1.0,
+)
+
+PROFILE_REGISTRY: dict[str, RuntimeProfile] = {
+    "PRODUCTION" : PRODUCTION_PROFILE,
+    "LAPTOP_FAST": LAPTOP_FAST_PROFILE,
+    "LAPTOP_DEMO": LAPTOP_DEMO_PROFILE,
+}
+
+
+def get_active_profile() -> RuntimeProfile:
+    name = os.environ.get("AION_PROFILE", "LAPTOP_FAST").upper()
+    if name not in PROFILE_REGISTRY:
+        raise ValueError(f"Unknown profile: {name}. Valid: {list(PROFILE_REGISTRY)}")
+    return PROFILE_REGISTRY[name]
+
+
+__all__ = [
+    "ProfileName",
+    "MemoryState",
+    "TimeoutBudget",
+    "RuntimeProfile",
+    "PRODUCTION_PROFILE",
+    "LAPTOP_FAST_PROFILE",
+    "LAPTOP_DEMO_PROFILE",
+    "PROFILE_REGISTRY",
+    "get_active_profile",
+]

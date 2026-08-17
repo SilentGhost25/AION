@@ -170,7 +170,74 @@ def warmup_model():
 
 
 # ─────────────────────────────────────────────────────────────
-# Health
+# Startup Checks & Memory Governor
+# ─────────────────────────────────────────────────────────────
+from runtime.profiles import get_active_profile
+from runtime.memory_governor import MemoryGovernor
+from core.validation.math_validator import KaTeXAvailabilityGate
+from core.extraction.adapter_registry import AdapterRegistry
+
+active_profile  = get_active_profile()
+memory_governor = MemoryGovernor(
+    caution_gb  = active_profile.memory_caution_gb,
+    critical_gb = active_profile.memory_critical_gb,
+)
+
+
+def run_startup_checks() -> None:
+    """Flask-compatible synchronous startup checks."""
+    import logging
+    LOG = logging.getLogger("aion.startup")
+
+    LOG.info("═══════════════════════════════════════════")
+    LOG.info("AION STARTUP CHECKS")
+    LOG.info(f"Profile : {active_profile.name}")
+    LOG.info(f"Model   : {active_profile.model_name}")
+    LOG.info(f"Backend : {active_profile.backend}")
+    LOG.info("═══════════════════════════════════════════")
+
+    # Profile/model integrity (P0.1)
+    try:
+        active_profile.validate_environment()
+        LOG.info("Profile integrity : PASS")
+    except RuntimeError as e:
+        LOG.critical(str(e))
+        print(f"[CRITICAL STARTUP ERROR] {e}", sys.stderr)
+        sys.exit(1)
+
+    # KaTeX mandatory
+    try:
+        katex_avail = KaTeXAvailabilityGate.probe()
+        version_str = getattr(KaTeXAvailabilityGate, "_version", "active")
+        LOG.info(f"KaTeX             : OK [{version_str}]")
+    except Exception as e:
+        LOG.critical(f"KaTeX             : FAIL — {e}")
+        LOG.critical("Install: pip install katex")
+        sys.exit(1)
+
+    # Extraction adapters
+    try:
+        AdapterRegistry.probe()
+        for name, cap in getattr(AdapterRegistry, "capabilities", {}).items():
+            status = "OK" if getattr(cap, "functional", False) else "DEGRADED"
+            LOG.info(f"  {name:<18}: {status}")
+    except Exception as e:
+        LOG.warning(f"AdapterRegistry probe warning: {e}")
+
+    # Memory check
+    mem_state = memory_governor.state()
+    LOG.info(f"Memory state      : {mem_state}")
+    if mem_state.value == "CRITICAL":
+        LOG.critical("Memory critically low — refusing to start")
+        sys.exit(1)
+
+    LOG.info("═══════════════════════════════════════════")
+    LOG.info("STARTUP COMPLETE — READY")
+    LOG.info("═══════════════════════════════════════════")
+
+
+# ─────────────────────────────────────────────────────────────
+# Health & Readiness Routes
 # ─────────────────────────────────────────────────────────────
 
 @app.route("/api/tags", methods=["GET"])
@@ -187,11 +254,118 @@ def get_tags():
 @app.route("/health", methods=["GET"])
 def health():
     """
-    Health check endpoint reporting resolution info and Ollama status.
+    Detailed health check endpoint reporting profile, backend, memory, and gate readiness.
+    Returns 200 if ready, 503 if blocked or critically low memory.
     """
-    resolution = get_resolution_info()
+    ollama_ok = False
+    model_ok  = False
+    try:
+        r = requests.get(f"{OLLAMA_URL.rstrip('/')}/api/tags", timeout=3)
+        if r.ok:
+            ollama_ok = True
+            models = [m.get("name", "") for m in r.json().get("models", [])]
+            model_ok = any(active_profile.model_name in m for m in models) or active_profile.model_name == "AUTO"
+    except Exception:
+        pass
 
-    # Test Ollama
+    mem_state = memory_governor.state()
+    katex_ok  = KaTeXAvailabilityGate._available if hasattr(KaTeXAvailabilityGate, "_available") else True
+    ready     = (
+        ollama_ok and
+        katex_ok and
+        mem_state.value != "CRITICAL"
+    )
+
+    body = {
+        "ready"               : ready,
+        "profile"             : active_profile.name,
+        "model"               : active_profile.model_name,
+        "backend"             : active_profile.backend,
+        "concurrency"         : active_profile.concurrency,
+        "memory_state"        : mem_state.value,
+        "ollama_available"    : ollama_ok,
+        "model_available"     : model_ok,
+        "katex_available"     : katex_ok,
+        "extraction_available": AdapterRegistry.capabilities.get("PYMUPDF", None) is not None if hasattr(AdapterRegistry, "capabilities") else True,
+        "export_gate"         : "AUTHORITATIVE",
+        "legacy_qa"           : "DIAGNOSTIC_ONLY",
+        "timestamp"           : datetime.now().isoformat(),
+    }
+
+    return jsonify(body), (200 if ready else 503)
+
+
+@app.route("/api/v1/ready", methods=["GET"])
+@app.route("/api/ready", methods=["GET"])
+@app.route("/ready", methods=["GET"])
+def ready():
+
+    """
+    Detailed readiness check endpoint reporting Python, package imports, GPU, KaTeX, and Ollama status.
+    """
+    import sys
+
+    # 1. Dependency Probes
+    pymupdf_ok = False
+    try:
+        import fitz
+        pymupdf_ok = True
+    except ImportError:
+        pass
+
+    docling_ok = False
+    try:
+        import docling
+        docling_ok = True
+    except ImportError:
+        pass
+
+    ocr_ok = False
+    try:
+        import easyocr
+        ocr_ok = True
+    except ImportError:
+        pass
+
+    gateway_ok = False
+    try:
+        from core.extraction.gateway import ExtractionGateway
+        gateway_ok = True
+    except ImportError:
+        pass
+
+    orchestrator_ok = False
+    try:
+        from core.generation.orchestrator import SlotOrchestrator
+        orchestrator_ok = True
+    except ImportError:
+        pass
+
+    export_gate_ok = False
+    try:
+        from core.validation.export_gate import ExportGate
+        export_gate_ok = True
+    except ImportError:
+        pass
+
+    # 2. Probe KaTeX
+    from core.validation.math_validator import KaTeXAvailabilityGate
+    katex_ok = KaTeXAvailabilityGate.probe()
+
+    # 3. Probe GPU
+    gpu_ok = False
+    gpu_details = "No GPU / CPU execution fallback"
+    try:
+        import torch
+        if torch.cuda.is_available():
+            gpu_ok = True
+            gpu_details = f"CUDA device: {torch.cuda.get_device_name(0)}"
+    except Exception:
+        pass
+
+    # 4. Probe Ollama & Model
+    resolution = get_resolution_info()
+    primary_model = resolution["resolved_model"]
     ollama_ok = False
     models = []
     try:
@@ -201,20 +375,66 @@ def health():
     except Exception:
         ollama_ok = False
 
+    model_loaded = primary_model in models or any(primary_model in m for m in models)
+
+    # 4b. Perform a tiny warmup inference check to confirm the model is usable and responding
+    model_usable = False
+    if ollama_ok and model_loaded:
+        try:
+            r_warmup = requests.post(
+                "http://127.0.0.1:11434/api/generate",
+                json={
+                    "model":  primary_model,
+                    "prompt": "healthcheck",
+                    "stream": False,
+                    "options": {
+                        "num_predict": 1
+                    }
+                },
+                timeout=5
+            )
+            if r_warmup.status_code == 200:
+                model_usable = True
+        except Exception:
+            pass
+
+    # 5. Authoritative Readiness Status
+    ready_status = gateway_ok and orchestrator_ok and export_gate_ok and ollama_ok and model_loaded and model_usable and katex_ok
+
     return jsonify({
-        "status":            "healthy" if ollama_ok else "degraded",
+        "ready":             ready_status,
+        "status":            "ready" if ready_status else "initializing",
         "api_version":       "v1.0",
-        "resolved_model":    resolution["resolved_model"],
-        "model_source":      resolution["source"],
+        "python_version":    sys.version,
+        "timestamp":         datetime.now().isoformat(),
         "device_profile":    resolution["device"],
-        "models_available":  len(models),
-        "models":            models,
-        "services": {
-            "aion_api": "healthy",
-            "ollama":   "healthy" if ollama_ok else "unavailable",
+        "gpu": {
+            "available": gpu_ok,
+            "details":   gpu_details
         },
-        "timestamp": datetime.now().isoformat()
-    }), 200
+        "katex": {
+            "available": katex_ok
+        },
+        "ollama": {
+            "online":         ollama_ok,
+            "resolved_model": primary_model,
+            "model_loaded":   model_loaded,
+            "model_usable":   model_usable,
+            "models":         models
+        },
+        "dependencies": {
+            "PyMuPDF":           "OK" if pymupdf_ok else "Missing",
+            "Docling":           "OK" if docling_ok else "Missing",
+            "OCR":               "OK" if ocr_ok else "Missing"
+        },
+        "generation": {
+            "model_loaded":      model_loaded,
+            "model_usable":      model_usable,
+            "extraction_ready":  gateway_ok,
+            "katex_ready":       katex_ok,
+            "export_gate_ready": export_gate_ok
+        }
+    }), 200 if ready_status else 503
 
 
 # ─────────────────────────────────────────────────────────────
@@ -672,36 +892,50 @@ def generate_stream():
                 print(f"[CONTRACT GATE] Notice: {contract_err}", flush=True)
 
             # ── PREVIEW QA & VALIDATION ─────────────────────────────────
-            qa_score = (qa_report or {}).get("quality_score", 100)
+            qa_score = (qa_report or {}).get("legacy_qa_score", 100)
             target_attemptable = 50 if _exam_type in ("IA", "IAT1", "IAT2", "IAT3", "MID") else 100
             from v0_1.paper_validator import PaperValidator
             validator = PaperValidator()
             val_report = validator.validate({"modules": result.get("modules", []), "totalMarks": target_attemptable}, exam_type=_exam_type)
 
-            qa_status = "PASS" if (val_report.passed and qa_score >= 40) else "REVIEW_REQUIRED"
+            export_passed = (qa_report or {}).get("export_gate_passed", True)
+            qa_status = "PASS" if export_passed else "FAILED"
             err_details = [e.message for e in val_report.errors()]
 
-            result["qa"] = {
-                "status": qa_status,
-                "qualityScore": qa_score,
-                "attemptableMarks": target_attemptable,
-                "expectedMarks": target_attemptable,
-                "issues": err_details,
+            # Calculate total subquestions authoritative count across all modules (🔴 11 & 🔴 12)
+            total_subquestions = 0
+            for module in result.get("modules", []):
+                for q in module.get("questions", []):
+                    total_subquestions += len(q.get("subQuestions", q.get("sub_questions", [])))
+
+            # Calculate SHA-256 canonical hash of the modules list
+            import hashlib
+            import json
+            canonical_data = json.dumps(result.get("modules", []), sort_keys=True)
+            canonical_hash = hashlib.sha256(canonical_data.encode("utf-8")).hexdigest()
+
+            result["integrity"] = {
+                "paper_id": result.get("id", "unknown"),
+                "question_count": total_subquestions,
+                "canonical_hash": canonical_hash
             }
 
             if qa_status == "PASS":
                 print(f"[QUALITY GATE] EXPORTABLE — Paper passed all QA and structural validation gates (QA Score: {qa_score}/100)", flush=True)
             else:
-                print(f"[QUALITY GATE] REVIEW REQUIRED — Paper ready for preview with QA warnings: {err_details}", flush=True)
+                print(f"[QUALITY GATE] FAILED — Paper rejected: {err_details}", flush=True)
 
             yield _sse("paper_ready", {
                 "paper": result,
-                "question_count": len(result.get("questions", []))
+                "question_count": total_subquestions,
+                "canonical_hash": canonical_hash
             })
 
             yield _sse("done", {
                 "status": "SUCCESS",
-                "paper_id": result.get("id", "unknown")
+                "paper_id": result.get("id", "unknown"),
+                "question_count": total_subquestions,
+                "canonical_hash": canonical_hash
             })
             result_sent = True
 

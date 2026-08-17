@@ -1,0 +1,28 @@
+{
+  "request_id": "b987993c-9ff",
+  "subject": "IAI",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-17T10:31:50.316907",
+  "finished_at": "2026-08-17T10:31:51.395066",
+  "fail_reason": "'TextChunk' object has no attribute 'has_formula'",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-17T10:31:50.327231",
+      "metrics": {
+        "subject": "IAI",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-17T10:31:51.394150",
+      "message": "'TextChunk' object has no attribute 'has_formula'",
+      "duration_ms": 756.1
+    }
+  ]
+}

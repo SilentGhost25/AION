@@ -241,9 +241,10 @@ async function generateFromAION(
             try {
               const data = JSON.parse(raw)
 
-              if (currentEvent === "result" || (data.modules && Array.isArray(data.modules))) {
-                ;(window as any).__aionLastPaper = data
-                const firstSub = data.modules?.[0]?.questions?.[0]?.subQuestions?.[0]
+              if (currentEvent === "paper_ready" || currentEvent === "result" || (data.modules && Array.isArray(data.modules)) || (data.paper && data.paper.modules)) {
+                const paperObj = data.paper || data
+                ;(window as any).__aionLastPaper = paperObj
+                const firstSub = paperObj.modules?.[0]?.questions?.[0]?.subQuestions?.[0] || paperObj.modules?.[0]?.questions?.[0]?.sub_questions?.[0]
                 result = firstSub?.text || "Paper generated. Click Generate Paper to continue."
                 currentEvent = ""
                 continue
@@ -364,6 +365,35 @@ export function Step2Rules({
           coCoverage:       { co1: 20, co2: 20, co3: 20, co4: 20, co5: 20 },
           syllabusCoverage: { s1: 20, s2: 20, s3: 20, s4: 20, s5: 20 },
         }
+
+        // DOM Count & Question ID Verification (🔴 11, 🔴 12 & Change 2)
+        const totalSubQuestionsCount = questions.reduce((acc: number, q: any) => acc + (q.subQuestions?.length || 0), 0)
+        const parsedQuestionIds = questions.flatMap((q: any) => 
+          (q.subQuestions || []).map((sq: any) => `module_${q.sectionNumber}_Q${q.qNo}_${sq.label}`)
+        )
+        const backendQuestionIds = aionPaper.integrity?.question_ids || []
+        const idsMatch = backendQuestionIds.length === parsedQuestionIds.length && 
+          backendQuestionIds.every((id: string, idx: number) => id === parsedQuestionIds[idx])
+
+        console.log(`[AION INTEGRITY] Backend Count: ${aionPaper.integrity?.question_count}, Frontend Assembled Count: ${totalSubQuestionsCount}`)
+        console.log(`[AION INTEGRITY] Backend IDs:`, backendQuestionIds)
+        console.log(`[AION INTEGRITY] Frontend IDs:`, parsedQuestionIds)
+        console.log(`[AION INTEGRITY] Checksum Hash: ${aionPaper.integrity?.canonical_hash}`)
+        
+        if (aionPaper.integrity && aionPaper.integrity.question_count !== totalSubQuestionsCount) {
+          console.error("[AION INTEGRITY FAILURE] Question count mismatch between backend and frontend!")
+          toast.error("Integrity Mismatch Detected", {
+            description: `Authoritative count (${aionPaper.integrity.question_count}) differs from parsed count (${totalSubQuestionsCount}).`
+          })
+        } else if (backendQuestionIds.length > 0 && !idsMatch) {
+          console.error("[AION INTEGRITY FAILURE] Question ID list mismatch between backend and frontend!")
+          toast.error("Integrity Mismatch Detected", {
+            description: `Authoritative question IDs differ from assembled question IDs.`
+          })
+        } else {
+          console.log("[AION INTEGRITY SUCCESS] All counts and IDs match perfectly.")
+        }
+
         delete (window as any).__aionLastPaper
         setIsBuilding(false)
         setBuildStatus("")

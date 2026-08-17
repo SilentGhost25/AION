@@ -219,3 +219,7 @@ def _auto_detect() -> Tuple[str, Optional[str]]:
             return device, model
 
     return "unknown", PROFILE.lightweight
+
+
+# Global model variable for compatibility (tests import this)
+PRODUCTION_MODEL = get_production_model()

@@ -1,0 +1,28 @@
+{
+  "request_id": "099c74d5-a3e",
+  "subject": "Data Structures",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-11T21:02:53.728382",
+  "finished_at": "2026-08-11T21:02:54.059699",
+  "fail_reason": "Extraction Hard Stop: [TXT_AS_SOURCE_REJECTED] TXT is a derived representation. Upload the original PDF, DOCX, or image.",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-11T21:02:53.749669",
+      "metrics": {
+        "subject": "Data Structures",
+        "exam": "IAT-1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-11T21:02:54.059659",
+      "message": "Extraction Hard Stop: [TXT_AS_SOURCE_REJECTED] TXT is a derived representation. Upload the original PDF, DOCX, or image.",
+      "duration_ms": 7.5
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "request_id": "8d85062f-cbc",
+  "subject": "ML",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-14T15:12:20.742947",
+  "finished_at": "2026-08-14T15:12:32.842766",
+  "fail_reason": "'TextChunk' object has no attribute 'has_formula'",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-14T15:12:23.368889",
+      "metrics": {
+        "subject": "ML",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-14T15:12:32.806933",
+      "message": "'TextChunk' object has no attribute 'has_formula'",
+      "duration_ms": 7864.0
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "request_id": "4642cc8c-784",
+  "subject": "Unknown",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-17T11:47:25.617876",
+  "finished_at": "2026-08-17T11:47:26.815577",
+  "fail_reason": "Extraction Hard Stop: [TXT_AS_SOURCE_REJECTED] TXT is a derived representation. Upload the original PDF, DOCX, or image.",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-17T11:47:26.267641",
+      "metrics": {
+        "subject": "Unknown",
+        "exam": "IAT-1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-17T11:47:26.815492",
+      "message": "Extraction Hard Stop: [TXT_AS_SOURCE_REJECTED] TXT is a derived representation. Upload the original PDF, DOCX, or image.",
+      "duration_ms": 209.2
+    }
+  ]
+}

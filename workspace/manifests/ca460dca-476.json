@@ -1,0 +1,17 @@
+{
+  "document_id": "ca460dca-476",
+  "created_at": "2026-08-17T05:09:33.324348+00:00",
+  "source": {
+    "path": "C:\\Users\\Tarun J\\OneDrive\\Desktop\\AION\\workspace\\uploads\\ca460dca-476\\original.pdf",
+    "filename": "IAI-MODULE-1-NOTES.pdf",
+    "mime_type": "application/pdf",
+    "size_bytes": 1485810,
+    "sha256": "5f3d7a3bd561c6748474cf0715da8367640bf1dfef2f9292c7a41c418face320",
+    "authoritative": true
+  },
+  "derived": {},
+  "extraction_status": "PENDING",
+  "extraction_report": null,
+  "status": "READY",
+  "status_changed_at": "2026-08-17T05:09:33.948156+00:00"
+}

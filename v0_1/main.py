@@ -28,6 +28,8 @@ from .generator import (
     SEE_PARTITIONS,
     get_bloom_level_name
 )
+from core.contracts.module_identity import parse_module_number, make_module_id, make_co
+from core.contracts.pipeline_integrity import PipelineReadiness, GenerationIntegrity
 
 from .difficulty import DifficultyManager, DifficultyLevel
 
@@ -176,6 +178,38 @@ def run_unified_pipeline(
     return accepted, rejected
 
 
+# Assessment Profile configuration representing targeted pedagogy quotas per module (🔴 4)
+ASSESSMENT_PROFILES = {
+    1: {"conceptual": 0.40, "application": 0.30, "numerical": 0.30},
+    2: {"conceptual": 0.50, "application": 0.50, "numerical": 0.00},
+    3: {"conceptual": 0.40, "application": 0.60, "numerical": 0.00},
+    4: {"conceptual": 0.40, "application": 0.60, "numerical": 0.00},
+    5: {"conceptual": 0.50, "application": 0.50, "numerical": 0.00},
+}
+
+def plan_slot_types(module_idx: int, num_slots: int) -> list[str]:
+    profile = ASSESSMENT_PROFILES.get(module_idx, {"conceptual": 0.5, "application": 0.5, "numerical": 0.0})
+    conceptual_cnt = max(1, round(profile.get("conceptual", 0.4) * num_slots))
+    numerical_cnt = round(profile.get("numerical", 0.0) * num_slots)
+    application_cnt = max(0, num_slots - conceptual_cnt - numerical_cnt)
+    
+    while conceptual_cnt + numerical_cnt + application_cnt < num_slots:
+        application_cnt += 1
+    while conceptual_cnt + numerical_cnt + application_cnt > num_slots:
+        if application_cnt > 0:
+            application_cnt -= 1
+        elif conceptual_cnt > 1:
+            conceptual_cnt -= 1
+        else:
+            numerical_cnt -= 1
+
+    return (
+        ["CONCEPTUAL"] * conceptual_cnt +
+        ["NUMERICAL"] * numerical_cnt +
+        ["APPLICATION"] * application_cnt
+    )
+
+
 def run_pipeline(
     file_path:          str,
     max_concepts:       int  = 10,
@@ -210,8 +244,17 @@ def run_pipeline(
         )
 
     print("=" * 60)
+    # ── Read runtime profile (LAPTOP_FAST / LAPTOP_DEMO / PRODUCTION) ──
+    try:
+        from runtime import get_active_profile
+        _profile = get_active_profile()
+        _profile_name = _profile.name
+    except Exception:
+        _profile = None
+        _profile_name = "PRODUCTION"
+
     print(f"[START] AION Exam Generation Pipeline ({exam_type.upper()} Exam Mode)...")
-    print(f"[CONFIG] Difficulty: {difficulty.upper()} | Visual RAG: {include_visual}")
+    print(f"[CONFIG] Difficulty: {difficulty.upper()} | Visual RAG: {include_visual} | Profile: {_profile_name}")
     print("=" * 60 + "\n")
 
     diff_manager = DifficultyManager.from_string(difficulty)
@@ -238,12 +281,20 @@ def run_pipeline(
                 raise FileNotFoundError(f"No PDF, TXT, or MD files found in directory: {file_path}")
 
             print(f"[PIPELINE] Processing directory: {file_path} ({len(files)} files found)")
+            ingestion_errors: list = []
             for file_item in files:
                 print(f"[PIPELINE] Ingesting file: {file_item.name} ...")
                 try:
                     val_file_path = upload(str(file_item))
                     doc = extract(val_file_path)
-                    content = doc.raw_text.strip()
+                    # Decode raw bytes with UTF-8 to prevent charmap failures on non-ASCII
+                    if hasattr(doc, 'raw_text'):
+                        content = doc.raw_text
+                        if isinstance(content, bytes):
+                            content = content.decode('utf-8', errors='replace')
+                        content = content.strip()
+                    else:
+                        content = str(doc).strip()
 
                     # Modular Academic Validation Gate
                     acad_res = validate_academic_quality(content)
@@ -258,7 +309,29 @@ def run_pipeline(
                     words = len(content.split())
                     modules.append(ModuleSegment(title=file_item.stem, content=content, word_count=words))
                 except Exception as e:
-                    print(f"  [ERROR] Failed to process {file_item.name}: {e}")
+                    ingestion_errors.append({"file": file_item.name, "error": str(e)})
+                    print(f"  [INGESTION ERROR] {file_item.name}: {e}")
+
+            # ── MODULE COMPLETENESS GATE ─────────────────────────────────────────────
+            # Validate that every expected module file was ingested without error.
+            # Module numbers are positional (matching sorted file order) since
+            # ModuleSegment does not carry a module_id field at this stage.
+            expected_module_numbers = list(range(1, len(files) + 1))
+            actual_module_numbers   = list(range(1, len(modules) + 1))
+            missing_modules    = sorted(set(expected_module_numbers) - set(actual_module_numbers))
+            unexpected_modules = sorted(set(actual_module_numbers)   - set(expected_module_numbers))
+            if missing_modules or unexpected_modules or ingestion_errors:
+                err_lines = [f"    {e['file']}: {e['error']}" for e in ingestion_errors]
+                raise RuntimeError(
+                    f"[INGESTION GATE] FAILED\n"
+                    f"  Expected modules : {expected_module_numbers}\n"
+                    f"  Found modules    : {actual_module_numbers}\n"
+                    f"  Missing          : {missing_modules}\n"
+                    f"  Unexpected       : {unexpected_modules}\n"
+                    f"  Ingestion errors :\n" +
+                    "\n".join(err_lines)
+                )
+
         else:
             try:
                 from core.extraction.gateway import ExtractionGateway, ExtractionError
@@ -311,51 +384,44 @@ def run_pipeline(
     mapper   = None
     selector = None
 
-    if include_visual:
-        try:
-            doc_id   = FigureRegistry.make_document_id(file_path)
+    try:
+        doc_id   = FigureRegistry.make_document_id(file_path)
+        figures = []
+        if include_visual:
             print("[VISUAL] Extracting figures (fast proximity mode)...")
-
-            # Extract figures separately (no VLM blocking)
             from .visual.figure_extractor import extract_figures
-            figures = extract_figures(
-                file_path, 
-                doc_id=doc_id,
-                module_map=_build_module_map(modules),
-            )
+            try:
+                figures = extract_figures(
+                    file_path, 
+                    doc_id=doc_id,
+                    module_map=_build_module_map(modules),
+                )
+                for fig in figures:
+                    fig.eligible = True
+            except Exception as e:
+                print(f"[VISUAL] Figure extraction failed, falling back to text-only mapping: {e}")
 
-            # Mark all figures eligible by default (no VLM filtering)
-            for fig in figures:
-                fig.eligible = True
+        class MockRegistry:
+            def __init__(self, figs):
+                self.figs = figs
+            def eligible_cards(self):
+                return self.figs
 
-            class MockRegistry:
-                def __init__(self, figs):
-                    self.figs = figs
-                def eligible_cards(self):
-                    return self.figs
-
-            # Build chunk-image map with mock registry
-            mapper = ChunkImageMapper(
-                registry        = MockRegistry(figures),
-                total_pages     = 200,
-                page_tolerance  = 3,
-            )
-            mapper.build(modules)
+        # Build chunk-image map with mock registry (handles both visual and text-only mapping)
+        mapper = ChunkImageMapper(
+            registry        = MockRegistry(figures),
+            total_pages     = 200,
+            page_tolerance  = 3,
+        )
+        mapper.build(modules)
+        if include_visual and figures:
             selector = QuestionImageSelector(mapper)
-
-            s = mapper.summary()
-            print(
-                f"[MAPPER] Coverage: "
-                f"{s['chunks_with_images']}/{s['total_chunks']} chunks "
-                f"({s['image_coverage_pct']}%)"
-            )
-
-        except Exception as e:
-            import traceback
-            print(f"[MAPPER] Setup failed: {e}")
-            traceback.print_exc()
-            mapper   = None
-            selector = None
+    except Exception as e:
+        import traceback
+        print(f"[MAPPER] Setup failed: {e}")
+        traceback.print_exc()
+        mapper   = None
+        selector = None
 
     # Validate partitions — filter by user-specified sub-question count if provided
     target_marks   = 20 if exam_type.lower() == "see" else 10
@@ -373,8 +439,20 @@ def run_pipeline(
     if not target_partitions:
         target_partitions = [[10, 10]] if target_marks == 20 else [[5, 5]]
 
+    # Try to resolve ExtractionGateway artifact or default to None
+    artifact = None
+    try:
+        from core.extraction.gateway import ExtractionGateway
+        artifact = ExtractionGateway.extract(file_path)
+    except Exception:
+        pass
+
+    from core.generation.orchestrator import SlotOrchestrator
+    orchestrator = SlotOrchestrator(artifact=artifact)
+
     output_paper = []
-    executor = ThreadPoolExecutor(max_workers=1)
+    _workers = _profile.concurrency if _profile else 1
+    executor = ThreadPoolExecutor(max_workers=_workers)
 
     for mod_idx, mod in enumerate(modules, 1):
         module_id = f"module_{mod_idx}"
@@ -429,6 +507,18 @@ def run_pipeline(
 
         partitions_for_questions = [pair1_partition, pair1_partition, pair2_partition, pair2_partition]
 
+        # Calculate dynamic pedagogy-aware slot types for this module
+        total_slots = sum(len(p) for p in partitions_for_questions)
+        planned_types = plan_slot_types(mod_idx, total_slots)
+        
+        # Partition planned types among the 4 main questions
+        planned_types_by_question = []
+        offset = 0
+        for p in partitions_for_questions:
+            n_sub = len(p)
+            planned_types_by_question.append(planned_types[offset:offset+n_sub])
+            offset += n_sub
+
         used_chunk_ids: set[str] = set()
         module_questions         = []
         futures = []
@@ -436,6 +526,7 @@ def run_pipeline(
         for mq_idx in range(1, 5):
             bloom     = bloom_levels[mq_idx - 1]
             partition = partitions_for_questions[mq_idx - 1]
+            planned_sub_types = planned_types_by_question[mq_idx - 1]
 
             if mapper and module_chunks:
                 prefer_img = (mq_idx == 1)
@@ -443,6 +534,7 @@ def run_pipeline(
                     module_id      = module_id,
                     prefer_image   = prefer_img,
                     used_chunk_ids = used_chunk_ids,
+                    target_bloom   = bloom,
                 )
                 if best_tc:
                     used_chunk_ids.add(best_tc.id)
@@ -452,19 +544,15 @@ def run_pipeline(
                     selected_chunks = [random.choice(module_chunks_text)] * len(partition)
                     best_chunk_obj  = None
             else:
-                selected_chunks = random.sample(
-                    module_chunks_text,
-                    min(len(partition), len(module_chunks_text))
-                )
-                while len(selected_chunks) < len(partition):
-                    selected_chunks.append(random.choice(module_chunks_text))
+                selected_chunks = [random.choice(module_chunks_text)] * len(partition)
                 best_chunk_obj = None
 
             futures.append(
                 executor.submit(
                     _generate_main_question,
                     mq_idx, partition, bloom, selected_chunks, target_marks,
-                    diff_manager, best_chunk_obj, selector, module_id
+                    diff_manager, best_chunk_obj, selector, module_id, orchestrator,
+                    planned_sub_types
                 )
             )
 
@@ -474,14 +562,35 @@ def run_pipeline(
 
         module_questions.sort(key=lambda x: x["mq_index"])
 
-        # Enforce OR pair parity (Q1 vs Q2, Q3 vs Q4)
+        # ── SLOT COMPLETENESS GATE ──────────────────────────────────────────────
+        # Build expected set from the slots that were actually planned
+        # (not from a hardcoded count of 4)
+        expected_slot_ids: set[str] = set()
+        generated_slot_ids: set[str] = set()
+        for mq in module_questions:
+            for slot in mq.get("slots", []):
+                expected_slot_ids.add(slot.slot_id)   # every planned slot
+            for gq in mq.get("generated_questions", []):
+                generated_slot_ids.add(gq.slot_id)
+
+        missing_slots = expected_slot_ids - generated_slot_ids
+        extra_slots   = generated_slot_ids - expected_slot_ids
+
+        if missing_slots or extra_slots:
+            raise RuntimeError(
+                f"[SLOT GATE] Module {mod_idx} '{mod.title}' — slot contract violated.\n"
+                f"  Missing slots : {sorted(missing_slots)}\n"
+                f"  Extra slots   : {sorted(extra_slots)}"
+            )
+
+        # Enforce OR pair parity (Q1 vs Q2, Q3 vs Q4) using new OR validator
         if len(module_questions) >= 2:
-            module_questions[0], module_questions[1] = enforce_or_parity(
-                module_questions[0], module_questions[1], target_marks
+            module_questions[0], module_questions[1] = run_or_pair_check(
+                module_questions[0], module_questions[1], orchestrator
             )
         if len(module_questions) >= 4:
-            module_questions[2], module_questions[3] = enforce_or_parity(
-                module_questions[2], module_questions[3], target_marks
+            module_questions[2], module_questions[3] = run_or_pair_check(
+                module_questions[2], module_questions[3], orchestrator
             )
 
         output_paper.append({
@@ -497,12 +606,64 @@ def run_pipeline(
 
     _print_exam_paper(output_paper, exam_type.upper())
 
-    qa_report = {}
+    # ── EXPORT GATE — unconditional, fatal, single authority ──────────────────
+    all_gqs: list = []
+    for mod in output_paper:
+        for mq in mod["questions"]:
+            all_gqs.extend(mq.get("generated_questions", []))
+
+    if not all_gqs:
+        raise RuntimeError(
+            "[EXPORT GATE] Paper contains zero generated questions. Generation failed entirely."
+        )
+
+    from core.validation.export_gate import ExportGate
+    export_result = ExportGate.validate(all_gqs)
+    if not export_result.passed:
+        raise RuntimeError(f"[EXPORT GATE] FAILED: {export_result.message}")
+    print("[EXPORT GATE] PASS — full paper integrity verified.")
+
+    # ── POST-GENERATION INTEGRITY GATE ───────────────────────────────────
+    all_slot_ids = [gq.slot_id for gq in all_gqs]
+    integrity = GenerationIntegrity(
+        expected_slots    = sum(len(mq.get("slots", [])) for mod in output_paper for mq in mod["questions"]),
+        generated_slots   = len(all_gqs),
+        missing_slot_ids  = [],
+        extra_slot_ids    = [],
+        modules_expected  = len(modules),
+        modules_generated = len(output_paper),
+        export_gate_pass  = True,
+        marks_integrity_pass = all(
+            sum(sq["marks"] for sq in mq["sub_questions"]) == mq["total_marks"]
+            for mod in output_paper for mq in mod["questions"]
+        ),
+        co_integrity_pass = all(
+            gq.co.startswith("CO") for gq in all_gqs
+        ),
+        bloom_integrity_pass = all(
+            gq.bloom_level.startswith("L") for gq in all_gqs
+        ),
+        provenance_pass = all(
+            hasattr(gq, "provenance") and gq.provenance is not None
+            for gq in all_gqs
+        ),
+    )
+    integrity.print_gate()
+    integrity.raise_if_blocked()
+
+    qa_report: dict = {
+        "status": "PASS",
+        "export_gate_passed": True,
+        "export_gate_message": "All validation gates passed.",
+    }
     try:
         from .qa_engine import QPGeneratorWithQA
         qa_manager = QPGeneratorWithQA()
-        qa_report  = qa_manager.run_full_paper_qa(output_paper)
-        print(f"\n[QA ENGINE] Completed Paper QA Check | Quality Score: {qa_report['quality_score']}/100 | Total Issues: {qa_report['total_issues_found']}")
+        legacy_report = qa_manager.run_full_paper_qa(output_paper)
+        qa_report["legacy_qa_score"] = legacy_report.get("quality_score", 100)
+        qa_report["legacy_issues"] = legacy_report.get("issues", [])
+        qa_report["quality_score"] = qa_report["legacy_qa_score"]
+        print(f"\n[QA ENGINE] Completed Paper QA Check | Score: {qa_report['legacy_qa_score']}/100")
     except Exception as e:
         print(f"[QA ENGINE] Warning running paper QA check: {e}")
 
@@ -519,8 +680,15 @@ def _generate_main_question(
     chunk_obj:      TextChunk = None,
     selector:       QuestionImageSelector = None,
     module_id:      str  = "",
+    orchestrator:   Any  = None,
+    planned_types:  List[str] = None,
 ) -> dict:
-    """Worker function to build a main question with max 3 subquestions."""
+    """Worker function to build a main question with max 3 subquestions using Slot-Contract Architecture."""
+    from core.contracts.budgets import AnswerBudget, QuestionBudget
+    from core.contracts.task_signature import TaskSignature
+    from core.contracts.question_slot import QuestionSlot
+    from core.contracts.question import GeneratedQuestion, LegacyGeneratedQuestionAdapter
+
     dm = diff_manager or DifficultyManager.from_string("mixed")
 
     # HARD CLAMP: never more than 3 sub-questions
@@ -532,12 +700,15 @@ def _generate_main_question(
         partition = sorted(partition, reverse=True)
 
     sub_questions = []
+    generated_questions = []
+    slots = []
     sub_letters   = ["a", "b", "c"]
 
     for idx, marks in enumerate(partition):
         chunk      = chunks[idx % len(chunks)]
         difficulty = dm.assign_difficulty(idx, len(partition), marks)
         sub_bloom  = dm.get_bloom_for_difficulty(difficulty)
+        verb       = dm.get_verb(difficulty, sub_bloom)
 
         image_data = None
         if selector and chunk_obj and idx == 0:
@@ -551,23 +722,93 @@ def _generate_main_question(
                 print(f"[SELECTOR] Error: {e}")
                 image_data = None
 
-        q_text = get_vtu_vibe_question(
-            chunk        = chunk,
-            marks        = marks,
-            bloom        = sub_bloom,
-            difficulty   = difficulty,
-            diff_manager = dm,
-        )
-        retry = 0
-        while not _is_valid(q_text) and retry < 2:
+        # Build Slot contracts
+        sub_letter = sub_letters[idx] if len(partition) > 1 else ""
+        slot_id = f"{module_id}_Q{mq_idx}_{sub_letter}" if sub_letter else f"{module_id}_Q{mq_idx}"
+
+        if orchestrator is not None:
+            answer_budget = AnswerBudget.from_marks_and_bloom(marks, f"L{sub_bloom}")
+            question_budget = QuestionBudget.from_bloom(f"L{sub_bloom}", marks)
+            task_signature = TaskSignature.from_bloom_marks_type(f"L{sub_bloom}", marks, "descriptive")
+
+            math_required = (chunk_obj is not None and getattr(chunk_obj, "has_formula", False)) or ("\\frac" in chunk or "$" in chunk)
+            visual_required = (image_data is not None)
+
+            # Resolve pedagogy-aware question type (strict source-grounded mode)
+            planned_type = "CONCEPTUAL"
+            if planned_types and idx < len(planned_types):
+                planned_type = planned_types[idx]
+
+            has_numbers = any(char.isdigit() for char in chunk)
+            numerical_allowed = math_required and has_numbers
+
+            if numerical_allowed:
+                q_type = planned_type
+            elif planned_type == "NUMERICAL":
+                q_type = "APPLICATION"  # Fallback: keep it practical but non-numerical if inputs missing
+            else:
+                q_type = planned_type
+
+            # Use canonical module identity helpers (F6b)
+            _mod_num = parse_module_number(module_id)
+            slot = QuestionSlot(
+                slot_id=slot_id,
+                question_no=mq_idx,
+                sub_label=sub_letter,
+                or_pair_id=f"{module_id}_OR_{1 if mq_idx in (1, 2) else 2}",
+                is_alternative=(mq_idx in (2, 4)),
+                module_id=_mod_num,
+                marks=marks,
+                bloom_level=f"L{sub_bloom}",
+                bloom_verb=verb,
+                bloom_operation=get_bloom_level_name(sub_bloom),
+                co=make_co(_mod_num),
+                difficulty=difficulty.upper(),
+                question_type=q_type,
+                topic=f"{slot_id} ({chunk_obj.depth})" if chunk_obj else slot_id,
+                evidence_ids=(chunk_obj.id,) if chunk_obj else ("chunk_legacy",),
+                answer_budget=answer_budget,
+                question_budget=question_budget,
+                task_signature=task_signature,
+                math_required=math_required,
+                visual_required=visual_required,
+                generation_seed=random.randint(1, 100000)
+            )
+
+            class MockEvidencePack:
+                def __init__(self, text, math_art="none"):
+                    self.combined_text = text
+                    self.math_artifacts = math_art
+
+            evidence_pack = MockEvidencePack(chunk)
+
+            gq = orchestrator.generate(
+                slot=slot,
+                evidence_pack=evidence_pack,
+                excluded_concepts=set()
+            )
+            q_text = gq.question_text
+        else:
+            # Fallback legacy mode if orchestrator is not provided (e.g. legacy tests calling this directly)
             q_text = get_vtu_vibe_question(
-                chunk        = random.choice(chunks),
+                chunk        = chunk,
                 marks        = marks,
                 bloom        = sub_bloom,
                 difficulty   = difficulty,
                 diff_manager = dm,
             )
-            retry += 1
+            gq = LegacyGeneratedQuestionAdapter.adapt(
+                slot_id=slot_id,
+                question_text=q_text,
+                marks=marks,
+                bloom=f"L{sub_bloom}",
+                co=make_co(parse_module_number(module_id)) if "_" in module_id else "CO1",
+                topic=slot_id,
+                module_id=parse_module_number(module_id) if "_" in module_id else 1,
+                question_no=mq_idx,
+                sub_label=sub_letter
+            )
+            slot = gq.slot
 
         if image_data:
             if not re.search(
@@ -579,6 +820,8 @@ def _generate_main_question(
                     + q_text[0].lower()
                     + q_text[1:]
                 )
+                # Re-sync modified text
+                gq.question_text = q_text
 
         sub_questions.append({
             "letter":     sub_letters[idx] if len(partition) > 1 else None,
@@ -588,11 +831,10 @@ def _generate_main_question(
             "bloom":      sub_bloom,
             "image":      image_data,
         })
+        generated_questions.append(gq)
+        slots.append(slot)
 
     actual_total = sum(sq["marks"] for sq in sub_questions)
-
-    # For a single sub-question, report the bloom of that sub-question
-    # (the one that drove the verb selection), not the module-level placeholder.
     reported_bloom = sub_questions[0]["bloom"] if len(sub_questions) == 1 else bloom
 
     return {
@@ -601,7 +843,49 @@ def _generate_main_question(
         "bloom_name":    get_bloom_level_name(reported_bloom),
         "total_marks":   actual_total,
         "sub_questions": sub_questions,
+        "generated_questions": generated_questions,
+        "slots":         slots,
     }
+
+
+def run_or_pair_check(mq_a: dict, mq_b: dict, orchestrator: Any) -> Tuple[dict, dict]:
+    """OR alternative deduplication validator using core or_pair_validator."""
+    from core.assembly.or_pair_validator import validate_and_repair as run_or_validator
+
+    q_a = mq_a.get("generated_questions", [])
+    q_b = mq_b.get("generated_questions", [])
+    slots_b = mq_b.get("slots", [])
+    
+    if not q_a or not q_b or not slots_b:
+        return mq_a, mq_b
+
+    try:
+        new_q_a, new_q_b = run_or_validator(
+            q_a=q_a,
+            q_b=q_b,
+            slots_b=slots_b,
+            excluded=frozenset(),
+            orchestrator=orchestrator
+        )
+        
+        # Update mq_b with regenerated questions
+        mq_b["generated_questions"] = new_q_b
+        sub_letters = ["a", "b", "c"]
+        sub_questions = []
+        for idx, gq in enumerate(new_q_b):
+            sub_questions.append({
+                "letter": sub_letters[idx] if len(new_q_b) > 1 else None,
+                "text": gq.question_text,
+                "marks": gq.marks,
+                "difficulty": gq.difficulty,
+                "bloom": int(gq.bloom_level[1]) if gq.bloom_level.startswith("L") else 2,
+                "image": getattr(gq, "visual_asset", None),
+            })
+        mq_b["sub_questions"] = sub_questions
+    except Exception as e:
+        print(f"[OR VALIDATOR] Dedup failed or skipped: {e}")
+
+    return mq_a, mq_b
 
 
 def _print_exam_paper(paper: List[dict], exam_type: str):

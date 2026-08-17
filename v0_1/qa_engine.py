@@ -100,6 +100,8 @@ class BloomsTaxonomyValidator:
         """
         if isinstance(declared_level, int):
             declared_key = self.LEVEL_INT_MAP.get(declared_level, 'L2_Understand')
+        elif str(declared_level).startswith("L") and len(str(declared_level)) >= 2 and str(declared_level)[1].isdigit():
+            declared_key = self.LEVEL_INT_MAP.get(int(str(declared_level)[1]), 'L2_Understand')
         else:
             declared_key = str(declared_level)
 
@@ -117,6 +119,8 @@ class BloomsTaxonomyValidator:
         """Suggest verb replacements to match target level."""
         if isinstance(target_level, int):
             target_key = self.LEVEL_INT_MAP.get(target_level, 'L2_Understand')
+        elif str(target_level).startswith("L") and len(str(target_level)) >= 2 and str(target_level)[1].isdigit():
+            target_key = self.LEVEL_INT_MAP.get(int(str(target_level)[1]), 'L2_Understand')
         else:
             target_key = str(target_level)
 

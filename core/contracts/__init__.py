@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
+from core.contracts.text_chunk import TextChunk
+
+
 # ── GenerationRequest ─────────────────────────────────────────────────────────
 
 class GenerationRequest:

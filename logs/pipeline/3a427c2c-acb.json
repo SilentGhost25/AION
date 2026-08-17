@@ -1,0 +1,28 @@
+{
+  "request_id": "3a427c2c-acb",
+  "subject": "Computer Networks",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-17T11:47:27.096640",
+  "finished_at": "2026-08-17T11:47:31.718583",
+  "fail_reason": "Slot module_2_Q1_b failed with CALCULATION_NOT_DECLARED 2 consecutive times. Recovery not converging \u2014 blocking slot.",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-17T11:47:27.568727",
+      "metrics": {
+        "subject": "Computer Networks",
+        "exam": "IAT-1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-17T11:47:31.718462",
+      "message": "Slot module_2_Q1_b failed with CALCULATION_NOT_DECLARED 2 consecutive times. Recovery not converging \u2014 blocking slot.",
+      "duration_ms": 3749.5
+    }
+  ]
+}

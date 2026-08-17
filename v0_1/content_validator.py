@@ -61,6 +61,19 @@ class ContentValidator:
                 rejection_reason="Empty content"
             )
 
+        # Strict PDF Metadata Quarantine Gate (🔴 3)
+        pdf_metadata_keywords = [
+            "flatdecode", "/fontfile", "endobj", "/procset", "/page", 
+            "/parent", "/resources", "/length", "/filter", "/stream"
+        ]
+        text_lower = text.lower()
+        for kw in pdf_metadata_keywords:
+            if kw in text_lower:
+                return ValidationResult(
+                    valid=False, noise_score=1.0, confidence=0.0,
+                    rejection_reason=f"Quarantined due to PDF internal metadata leak ({kw})"
+                )
+
         words      = text.split()
         word_count = len(words)
 
