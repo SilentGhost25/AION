@@ -30,6 +30,10 @@ from .generator import (
 )
 from core.contracts.module_identity import parse_module_number, make_module_id, make_co
 from core.contracts.pipeline_integrity import PipelineReadiness, GenerationIntegrity
+from core.contracts.question_slot import QuestionSlot
+from core.contracts.budgets import AnswerBudget, QuestionBudget
+from core.contracts.task_signature import TaskSignature
+from core.contracts.question import GeneratedQuestion, LegacyGeneratedQuestionAdapter, QuestionProvenance
 
 from .difficulty import DifficultyManager, DifficultyLevel
 
@@ -380,14 +384,23 @@ def run_pipeline(
 
     print(f"[SEGMENTER] Identified {len(modules)} Modules/Chapters in source material.")
 
+    # Try to resolve ExtractionGateway artifact or default to None
+    artifact = None
+    try:
+        from core.extraction.gateway import ExtractionGateway
+        artifact = ExtractionGateway.extract(file_path)
+    except Exception as e:
+        print(f"[EXTRACTION GATEWAY] Extraction failed: {e}")
+
     # 2. Extract Visual Figures & Build Proximity Chunk Map
     mapper   = None
     selector = None
 
     try:
         doc_id   = FigureRegistry.make_document_id(file_path)
-        figures = []
-        if include_visual:
+        figures  = list(getattr(artifact, "figures", [])) if artifact else []
+
+        if not figures and include_visual:
             print("[VISUAL] Extracting figures (fast proximity mode)...")
             from .visual.figure_extractor import extract_figures
             try:
@@ -396,10 +409,11 @@ def run_pipeline(
                     doc_id=doc_id,
                     module_map=_build_module_map(modules),
                 )
-                for fig in figures:
-                    fig.eligible = True
             except Exception as e:
-                print(f"[VISUAL] Figure extraction failed, falling back to text-only mapping: {e}")
+                print(f"[VISUAL] Figure extraction failed: {e}")
+
+        for fig in figures:
+            fig.eligible = True
 
         class MockRegistry:
             def __init__(self, figs):
@@ -410,11 +424,11 @@ def run_pipeline(
         # Build chunk-image map with mock registry (handles both visual and text-only mapping)
         mapper = ChunkImageMapper(
             registry        = MockRegistry(figures),
-            total_pages     = 200,
+            total_pages     = getattr(artifact, "page_count", 200) if artifact else 200,
             page_tolerance  = 3,
         )
         mapper.build(modules)
-        if include_visual and figures:
+        if (include_visual or len(figures) > 0) and figures:
             selector = QuestionImageSelector(mapper)
     except Exception as e:
         import traceback
@@ -438,14 +452,6 @@ def run_pipeline(
 
     if not target_partitions:
         target_partitions = [[10, 10]] if target_marks == 20 else [[5, 5]]
-
-    # Try to resolve ExtractionGateway artifact or default to None
-    artifact = None
-    try:
-        from core.extraction.gateway import ExtractionGateway
-        artifact = ExtractionGateway.extract(file_path)
-    except Exception:
-        pass
 
     from core.generation.orchestrator import SlotOrchestrator
     orchestrator = SlotOrchestrator(artifact=artifact)
