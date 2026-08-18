@@ -15,7 +15,7 @@ from core.concepts.extractor import ExtractedConcept
 
 
 def _normalize_concept_name(raw: str) -> str:
-    """Normalize raw fragment like 'The Obd-II Diagnostic Link Connector Dlc' → 'OBD-II Diagnostic Link Connector (DLC)'."""
+    """Normalize raw fragment like 'The Obd-II Diagnostic Link Connector Dlc' -> 'OBD-II Diagnostic Link Connector (DLC)'."""
     # Remove leading articles
     s = re.sub(r"^(The|A|An)\s+", "", raw.strip(), flags=re.I)
     # Fix casing for known acronyms

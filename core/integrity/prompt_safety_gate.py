@@ -19,11 +19,11 @@ class SafetyReport:
     action   : str = "PASS" # "PASS" | "REJECT_AND_REGENERATE" | "QUARANTINE"
 
 
-# ── INJECTION PATTERNS ────────────────────────────────────────────────────────
+# -- INJECTION PATTERNS --------------------------------------------------------
 
 PROMPT_INJECTION_PATTERNS = [
 
-    # ── META-INSTRUCTION PATTERNS ─────────────────────────────────────────────
+    # -- META-INSTRUCTION PATTERNS ---------------------------------------------
     r"(?i)ignore previous instructions",
     r"(?i)ignore all previous",
     r"(?i)disregard (?:the )?(?:above|previous|prior)",
@@ -37,7 +37,7 @@ PROMPT_INJECTION_PATTERNS = [
     r"(?i)provide only",
     r"(?i)never (?:include|add|mention|say)",
 
-    # ── TEMPLATE/FORMAT LEAKAGE ───────────────────────────────────────────────
+    # -- TEMPLATE/FORMAT LEAKAGE -----------------------------------------------
     r"(?i)^question:\s",
     r"(?i)^answer:\s",
     r"(?i)^instruction:\s",
@@ -50,7 +50,7 @@ PROMPT_INJECTION_PATTERNS = [
     r"(?i)<<SYS>>",
     r"\[/INST\]",
 
-    # ── GENERATION ARTIFACT LEAKAGE ───────────────────────────────────────────
+    # -- GENERATION ARTIFACT LEAKAGE -------------------------------------------
     r"(?i)generate (?:a |an )?question",
     r"(?i)write (?:a |an )?question",
     r"(?i)create (?:a |an )?question for",
@@ -59,7 +59,7 @@ PROMPT_INJECTION_PATTERNS = [
     r"(?i)bloom's taxonomy",
     r"(?i)learning outcome",
 
-    # ── FOREIGN LANGUAGE META-INSTRUCTIONS ───────────────────────────────────
+    # -- FOREIGN LANGUAGE META-INSTRUCTIONS -----------------------------------
     # Lithuanian (from spec example)
     r"(?i)turi būti tik klausimas",
     r"(?i)be jokių atsakymų",

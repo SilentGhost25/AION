@@ -23,11 +23,11 @@ class GenerationRequest:
     Every field is validated before any pipeline stage begins.
     """
 
-    # ── IDENTITY ──────────────────────────────────────────────────────────────
+    # -- IDENTITY --------------------------------------------------------------
     request_id      : str           # UUID, assigned by backend on receipt
     received_at     : str           # ISO-8601 string
 
-    # ── ACADEMIC CONFIG ───────────────────────────────────────────────────────
+    # -- ACADEMIC CONFIG -------------------------------------------------------
     subject         : str
     department      : str
     semester        : int           # 1–8
@@ -35,24 +35,26 @@ class GenerationRequest:
     modules         : List[int]     # e.g. [1, 2, 3, 4, 5]
     total_marks     : int           # e.g. 50
 
-    # ── STRUCTURE CONFIG ──────────────────────────────────────────────────────
+    # -- STRUCTURE CONFIG ------------------------------------------------------
     subquestion_count     : int = 2     # 1–4, default=2
     distribution_policy   : str = "BALANCED" # "BALANCED" | "PRIMARY_HEAVY" | "PROGRESSIVE" | "CUSTOM"
     custom_distribution   : Optional[List[int]] = None   # only if CUSTOM
 
-    # ── ACADEMIC MAPPING ──────────────────────────────────────────────────────
-    bloom_levels    : List[str] = field(default_factory=lambda: ["L2", "L3"])
-    co_mapping      : Dict[int, str] = field(default_factory=dict)
+    # -- ACADEMIC MAPPING ------------------------------------------------------
+    bloom_levels    : List[str] = field(default_factory=lambda: ["L1", "L2", "L3", "L4", "L5"])
+    co_mapping      : Dict[int, str] = field(default_factory=lambda: {
+        1: "CO1", 2: "CO1", 3: "CO2", 4: "CO2", 5: "CO3"
+    })
     question_types  : List[str] = field(default_factory=lambda: ["descriptive", "numerical"])
 
-    # ── DOCUMENT ──────────────────────────────────────────────────────────────
+    # -- DOCUMENT --------------------------------------------------------------
     document_id     : str = "doc_001"
     model           : str = "qwen2.5:14b"
 
-    # ── REPRODUCIBILITY ───────────────────────────────────────────────────────
+    # -- REPRODUCIBILITY -------------------------------------------------------
     seed            : Optional[int] = None    # None = generate fresh seed
 
-    # ── VALIDATION RESULT ─────────────────────────────────────────────────────
+    # -- VALIDATION RESULT -----------------------------------------------------
     validated       : bool = False
     validation_errors : List[str] = field(default_factory=list)
 

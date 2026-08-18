@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Set
 
-# ── 1. Hierarchical Operation Taxonomy (HOT) ───────────────────────────────────
+# -- 1. Hierarchical Operation Taxonomy (HOT) -----------------------------------
 
 HOT_TAXONOMY: Dict[str, Dict[str, List[str]]] = {
     "DSA": {
@@ -104,7 +104,7 @@ HOT_TAXONOMY: Dict[str, Dict[str, List[str]]] = {
     },
 }
 
-# ── 2. Visual Dependency Mappings ──────────────────────────────────────────────
+# -- 2. Visual Dependency Mappings ----------------------------------------------
 
 CONCEPT_VISUAL_DEPENDENCY: Dict[str, str] = {
     # ALWAYS needs image
@@ -146,7 +146,7 @@ BLOOM_LEVEL_VISUAL_TENDENCY: Dict[str, float] = {
     "L6": 0.20,
 }
 
-# ── 3. Grounding Vocabulary ────────────────────────────────────────────────────
+# -- 3. Grounding Vocabulary ----------------------------------------------------
 
 GROUNDING_VOCABULARY: Dict[str, Dict[str, List[str]]] = {
     "WEIGHTED_GRAPH": {

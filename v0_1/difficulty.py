@@ -21,7 +21,7 @@ class DifficultyConfig:
     hard_ratio:  float           = 0.25   # 25% hard
 
 
-# ── Difficulty → Bloom level mapping ─────────────────────────
+# -- Difficulty -> Bloom level mapping -------------------------
 
 DIFFICULTY_BLOOM_MAP = {
     "easy":   [1, 2],        # Remember, Understand

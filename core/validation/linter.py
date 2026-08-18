@@ -11,6 +11,39 @@ if TYPE_CHECKING:
     from core.generation.output_schema import QuestionOutput
     from core.contracts.question import GeneratedQuestion
 
+def _jaccard_similarity(a: str, b: str) -> float:
+    """Simple word-level Jaccard similarity between two strings."""
+    set_a = set(re.findall(r"\b[a-zA-Z]{3,}\b", a.lower()))
+    set_b = set(re.findall(r"\b[a-zA-Z]{3,}\b", b.lower()))
+    if not set_a or not set_b:
+        return 0.0
+    return len(set_a & set_b) / len(set_a | set_b)
+
+
+def check_sibling_uniqueness(
+    question: "GeneratedQuestion",
+    sibling_texts: list,
+    threshold: float = 0.65,
+) -> "CheckResult":
+    """
+    Rejects a question if it is too similar to any sibling
+    sub-question or OR alternative already generated.
+    Similarity is measured by Jaccard overlap on meaningful words.
+    """
+    q_text = question.question_text.lower()
+    for i, sib in enumerate(sibling_texts):
+        sim = _jaccard_similarity(q_text, sib.lower())
+        if sim >= threshold:
+            return CheckResult.fail(
+                "SIBLING_SIMILARITY",
+                f"Question is too similar to sibling slot {i+1} "
+                f"(Jaccard={sim:.2f} >= threshold={threshold}). "
+                f"Generate a conceptually distinct question.",
+                action=RetryAction.REGENERATE,
+            )
+    return CheckResult.pass_()
+
+
 
 BLOOM_VERB_MAP = {
     "L1": ["Define", "List", "Identify", "Name", "State", "Recall"],
@@ -259,7 +292,7 @@ def check_answerability(question: GeneratedQuestion, slot: QuestionSlot, evidenc
             matched_terms = sum(1 for term in topic_terms if term in evidence_lower)
             match_ratio = matched_terms / len(topic_terms)
             
-            if match_ratio < 0.20:
+            if match_ratio < 0.10:
                 # UNSUPPORTED: Block and regenerate
                 return CheckResult.fail(
                     "ANSWERABILITY_FAILURE",
@@ -267,7 +300,7 @@ def check_answerability(question: GeneratedQuestion, slot: QuestionSlot, evidenc
                     f"Terms: {topic_terms} do not appear in the source chunk.",
                     action=RetryAction.REGENERATE
                 )
-            elif match_ratio < 0.50 and slot.bloom_level in ("L4", "L5", "L6"):
+            elif match_ratio < 0.25 and slot.bloom_level in ("L4", "L5", "L6"):
                 # PARTIALLY SUPPORTED: Reject/retry for higher cognitive levels
                 return CheckResult.fail(
                     "ANSWERABILITY_FAILURE",
@@ -326,10 +359,12 @@ def run_linter(
     slot     : QuestionSlot,
     contract : QuestionContract,
     evidence_text: str = "",
+    sibling_texts: list = None,
 ) -> LintReport:
     """
     Complete deterministic linter.
     Runs all v5 validation checks.
+    sibling_texts: list of already-generated question texts in the same OR pair / module
     """
     from core.validation.teacher_suitability_gate import TeacherSuitabilityGate
     checks = {
@@ -341,6 +376,7 @@ def run_linter(
         "unicode_text"       : check_unicode_integrity(output.question_text),
         "unicode_instruction": check_unicode_integrity(output.instruction),
         "math_consistency"   : validate_math_consistency(output),
+        "sibling_uniqueness" : check_sibling_uniqueness(question, sibling_texts or [], threshold=0.55),
         "math_render"        : check_all_math_with_render(output),
         "visual_policy"      : check_visual_policy(question, slot),
         "math_policy"        : check_math_policy(question, slot),

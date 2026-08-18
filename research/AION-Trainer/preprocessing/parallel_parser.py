@@ -2,11 +2,11 @@
 Parallel Parser for large textbooks.
 
 Strategy:
-    900 pages → 16 workers → Parallel Parsing → Merge → Knowledge Objects
+    900 pages -> 16 workers -> Parallel Parsing -> Merge -> Knowledge Objects
 
 Memory strategy:
     Never load full book. Process 50-page batches.
-    Page Stream → Worker Pool → Knowledge Queue → Merge
+    Page Stream -> Worker Pool -> Knowledge Queue -> Merge
 """
 
 import os

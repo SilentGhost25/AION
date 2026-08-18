@@ -111,7 +111,7 @@ class NumericalEngine:
 
         return None
 
-    # ── Detection helpers ────────────────────────────────────
+    # -- Detection helpers ------------------------------------
 
     def _detect_sequence(self, text: str) -> Optional[List[int]]:
         # Look for bracketed or space-separated integer sequences (3+ numbers)
@@ -158,7 +158,7 @@ class NumericalEngine:
                 return nums[:4]
         return None
 
-    # ── Fresh generation ─────────────────────────────────────
+    # -- Fresh generation -------------------------------------
 
     def _fresh_sequence(self, original: List[int]) -> List[int]:
         # Generate new sequence with same length, similar range but guaranteed different

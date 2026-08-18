@@ -1,5 +1,5 @@
 """
-Question Planner — Real Question Planning (Planner → Composer)
+Question Planner — Real Question Planning (Planner -> Composer)
 ==============================================================
 Current poor pipeline often does: Explain... Compare... Derive... (artificial)
 Need: Planner decides concept/marks/Bloom/reasoning objective; Composer writes English.
@@ -157,7 +157,7 @@ class QuestionPlanner:
     def plan_single(self, gc: GroundedConcept, bloom_override: Optional[int] = None) -> QuestionPlan:
         return self.plan([gc])[0] if self.plan([gc]) else self._fallback_plan(gc, bloom_override)
 
-    # ── Helpers ──────────────────────────────────────────────
+    # -- Helpers ----------------------------------------------
 
     def _choose_balanced_bloom(self, gc: GroundedConcept, counter: Dict[int, int]) -> int:
         # Prefer gc's bloom but avoid over-concentration

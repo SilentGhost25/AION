@@ -54,7 +54,7 @@ def parse_document(
 
     Priority:
     1. Try PyMuPDF digital extraction (fast)
-    2. If text yield too low → Unlimited-OCR (scanned)
+    2. If text yield too low -> Unlimited-OCR (scanned)
     3. Run Docling in parallel for layout + tables
     4. Cross-validate tables
     5. Merge best result
@@ -66,7 +66,7 @@ def parse_document(
 
     print(f"[PARSER] Processing: {Path(pdf_path).name}")
 
-    # ── Step 1: Try digital extraction ───────────────────────
+    # -- Step 1: Try digital extraction -----------------------
     ocr_result = _extract_digital(pdf_path)
 
     if ocr_result is None:
@@ -81,7 +81,7 @@ def parse_document(
             f"method={ocr_result.method}"
         )
 
-    # ── Step 2: Run Docling for layout + tables ───────────────
+    # -- Step 2: Run Docling for layout + tables ---------------
     if use_docling:
         doc_result = parse_with_docling(pdf_path)
         if doc_result:
@@ -93,7 +93,7 @@ def parse_document(
         else:
             warnings.append("docling_failed:using_ocr_only")
 
-    # ── Step 3: Cross-validate tables ────────────────────────
+    # -- Step 3: Cross-validate tables ------------------------
     docling_tables = doc_result.tables if doc_result else []
     ocr_tables     = [
         {"page": b.page, "content": b.content, "confidence": b.confidence}
@@ -113,7 +113,7 @@ def parse_document(
                 + (f" | warnings={t.warnings}" if t.warnings else "")
             )
 
-    # ── Step 4: Figures ───────────────────────────────────────
+    # -- Step 4: Figures ---------------------------------------
     figures = [
         {
             "page":    b.page,
@@ -124,7 +124,7 @@ def parse_document(
         if b.block_type == "figure"
     ]
 
-    # ── Step 5: Build clean text ──────────────────────────────
+    # -- Step 5: Build clean text ------------------------------
     # Priority: Docling layout text > OCR raw text
     if doc_result and doc_result.layout_text:
         raw_text = doc_result.layout_text
@@ -137,11 +137,11 @@ def parse_document(
         method   = "failed"
         warnings.append("no_text_extracted")
 
-    # ── Step 6: Clean the text ────────────────────────────────
+    # -- Step 6: Clean the text --------------------------------
     clean_text = _clean_extracted_text(raw_text)
     word_count = len(clean_text.split())
 
-    # ── Step 7: Overall confidence ────────────────────────────
+    # -- Step 7: Overall confidence ----------------------------
     confidence = _compute_confidence(
         ocr_result, doc_result, validated_tables, word_count
     )

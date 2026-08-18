@@ -657,7 +657,7 @@ def generate_module_questions_simple(mod_num: int, concepts: List[str]) -> List[
 
 page = st.sidebar.radio("Navigate", ["✨ Simple Generation Mode", "📤 Upload & Learn", "📝 Generate VTU Paper", "🔍 Instant Search", "📊 Dashboard", "🎓 Train Model"])
 
-# ── SIMPLE GENERATION MODE ──────────────────────────────────────────────────
+# -- SIMPLE GENERATION MODE --------------------------------------------------
 if page == "✨ Simple Generation Mode":
     st.title("✨ Simple Question Paper Generation Mode")
     st.markdown("Generate a high-quality, continuous, module-by-module VTU question paper by sequentially uploading materials.")
@@ -772,7 +772,7 @@ if page == "✨ Simple Generation Mode":
         else:
             st.sidebar.write(f"Module {m}: ⏳ Pending")
 
-# ── UPLOAD & LEARN ──────────────────────────────────────────────────────────
+# -- UPLOAD & LEARN ----------------------------------------------------------
 elif page == "📤 Upload & Learn":
     st.title("📤 Upload VTU Question Paper")
     col1, col2 = st.columns([3, 1])
@@ -824,7 +824,7 @@ elif page == "📤 Upload & Learn":
         for i, q in enumerate(questions):
             st.markdown(f"**Q{i+1} [Mod {q['module']}] ({q['marks']}M - {q['bloom_level']})**: {q['text']}")
 
-# ── GENERATE VTU PAPER (FIXED) ──────────────────────────────────────────────
+# -- GENERATE VTU PAPER (FIXED) ----------------------------------------------
 elif page == "📝 Generate VTU Paper":
     st.title("📝 Generate VTU Model Paper")
     st.markdown("Generates a strict 100-mark CBCS pattern paper with Bloom's Taxonomy tags.")
@@ -848,7 +848,7 @@ elif page == "📝 Generate VTU Paper":
         st.code(paper, language="text")
         st.download_button("📥 Download Paper (.txt)", paper, f"VTU_{gen_subj}_Model_Paper.txt", use_container_width=True)
 
-# ── INSTANT SEARCH ──────────────────────────────────────────────────────────
+# -- INSTANT SEARCH ----------------------------------------------------------
 elif page == "🔍 Instant Search":
     st.title("🔍 Instant Semantic Search")
     query = st.text_input("Search concepts or questions...")
@@ -860,7 +860,7 @@ elif page == "🔍 Instant Search":
         for r in results:
             st.markdown(f"**[{r['marks']}M | Mod {r['module']}]** {r['text']} *(Score: {r['score']:.2f})*")
 
-# ── DASHBOARD ───────────────────────────────────────────────────────────────
+# -- DASHBOARD ---------------------------------------------------------------
 elif page == "📊 Dashboard":
     st.title("📊 System Stats")
     with get_db() as db:
@@ -868,7 +868,7 @@ elif page == "📊 Dashboard":
     if stats: st.bar_chart(pd.DataFrame([dict(r) for r in stats]).set_index("bloom_level"))
     else: st.info("Upload data to see statistics.")
 
-# ── ADMIN: TRAIN MODEL ──────────────────────────────────────────────────────
+# -- ADMIN: TRAIN MODEL ------------------------------------------------------
 elif page == "🎓 Train Model" and st.session_state.admin_mode:
     st.title("🎓 Force Train Model")
     if st.button("🔥 Train Now", type="primary"):

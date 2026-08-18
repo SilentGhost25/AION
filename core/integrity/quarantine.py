@@ -40,7 +40,7 @@ class EvidenceQuarantineLayer:
     def process(cls, chunk: Dict[str, Any]) -> QuarantineDecision:
         text = chunk.get("text", "") or chunk.get("content", "")
 
-        # ── GATE A: ENCODING INTEGRITY ───────────────────────────────────────
+        # -- GATE A: ENCODING INTEGRITY ---------------------------------------
         encoding_report = EncodingGate.analyze(text)
         if encoding_report.corruption_level == "BINARY":
             return QuarantineDecision(
@@ -60,7 +60,7 @@ class EvidenceQuarantineLayer:
             chunk["quality_flag"] = "SUSPICIOUS"
             chunk["retrieval_penalty"] = 0.5
 
-        # ── GATE B: EQUATION INTEGRITY ───────────────────────────────────────
+        # -- GATE B: EQUATION INTEGRITY ---------------------------------------
         eq_ids = chunk.get("equation_ids", [])
         if "given formula" in text.lower() and len(eq_ids) == 0:
             return QuarantineDecision(
@@ -69,7 +69,7 @@ class EvidenceQuarantineLayer:
                 action="QUARANTINE",
             )
 
-        # ── GATE C: PROMPT INJECTION IN SOURCE ───────────────────────────────
+        # -- GATE C: PROMPT INJECTION IN SOURCE -------------------------------
         source_safety = PromptSafetyGate.scan_source(text)
         if source_safety.status == "INJECTION_DETECTED":
             return QuarantineDecision(
@@ -79,7 +79,7 @@ class EvidenceQuarantineLayer:
                 metrics={"patterns": source_safety.patterns},
             )
 
-        # ── GATE D: PROVENANCE ───────────────────────────────────────────────
+        # -- GATE D: PROVENANCE -----------------------------------------------
         doc_id = chunk.get("document_id") or chunk.get("doc_id")
         if not doc_id:
             return QuarantineDecision(
@@ -96,7 +96,7 @@ class EvidenceQuarantineLayer:
                 metrics={"confidence": extraction_conf},
             )
 
-        # ── GATE E: MINIMUM CONTENT ──────────────────────────────────────────
+        # -- GATE E: MINIMUM CONTENT ------------------------------------------
         if len(text.strip()) < cls.MIN_CHUNK_LENGTH:
             return QuarantineDecision(
                 status=QuarantineState.QUARANTINED,

@@ -1,5 +1,5 @@
 """
-Deterministic Numerical Engine — Template → Constraints → Random valid → Solver → Verify
+Deterministic Numerical Engine — Template -> Constraints -> Random valid -> Solver -> Verify
 Never from LLM. For BST, Queue, Stack, Math, etc.
 """
 

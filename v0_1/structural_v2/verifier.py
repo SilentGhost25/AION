@@ -65,7 +65,7 @@ class PaperContractVerifier:
             for alt in pair.alternatives:
                 all_slots.extend(alt.slots)
 
-        # ── CATEGORY: STRUCTURE (C01–C10) ────────────────────────────────────
+        # -- CATEGORY: STRUCTURE (C01–C10) ------------------------------------
 
         # C01: Module count matches configuration (5)
         report.add("C01", "STRUCTURE", len(or_pairs) == 5, f"Module count = {len(or_pairs)}")
@@ -112,7 +112,7 @@ class PaperContractVerifier:
         c10_pass = len(q_nums) > 0 and min(q_nums) >= 1
         report.add("C10", "STRUCTURE", c10_pass, "Question numbers are sequential")
 
-        # ── CATEGORY: ACADEMIC EQUIVALENCE (C11–C16) ─────────────────────────
+        # -- CATEGORY: ACADEMIC EQUIVALENCE (C11–C16) -------------------------
 
         # C11: OR pair Bloom profiles are identical across both alternatives
         c11_pass = all(p.alternatives[0].bloom_profile() == p.alternatives[1].bloom_profile() for p in or_pairs)
@@ -138,7 +138,7 @@ class PaperContractVerifier:
         c16_pass = all(s.bloom in (BloomLevel.L1, BloomLevel.L2, BloomLevel.L3, BloomLevel.L4, BloomLevel.L5, BloomLevel.L6) for s in all_slots)
         report.add("C16", "EQUIVALENCE", c16_pass, "Bloom-mark compatibility satisfied")
 
-        # ── CATEGORY: CONTENT QUALITY (C17–C24) ──────────────────────────────
+        # -- CATEGORY: CONTENT QUALITY (C17–C24) ------------------------------
 
         # C17: No None or empty question_text fields
         empty_text_slots = [s.slot_id for s in all_slots if not s.question_text]
@@ -173,7 +173,7 @@ class PaperContractVerifier:
         c24_pass = True
         report.add("C24", "CONTENT", c24_pass, "OR alternatives distinct")
 
-        # ── CATEGORY: EVIDENCE & GROUNDING (C25–C30) ─────────────────────────
+        # -- CATEGORY: EVIDENCE & GROUNDING (C25–C30) -------------------------
 
         # C25: All grounding scores >= GROUNDING_THRESHOLD (0.70)
         low_grounding_slots = [s.slot_id for s in all_slots if (s.grounding_score or 0.0) < 0.70]
@@ -199,7 +199,7 @@ class PaperContractVerifier:
         c30_pass = True
         report.add("C30", "GROUNDING", c30_pass, "Required equations present")
 
-        # ── CATEGORY: VISUAL & SOLVER (C31–C35) ──────────────────────────────
+        # -- CATEGORY: VISUAL & SOLVER (C31–C35) ------------------------------
 
         # C31: IMAGE_REQUIRED slots have visual_asset attached
         c31_failed = [s.slot_id for s in all_slots if s.visual_decision == VisualDecision.IMAGE_REQUIRED and not s.visual_asset]
@@ -218,7 +218,7 @@ class PaperContractVerifier:
         # C35: Visual-question dependency consistency
         report.add("C35", "VISUAL", True, "Visual-question dependency consistent")
 
-        # ── CATEGORY: EQUATIONS & LANGUAGE (C36–C38) ─────────────────────────
+        # -- CATEGORY: EQUATIONS & LANGUAGE (C36–C38) -------------------------
 
         # C36: All LaTeX blocks are parseable
         report.add("C36", "LANGUAGE", True, "LaTeX blocks parseable")

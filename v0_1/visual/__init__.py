@@ -16,7 +16,7 @@ def _build_module_map(
     modules: list,
     total_pages: int = 200,
 ) -> dict[int, str]:
-    """Map page numbers → module IDs."""
+    """Map page numbers -> module IDs."""
     module_map     = {}
     n              = max(len(modules), 1)
     pages_per_mod  = max(1, total_pages // n)
@@ -75,7 +75,7 @@ def safe_build_planner(
                 registry.add_all(valid)
                 registry.save()
             else:
-                print("[VISUAL] No valid figures → text-only")
+                print("[VISUAL] No valid figures -> text-only")
                 return None
 
         eligible = registry.eligible_cards()

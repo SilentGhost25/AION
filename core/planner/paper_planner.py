@@ -29,6 +29,29 @@ class PaperPlannerError(Exception):
     pass
 
 
+VTU_SLOT_CONSTRAINTS = {
+    4:  {"max_co": 2, "allowed_blooms": ["L1", "L2", "L3"]},
+    5:  {"max_co": 3, "allowed_blooms": ["L2", "L3"]},
+    6:  {"max_co": 3, "allowed_blooms": ["L2", "L3", "L4"]},
+    8:  {"max_co": 4, "allowed_blooms": ["L3", "L4", "L5"]},
+    10: {"max_co": 5, "allowed_blooms": ["L3", "L4", "L5"]},
+}
+
+
+def _align_to_vtu(marks: int, co_val: str, bloom_val: str) -> Tuple[str, str]:
+    if marks in VTU_SLOT_CONSTRAINTS:
+        rules = VTU_SLOT_CONSTRAINTS[marks]
+        try:
+            co_num = int(co_val.replace("CO", ""))
+            if co_num > rules["max_co"]:
+                co_val = f"CO{rules['max_co']}"
+        except ValueError:
+            pass
+        if bloom_val not in rules["allowed_blooms"]:
+            bloom_val = rules["allowed_blooms"][-1]
+    return co_val, bloom_val
+
+
 class PaperStructurePlanner:
     """Deterministic Paper Structure Planner."""
 
@@ -74,19 +97,31 @@ class PaperStructurePlanner:
         sub_labels = ["a", "b", "c", "d"][: request.subquestion_count]
         or_pairs: List[ORPairDescriptor] = []
         question_counter = 1
+        n_mods = len(request.modules)
 
-        for mod in request.modules:
+        for mod_pos, mod in enumerate(request.modules):
             alt_a_no = question_counter
             alt_b_no = question_counter + 1
             question_counter += 2
 
-            co_val = request.co_mapping.get(mod, f"CO{mod}")
+            if request.co_mapping and mod in request.co_mapping:
+                co_val = request.co_mapping[mod]
+            elif n_mods <= 3:
+                co_val = f"CO{mod_pos + 1}"
+            elif n_mods <= 5:
+                if mod_pos < 2:   co_val = "CO1"
+                elif mod_pos < 4: co_val = "CO2"
+                else:             co_val = "CO3"
+            else:
+                co_idx = min(5, (mod_pos * 5 // n_mods) + 1)
+                co_val = f"CO{co_idx}"
 
             slots_a: List[SlotDescriptor] = []
             slots_b: List[SlotDescriptor] = []
 
             for i, (marks, bloom) in enumerate(zip(D, bloom_profile)):
                 q_type = request.question_types[i % len(request.question_types)]
+                aligned_co, aligned_bloom = _align_to_vtu(marks, co_val, bloom)
 
                 slot_a = SlotDescriptor(
                     slot_id=f"Q{alt_a_no}{sub_labels[i]}",
@@ -94,8 +129,8 @@ class PaperStructurePlanner:
                     sub_label=sub_labels[i],
                     module_id=mod,
                     marks=marks,          # LOCKED
-                    co=co_val,            # LOCKED
-                    bloom=bloom,          # LOCKED
+                    co=aligned_co,        # LOCKED
+                    bloom=aligned_bloom,  # LOCKED
                     question_type=q_type, # LOCKED
                 )
 
@@ -105,8 +140,8 @@ class PaperStructurePlanner:
                     sub_label=sub_labels[i],
                     module_id=mod,
                     marks=marks,          # LOCKED — SAME as slot_a
-                    co=co_val,            # LOCKED — SAME as slot_a
-                    bloom=bloom,          # LOCKED — SAME as slot_a
+                    co=aligned_co,        # LOCKED — SAME as slot_a
+                    bloom=aligned_bloom,  # LOCKED — SAME as slot_a
                     question_type=q_type, # LOCKED
                 )
 

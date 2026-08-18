@@ -268,7 +268,7 @@ class TrainingEngine:
             if e_cfg.get("auto_rollback", True):
                 deploy = False
                 status = "rejected"
-                print(f"[Training] Model REJECTED: score dropped {baseline_score:.4f} → {new_score:.4f}")
+                print(f"[Training] Model REJECTED: score dropped {baseline_score:.4f} -> {new_score:.4f}")
                 # Clean up rejected model
                 shutil.rmtree(str(self.models_dir / new_version), ignore_errors=True)
 

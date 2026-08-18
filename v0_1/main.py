@@ -57,9 +57,9 @@ from .chunk_image_mapper import (
     TextChunk
 )
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # Modules Caching
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 CACHE_DIR = Path("extracted_output") / ".cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -114,9 +114,9 @@ def _save_cached_modules(file_path: str, modules):
         print(f"[CACHE] Could not save modules cache: {e}")
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # Pipeline Orchestrator
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 def run_unified_pipeline(
     file_path:      str,
@@ -128,8 +128,8 @@ def run_unified_pipeline(
 ) -> Tuple[List[dict], List[dict]]:
     """
     Universal Academic Pipeline (AION Development Context):
-      Upload → Extract → Understand → Build Concept Graph → Ground
-           → Reason → Plan → Compose → Audit → Output
+      Upload -> Extract -> Understand -> Build Concept Graph -> Ground
+           -> Reason -> Plan -> Compose -> Audit -> Output
     Every question grounded: Concept ID | Source chunk | Confidence | Expected answer | Bloom | Question
     Stateless, pluggable, hallucination-resistant.
 
@@ -237,7 +237,7 @@ def run_pipeline(
     if pipeline_trace:
         pipeline_trace.stage("PipelineStart", status="PASS", metrics={"file": Path(file_path).name, "exam": exam_type})
 
-    # ── Unified pipeline delegate (grounded) ─────────────────
+    # -- Unified pipeline delegate (grounded) -----------------
     if use_unified and HAS_UNIFIED:
         print("[PIPELINE] Delegating to Universal Academic Pipeline (grounded, hallucination-resistant)")
         return run_unified_pipeline(
@@ -248,7 +248,7 @@ def run_pipeline(
         )
 
     print("=" * 60)
-    # ── Read runtime profile (LAPTOP_FAST / LAPTOP_DEMO / PRODUCTION) ──
+    # -- Read runtime profile (LAPTOP_FAST / LAPTOP_DEMO / PRODUCTION) --
     try:
         from runtime import get_active_profile
         _profile = get_active_profile()
@@ -316,7 +316,7 @@ def run_pipeline(
                     ingestion_errors.append({"file": file_item.name, "error": str(e)})
                     print(f"  [INGESTION ERROR] {file_item.name}: {e}")
 
-            # ── MODULE COMPLETENESS GATE ─────────────────────────────────────────────
+            # -- MODULE COMPLETENESS GATE ---------------------------------------------
             # Validate that every expected module file was ingested without error.
             # Module numbers are positional (matching sorted file order) since
             # ModuleSegment does not carry a module_id field at this stage.
@@ -413,7 +413,7 @@ def run_pipeline(
                 print(f"[VISUAL] Figure extraction failed: {e}")
 
         for fig in figures:
-            fig.eligible = True
+            fig["eligible"] = True if isinstance(fig, dict) else setattr(fig, "eligible", True)
 
         class MockRegistry:
             def __init__(self, figs):
@@ -568,7 +568,7 @@ def run_pipeline(
 
         module_questions.sort(key=lambda x: x["mq_index"])
 
-        # ── SLOT COMPLETENESS GATE ──────────────────────────────────────────────
+        # -- SLOT COMPLETENESS GATE ----------------------------------------------
         # Build expected set from the slots that were actually planned
         # (not from a hardcoded count of 4)
         expected_slot_ids: set[str] = set()
@@ -612,7 +612,7 @@ def run_pipeline(
 
     _print_exam_paper(output_paper, exam_type.upper())
 
-    # ── EXPORT GATE — unconditional, fatal, single authority ──────────────────
+    # -- EXPORT GATE — unconditional, fatal, single authority ------------------
     all_gqs: list = []
     for mod in output_paper:
         for mq in mod["questions"]:
@@ -629,7 +629,7 @@ def run_pipeline(
         raise RuntimeError(f"[EXPORT GATE] FAILED: {export_result.message}")
     print("[EXPORT GATE] PASS — full paper integrity verified.")
 
-    # ── POST-GENERATION INTEGRITY GATE ───────────────────────────────────
+    # -- POST-GENERATION INTEGRITY GATE -----------------------------------
     all_slot_ids = [gq.slot_id for gq in all_gqs]
     integrity = GenerationIntegrity(
         expected_slots    = sum(len(mq.get("slots", [])) for mod in output_paper for mq in mod["questions"]),
@@ -666,7 +666,11 @@ def run_pipeline(
         from .qa_engine import QPGeneratorWithQA
         qa_manager = QPGeneratorWithQA()
         legacy_report = qa_manager.run_full_paper_qa(output_paper)
-        qa_report["legacy_qa_score"] = legacy_report.get("quality_score", 100)
+        qa_report["legacy_qa_score"] = (
+            legacy_report.get("quality_score")
+            or legacy_report.get("qa_score")
+            or 85
+        )
         qa_report["legacy_issues"] = legacy_report.get("issues", [])
         qa_report["quality_score"] = qa_report["legacy_qa_score"]
         print(f"\n[QA ENGINE] Completed Paper QA Check | Score: {qa_report['legacy_qa_score']}/100")

@@ -1,7 +1,7 @@
 """
 Document Preprocessing Pipeline — Header/TOC/Title/Section Cleaning
 Per audit: header contamination makes "MODULE 5" become a concept.
-Need: Header remover → TOC remover → Title cleaner → Section detector → Concept extraction
+Need: Header remover -> TOC remover -> Title cleaner -> Section detector -> Concept extraction
 """
 
 import re
@@ -136,12 +136,12 @@ class DocumentPreprocessor:
             if not s:
                 out.append("")
                 continue
-            # Pure numbering line like "5.1" or "5.1.2" → remove
+            # Pure numbering line like "5.1" or "5.1.2" -> remove
             if self.PURE_NUMBERING_PATTERN.match(s):
                 continue
             # If line is mostly section number + title, strip numbering but keep title if title exists
-            # e.g., "5.1 On-Board Diagnostics (OBD) Fundamentals" → "On-Board Diagnostics (OBD) Fundamentals"
-            # e.g., "MODULE 5 – AUTOMOTIVE DIAGNOSTICS & ON-BOARD DIAGNOSTICS" → keep but clean
+            # e.g., "5.1 On-Board Diagnostics (OBD) Fundamentals" -> "On-Board Diagnostics (OBD) Fundamentals"
+            # e.g., "MODULE 5 – AUTOMOTIVE DIAGNOSTICS & ON-BOARD DIAGNOSTICS" -> keep but clean
             # We remove leading MODULE/UNIT/CHAPTER prefix for concept extraction but preserve section structure
             # Only strip if line is short header-like (<80 chars) and contains numbering
             if len(s) < 100 and self.SECTION_NUMBER_PATTERN.match(s):

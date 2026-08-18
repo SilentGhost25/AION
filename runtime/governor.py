@@ -48,11 +48,11 @@ class GovernorRecommendation:
     message: str
 
 
-# ── Thresholds ────────────────────────────────────────────────────────
+# -- Thresholds --------------------------------------------------------
 
 # Fraction of total RAM usage triggering each state
-_CAUTION_THRESHOLD = 0.75  # 75% RAM used → CAUTION
-_CRITICAL_THRESHOLD = 0.88  # 88% RAM used → CRITICAL
+_CAUTION_THRESHOLD = 0.75  # 75% RAM used -> CAUTION
+_CRITICAL_THRESHOLD = 0.88  # 88% RAM used -> CRITICAL
 
 
 class MemoryGovernor:

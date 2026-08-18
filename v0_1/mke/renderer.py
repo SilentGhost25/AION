@@ -67,7 +67,7 @@ class TreeRenderer:
         if node.node_type == NodeType.LIMIT:
             app = self.to_unicode(node.upper) if node.upper else "∞"
             body = self.to_unicode(node.children[0]) if node.children else ""
-            return f"lim({node.variable}→{app}) {body}"
+            return f"lim({node.variable}->{app}) {body}"
 
         if node.node_type == NodeType.SUMMATION:
             low = self.to_unicode(node.lower) if node.lower else "1"

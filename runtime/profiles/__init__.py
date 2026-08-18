@@ -106,7 +106,7 @@ def _resolve_active_model(backend: str) -> str:
     return "unknown"
 
 
-# ── Profile Registry ──────────────────────────────────────────────────────────
+# -- Profile Registry ----------------------------------------------------------
 
 PRODUCTION_PROFILE = RuntimeProfile(
     name               = ProfileName.PRODUCTION,
@@ -114,7 +114,7 @@ PRODUCTION_PROFILE = RuntimeProfile(
     allowed_models     = frozenset({"qwen2.5:14b", "qwen2.5:14b-instruct-q4_K_M", "qwen2.5:7b"}),
     backend            = "ollama",
     concurrency        = 3,
-    request_timeout_sec= 120,
+    request_timeout_sec= 480,
     slot_budget_sec    = 90,
     global_budget_sec  = 1800,
     max_slot_attempts  = 4,
@@ -134,8 +134,8 @@ LAPTOP_FAST_PROFILE = RuntimeProfile(
     }),
     backend            = "ollama",
     concurrency        = 1,
-    request_timeout_sec= 120,
-    slot_budget_sec    = 120,
+    request_timeout_sec= 480,
+    slot_budget_sec    = 480,
     global_budget_sec  = 1200,
     max_slot_attempts  = 3,
     use_visual_rag     = False,
@@ -150,8 +150,8 @@ LAPTOP_DEMO_PROFILE = RuntimeProfile(
     allowed_models     = LAPTOP_FAST_PROFILE.allowed_models,
     backend            = "ollama",
     concurrency        = 1,
-    request_timeout_sec= 120,
-    slot_budget_sec    = 120,
+    request_timeout_sec= 480,
+    slot_budget_sec    = 480,
     global_budget_sec  = 1200,
     max_slot_attempts  = 2,
     use_visual_rag     = False,

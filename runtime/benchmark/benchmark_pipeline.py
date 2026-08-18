@@ -113,7 +113,7 @@ def print_report(result: PipelineBenchmarkResult) -> None:
     print(f"  Model:            {result.model}")
     print(f"  Backend:          {result.backend}")
     print()
-    print("─" * 60)
+    print("-" * 60)
 
     for phase in result.phases:
         status = "  " if not phase.exceeded else " !"
@@ -121,11 +121,11 @@ def print_report(result: PipelineBenchmarkResult) -> None:
         secs = int(phase.elapsed_seconds % 60)
         print(f"  {phase.name:<20} {mins:02d}:{secs:02d}{status}")
 
-    print("─" * 60)
+    print("-" * 60)
     total_mins = int(result.total_time // 60)
     total_secs = int(result.total_time % 60)
     print(f"  {'TOTAL':<20} {total_mins:02d}:{total_secs:02d}")
-    print("─" * 60)
+    print("-" * 60)
     print()
     print(f"  Questions generated  {result.questions_generated}")
     print(f"  Valid questions      {result.valid_questions}")
@@ -139,7 +139,7 @@ def print_report(result: PipelineBenchmarkResult) -> None:
     print(f"  OR duplicates        {result.or_duplicates}")
     print(f"  Module leakage       {result.module_leakage}")
     print()
-    print("─" * 60)
+    print("-" * 60)
     print(f"  TIME TARGET          ≤ 10:00")
     print(f"  RESULT               {'PASS' if result.passed else 'FAIL'}")
     print("=" * 60)

@@ -35,13 +35,13 @@ class RuntimeProfile(ABC):
     values at runtime but never modifies them.
     """
 
-    # ── Identity ──────────────────────────────────────────────────────
+    # -- Identity ------------------------------------------------------
     @property
     @abstractmethod
     def name(self) -> str:
         """Human-readable profile name, e.g. 'PRODUCTION'."""
 
-    # ── Model / Backend ───────────────────────────────────────────────
+    # -- Model / Backend -----------------------------------------------
     @property
     @abstractmethod
     def model_name(self) -> str:
@@ -62,13 +62,13 @@ class RuntimeProfile(ABC):
     def device(self) -> str:
         """Target device: 'GPU', 'CPU', 'CUDA'."""
 
-    # ── Concurrency ───────────────────────────────────────────────────
+    # -- Concurrency ---------------------------------------------------
     @property
     @abstractmethod
     def concurrency(self) -> int:
         """Maximum parallel Qwen inference workers."""
 
-    # ── Retrieval ─────────────────────────────────────────────────────
+    # -- Retrieval -----------------------------------------------------
     @property
     @abstractmethod
     def retrieval_strategy(self) -> str:
@@ -79,37 +79,37 @@ class RuntimeProfile(ABC):
     def retrieval_top_k(self) -> int:
         """Number of evidence chunks to retrieve per query."""
 
-    # ── Context ───────────────────────────────────────────────────────
+    # -- Context -------------------------------------------------------
     @property
     @abstractmethod
     def context_length(self) -> int:
         """Maximum context window tokens for the LLM."""
 
-    # ── Recovery ──────────────────────────────────────────────────────
+    # -- Recovery ------------------------------------------------------
     @property
     @abstractmethod
     def max_retries(self) -> int:
         """Maximum retry attempts per slot on validation failure."""
 
-    # ── Caching ───────────────────────────────────────────────────────
+    # -- Caching -------------------------------------------------------
     @property
     @abstractmethod
     def caching_enabled(self) -> bool:
         """Whether extraction/index caching is enabled."""
 
-    # ── Timeouts ──────────────────────────────────────────────────────
+    # -- Timeouts ------------------------------------------------------
     @property
     @abstractmethod
     def timeout_budget(self) -> TimeoutBudget:
         """Phase-aware timeout budget."""
 
-    # ── Memory Governor ───────────────────────────────────────────────
+    # -- Memory Governor -----------------------------------------------
     @property
     @abstractmethod
     def memory_governor_enabled(self) -> bool:
         """Whether the dynamic memory governor is active."""
 
-    # ── Utilities ─────────────────────────────────────────────────────
+    # -- Utilities -----------------------------------------------------
     def summary(self) -> dict:
         """Return a dict summarising the profile for logging/display."""
         return {

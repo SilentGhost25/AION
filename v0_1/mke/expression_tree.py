@@ -32,7 +32,7 @@ from enum import Enum
 from typing import Union, Optional, Any, List, Set, Dict
 
 
-# ── Node Types ────────────────────────────────────────────────────────────────
+# -- Node Types ----------------------------------------------------------------
 
 class NodeType(str, Enum):
     NUMBER      = "number"
@@ -55,7 +55,7 @@ class NodeType(str, Enum):
     EXPRESSION  = "expression"
 
 
-# ── Named Constants ───────────────────────────────────────────────────────────
+# -- Named Constants -----------------------------------------------------------
 
 NAMED_CONSTANTS: Dict[str, tuple] = {
     "pi":     ("π",  3.14159265358979),
@@ -68,7 +68,7 @@ NAMED_CONSTANTS: Dict[str, tuple] = {
     "k":      ("k",  1.380e-23),        # Boltzmann constant
 }
 
-# ── Operator Metadata ─────────────────────────────────────────────────────────
+# -- Operator Metadata ---------------------------------------------------------
 
 OPERATOR_META: Dict[str, dict] = {
     "+":   {"arity": 2, "precedence": 1, "name": "addition",       "latex": "+"},
@@ -93,7 +93,7 @@ FUNCTION_META: Dict[str, dict] = {
 }
 
 
-# ── Core Node ─────────────────────────────────────────────────────────────────
+# -- Core Node -----------------------------------------------------------------
 
 @dataclass
 class ExprNode:
@@ -142,7 +142,7 @@ class ExprNode:
             return f"d^{self.order}/d{self.variable}^{self.order} ({expr})"
         if self.node_type == NodeType.LIMIT:
             expr = self.children[0] if self.children else "f"
-            return f"lim({self.variable}→{self.upper}) {expr}"
+            return f"lim({self.variable}->{self.upper}) {expr}"
         if self.node_type == NodeType.SUMMATION:
             expr = self.children[0] if self.children else "a_n"
             return f"∑({self.variable}={self.lower} to {self.upper}) {expr}"
@@ -213,7 +213,7 @@ class ExprNode:
         return count
 
 
-# ── Node Factory Functions ────────────────────────────────────────────────────
+# -- Node Factory Functions ----------------------------------------------------
 
 def num(value: Union[int, float]) -> ExprNode:
     return ExprNode(NodeType.NUMBER, value=value)

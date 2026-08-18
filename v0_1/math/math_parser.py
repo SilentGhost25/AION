@@ -21,7 +21,7 @@ from .math_object import MathObject, Variable
 from .tokens import MathType, UNICODE_MAP
 
 
-# ── Detection Patterns ────────────────────────────────────────────────────────
+# -- Detection Patterns --------------------------------------------------------
 
 MATH_REGIONS = [
     # LaTeX inline and display
@@ -30,7 +30,7 @@ MATH_REGIONS = [
     (r'\\begin\{equation\}(.+?)\\end\{equation\}', "latex_equation"),
 
     # Unicode operators
-    (r'[∫∬∭∮∑∏√∛∂∇±×÷·⋅≤≥≠≈≡∝∀∃∈∉→←↔⇒⟺αβγδεζηθικλμνξπρστυφχψωΓΔΘΛΞΠΣΥΦΨΩ]+'
+    (r'[∫∬∭∮∑∏√∛∂∇±×÷·⋅≤≥≠≈≡∝∀∃∈∉->←↔⇒⟺αβγδεζηθικλμνξπρστυφχψωΓΔΘΛΞΠΣΥΦΨΩ]+'
      r'[^.!?\n]{3,80}',          "unicode_expr"),
 
     # Common formula patterns
@@ -168,7 +168,7 @@ class MathParser:
             subject     = subject,
         )
 
-    # ── Core parsing logic ────────────────────────────────────────────────────
+    # -- Core parsing logic ----------------------------------------------------
 
     def _parse_expression(
         self,
@@ -375,7 +375,7 @@ class MathParser:
             raw_text    = raw,
         )
 
-    # ── Extraction helpers ────────────────────────────────────────────────────
+    # -- Extraction helpers ----------------------------------------------------
 
     def _extract_bound(self, text: str, bound: str) -> str:
         if bound == "lower":
@@ -403,11 +403,11 @@ class MathParser:
         return parts[-1].strip() if len(parts) > 1 else "a_i"
 
     def _extract_limit_variable(self, text: str) -> str:
-        m = re.search(r'(?:lim|Lim)\s*[_\[{]?\s*([a-zA-Z])\s*(?:→|->|\\to)', text)
+        m = re.search(r'(?:lim|Lim)\s*[_\[{]?\s*([a-zA-Z])\s*(?:->|->|\\to)', text)
         return m.group(1) if m else "x"
 
     def _extract_limit_approach(self, text: str) -> str:
-        m = re.search(r'(?:→|->|\\to)\s*([^\s}\]]+)', text)
+        m = re.search(r'(?:->|->|\\to)\s*([^\s}\]]+)', text)
         return m.group(1) if m else "∞"
 
     def _extract_limit_expression(self, text: str) -> str:

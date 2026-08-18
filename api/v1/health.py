@@ -69,7 +69,7 @@ def get_diagnostics():
             "OLLAMA_URL": OLLAMA_URL,
         },
         "pipeline": {
-            "philosophy": "Upload → Extract → Understand → Build Concept Graph → Ground → Reason → Plan → Compose → Audit → Output",
+            "philosophy": "Upload -> Extract -> Understand -> Build Concept Graph -> Ground -> Reason -> Plan -> Compose -> Audit -> Output",
             "llm_role": "component, not architecture",
         },
     })

@@ -1,6 +1,6 @@
 """
 Educational Reasoner — Infers assessment opportunities from Knowledge Unit
-Per audit: Knowledge Unit → Educational Reasoner → Planner (not KU → Planner)
+Per audit: Knowledge Unit -> Educational Reasoner -> Planner (not KU -> Planner)
 Decides: Can this concept become Definition, Comparison, Case Study, Numerical, Diagram, Proof, Procedure, Derivation, Design, Evaluation?
 
 Example BST can generate: Definition, Insertion, Deletion, Traversal, Complexity, AVL comparison, Real world scenario, Implementation, Numerical tracing

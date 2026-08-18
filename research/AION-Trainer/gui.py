@@ -15,9 +15,9 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import re
 
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 # Colour palette (unchanged)
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 AION_VIOLET      = "#8B5CF6"
 AION_BG_DARK     = "#121214"
 AION_CARD_BG     = "#1A1A1E"
@@ -29,9 +29,9 @@ AION_GREEN       = "#10B981"
 AION_RED         = "#EF4444"
 AION_AMBER       = "#F59E0B"
 
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 # Base paths — relative, works on any machine
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 BASE_DIR      = Path(__file__).parent
 WORKSPACE_DIR = BASE_DIR / "workspace"
 OUTPUT_DIR    = BASE_DIR / "outputs"
@@ -42,10 +42,10 @@ for _d in [WORKSPACE_DIR, OUTPUT_DIR, MODEL_DIR, TMP_DIR]:
     _d.mkdir(parents=True, exist_ok=True)
 
 
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 # Inline lightweight versions of our pipeline
 # so gui.py works seamlessly out of the box
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 
 def _extract_pdf(path: str) -> str:
     try:
@@ -175,9 +175,9 @@ TYPE_ICON = {
 }
 
 
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 # Generator (uses Ollama native qwen2.5:7b)
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 
 class QuestionGenerator:
     def __init__(self, model_name: str = "qwen2.5:7b"):
@@ -228,9 +228,9 @@ Q) <exam question>    [{marks} Marks]
         )
 
 
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 # Internal trainer
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 
 def run_training(subject_id: str, files: list, log_q: queue.Queue) -> dict:
     """
@@ -255,7 +255,7 @@ def run_training(subject_id: str, files: list, log_q: queue.Queue) -> dict:
     mem_dir = ws_dir / "memory"
     mem_dir.mkdir(exist_ok=True)
 
-    # ── Step 1: Extract ───────────────────────
+    # -- Step 1: Extract -----------------------
     log("Step 1/4 — Extracting uploaded files…")
     all_text  = ""
     extracted = 0
@@ -282,7 +282,7 @@ def run_training(subject_id: str, files: list, log_q: queue.Queue) -> dict:
     log(f"  Total: {total_words:,} words from {extracted} file(s)")
     progress(0.25)
 
-    # ── Step 2: Concept chunks ────────────────
+    # -- Step 2: Concept chunks ----------------
     log("Step 2/4 — Building concept memory…")
     chunks = chunk_text(all_text, size=350, minimum=15)
     log(f"  {len(chunks)} valid academic chunks")
@@ -309,7 +309,7 @@ def run_training(subject_id: str, files: list, log_q: queue.Queue) -> dict:
     )
     progress(0.40)
 
-    # ── Step 3: Synthetic QA pairs ────────────
+    # -- Step 3: Synthetic QA pairs ------------
     log("Step 3/4 — Generating synthetic QA pairs…")
     sample = concepts[:80]
     qa_pairs = []
@@ -384,7 +384,7 @@ def run_training(subject_id: str, files: list, log_q: queue.Queue) -> dict:
     )
     progress(0.60)
 
-    # ── Step 4: Fine-tune ─────────────────────
+    # -- Step 4: Fine-tune ---------------------
     log("Step 4/4 — Fine-tuning model…")
     adapter_out = MODEL_DIR / subject_id / "adapter"
     adapter_out.mkdir(parents=True, exist_ok=True)
@@ -539,9 +539,9 @@ def get_training_record(subject_id: str):
     return None
 
 
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 # Main application class
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 
 class AIONTrainerApp:
     def __init__(self, root):

@@ -1,9 +1,9 @@
 """
-Assessment Objective Generator — Learning Objective → Student Ability → Scenario → Question
-Per audit: Planner thinks like parser (concept → relationship). Should be: Learning Objective → Student Ability → Scenario → Question
+Assessment Objective Generator — Learning Objective -> Student Ability -> Scenario -> Question
+Per audit: Planner thinks like parser (concept -> relationship). Should be: Learning Objective -> Student Ability -> Scenario -> Question
 
 This layer sits after Knowledge Unit, before Planner:
-Extraction → Concept → Knowledge Unit → Assessment Objective → Planner → Composer
+Extraction -> Concept -> Knowledge Unit -> Assessment Objective -> Planner -> Composer
 """
 
 from typing import List, Dict

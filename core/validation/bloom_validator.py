@@ -65,7 +65,7 @@ def check_bloom_two_layer(
     Layer 2 — Semantic: instruction must not embed higher-level cognitive ops.
     """
 
-    # ── LAYER 1: Lexical ──────────────────────────────────────────────────────
+    # -- LAYER 1: Lexical ------------------------------------------------------
 
     if not instruction or not instruction.strip():
         return BloomCheckResult(False, "INSTRUCTION_EMPTY", "Instruction is empty")
@@ -98,7 +98,7 @@ def check_bloom_two_layer(
             action = "REGENERATE_WITH_BLOOM_HINT"
         )
 
-    # ── LAYER 2: Semantic ─────────────────────────────────────────────────────
+    # -- LAYER 2: Semantic -----------------------------------------------------
 
     if slot.bloom_level in {"L1", "L2", "L3"}:
         # Only enforce semantic check for L4 and below

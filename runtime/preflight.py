@@ -43,7 +43,7 @@ def run_preflight(dataset_dir: str = _DEFAULT_DATASET) -> bool:
 
     all_pass = True
 
-    # ── Hardware ──────────────────────────────────────────────────────
+    # -- Hardware ------------------------------------------------------
     report = get_device_report()
 
     all_pass &= _check("CPU", True, report["cpu"])
@@ -55,7 +55,7 @@ def run_preflight(dataset_dir: str = _DEFAULT_DATASET) -> bool:
 
     print()
 
-    # ── Backends ──────────────────────────────────────────────────────
+    # -- Backends ------------------------------------------------------
     all_pass &= _check("OpenVINO", report["openvino_available"])
 
     ov_gpu = False
@@ -88,7 +88,7 @@ def run_preflight(dataset_dir: str = _DEFAULT_DATASET) -> bool:
 
     print()
 
-    # ── Dataset ───────────────────────────────────────────────────────
+    # -- Dataset -------------------------------------------------------
     dataset_path = Path(dataset_dir)
     dataset_exists = dataset_path.is_dir()
     all_pass &= _check("Dataset", dataset_exists, str(dataset_path))
@@ -108,7 +108,7 @@ def run_preflight(dataset_dir: str = _DEFAULT_DATASET) -> bool:
 
     print()
 
-    # ── Cache ─────────────────────────────────────────────────────────
+    # -- Cache ---------------------------------------------------------
     cache = ExtractionCache()
     extraction_cached = cache.manifest_path.exists()
     _check("Extraction cache", extraction_cached)
@@ -120,7 +120,7 @@ def run_preflight(dataset_dir: str = _DEFAULT_DATASET) -> bool:
 
     print()
 
-    # ── Benchmark Profile ─────────────────────────────────────────────
+    # -- Benchmark Profile ---------------------------------------------
     profile_path = _CACHE_DIR / "runtime_profile.json"
     profile_exists = profile_path.exists()
     model_name = "Not benchmarked"
@@ -141,7 +141,7 @@ def run_preflight(dataset_dir: str = _DEFAULT_DATASET) -> bool:
 
     print()
 
-    # ── Memory Governor ───────────────────────────────────────────────
+    # -- Memory Governor -----------------------------------------------
     gov = MemoryGovernor()
     rec = gov.recommend()
     mem_ok = rec.state != MemoryState.CRITICAL
@@ -149,7 +149,7 @@ def run_preflight(dataset_dir: str = _DEFAULT_DATASET) -> bool:
     print(f"  {'Context':<24} {rec.context_length}")
     print(f"  {'Top-K':<24} {rec.retrieval_top_k}")
 
-    # ── Final Verdict ─────────────────────────────────────────────────
+    # -- Final Verdict -------------------------------------------------
     print()
     print("=" * 60)
     if all_pass:

@@ -17,17 +17,17 @@ class TextChunk:
     page_end             : int
     text                 : str
 
-    # ── CONTENT FLAGS (required — never optional) ─────────────────────────────
+    # -- CONTENT FLAGS (required — never optional) -----------------------------
     has_formula          : bool      # True if chunk contains equations
     has_table            : bool      # True if chunk contains tables
     has_figure_reference : bool      # True if chunk references a figure
 
-    # ── LINKED ARTIFACT IDS ───────────────────────────────────────────────────
+    # -- LINKED ARTIFACT IDS ---------------------------------------------------
     equation_ids         : List[str] = field(default_factory=list)
     table_ids            : List[str] = field(default_factory=list)
     figure_ids           : List[str] = field(default_factory=list)
 
-    # ── QUALITY ───────────────────────────────────────────────────────────────
+    # -- QUALITY ---------------------------------------------------------------
     extraction_confidence: float = 1.0
     topic                : str   = ""
     concept_tags         : List[str] = field(default_factory=list)

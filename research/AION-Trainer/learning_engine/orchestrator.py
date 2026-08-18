@@ -149,7 +149,7 @@ class LearningOrchestrator:
             logger.warning("[LearningOrchestrator] No concepts found in ConceptStore. Empty epoch.")
             return EpochReport(epoch, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 
-        # ── Step 1 & 2: Read, Understand & Link ────────────────────────────────
+        # -- Step 1 & 2: Read, Understand & Link --------------------------------
         for concept in all_concepts:
             entry = self.concept_memory.get(concept.concept_id)
             if entry:
@@ -159,7 +159,7 @@ class LearningOrchestrator:
                     self.concept_learner.study_concept(concept, epoch)
                     self.concept_learner.build_relationships(concept, all_concepts)
 
-        # ── Step 3: Analyze graph links topologically ─────────────────────────
+        # -- Step 3: Analyze graph links topologically -------------------------
         self.relationship_builder.analyze_graph(self.subject_code)
 
         # Populate examiner patterns from existing previous papers / questions
@@ -172,11 +172,11 @@ class LearningOrchestrator:
                     concept_type=concept.scope,
                 )
 
-        # ── Step 4: Generate answers for explainable concepts ────────────────
+        # -- Step 4: Generate answers for explainable concepts ----------------
         for concept in all_concepts:
             self.answer_generator.generate_for_concept(concept, epoch)
 
-        # ── Step 5: Generate questions for questionable concepts ─────────────
+        # -- Step 5: Generate questions for questionable concepts -------------
         blueprint_builder = AnswerBlueprintBuilder()
         for concept in all_concepts:
             entry = self.concept_memory.get(concept.concept_id)
@@ -197,7 +197,7 @@ class LearningOrchestrator:
                     concept, ab, intent, epoch
                 )
 
-        # ── Step 6: Self-Evaluate & report ────────────────────────────────────
+        # -- Step 6: Self-Evaluate & report ------------------------------------
         eval_result = self.self_evaluator.evaluate(self.subject_code, epoch)
 
         # Compile Report

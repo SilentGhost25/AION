@@ -140,7 +140,7 @@ class VisionAdapter:
             return "memory_map"
         return "unknown_diagram"
 
-    # ── Backends ─────────────────────────────────────────────
+    # -- Backends ---------------------------------------------
 
     def _analyze_florence2(self, path: Path, prompt: Optional[str]) -> VisionResult:
         # Stub for Florence-2 integration
@@ -237,10 +237,10 @@ Chosen Combination for Production (fast + grounded + 60s target):
   L1: PyMuPDF native
   L2: Docling + Table Transformer
   L3: PyMuPDF image detection + caption regex
-  L4: RapidOCR (primary) → Surya (handwritten fallback) → Tesseract (last resort)
-  L5: Florence-2 (primary) → Qwen2.5-VL (fallback) → heuristic (stub)
+  L4: RapidOCR (primary) -> Surya (handwritten fallback) -> Tesseract (last resort)
+  L5: Florence-2 (primary) -> Qwen2.5-VL (fallback) -> heuristic (stub)
   L6: Merge + header/footer removal
 
-Pluggability: VisionAdapter supports hot-swap. All backends expose analyze_image() → VisionResult.
+Pluggability: VisionAdapter supports hot-swap. All backends expose analyze_image() -> VisionResult.
 To upgrade: replace backend param, no pipeline change.
 """

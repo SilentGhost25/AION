@@ -11,7 +11,7 @@ from .contracts import MathSymbol
 
 
 MATH_SYMBOL_REGISTRY: Dict[str, MathSymbol] = {
-    # ── GREEK LOWERCASE ───────────────────────────────────────────────────────
+    # -- GREEK LOWERCASE -------------------------------------------------------
     "alpha":   MathSymbol("alpha",   "α", "\\alpha",   "&alpha;",  "&alpha;",  "a",   "greek", ["mathematics"]),
     "beta":    MathSymbol("beta",    "β", "\\beta",    "&beta;",   "&beta;",   "b",   "greek", ["mathematics"]),
     "gamma":   MathSymbol("gamma",   "γ", "\\gamma",   "&gamma;",  "&gamma;",  "g",   "greek", ["mathematics", "physics"]),
@@ -31,7 +31,7 @@ MATH_SYMBOL_REGISTRY: Dict[str, MathSymbol] = {
     "psi":     MathSymbol("psi",     "ψ", "\\psi",     "&psi;",    "&psi;",    "ps",  "greek", ["mathematics", "physics"]),
     "omega":   MathSymbol("omega",   "ω", "\\omega",   "&omega;",  "&omega;",  "w",   "greek", ["mathematics", "electrical", "mechanics"]),
 
-    # ── GREEK UPPERCASE ───────────────────────────────────────────────────────
+    # -- GREEK UPPERCASE -------------------------------------------------------
     "Gamma":   MathSymbol("Gamma",   "Γ", "\\Gamma",   "&Gamma;",  "&Gamma;",  "G",   "greek", ["mathematics"]),
     "Delta":   MathSymbol("Delta",   "Δ", "\\Delta",   "&Delta;",  "&Delta;",  "D",   "greek", ["mathematics", "physics"]),
     "Theta":   MathSymbol("Theta",   "Θ", "\\Theta",   "&Theta;",  "&Theta;",  "TH",  "greek", ["mathematics"]),
@@ -41,7 +41,7 @@ MATH_SYMBOL_REGISTRY: Dict[str, MathSymbol] = {
     "Phi":     MathSymbol("Phi",     "Φ", "\\Phi",     "&Phi;",    "&Phi;",    "PH",  "greek", ["mathematics", "electrical"]),
     "Omega":   MathSymbol("Omega",   "Ω", "\\Omega",   "&Omega;",  "&Omega;",  "Ohm", "greek", ["mathematics", "electrical"]),
 
-    # ── OPERATORS ─────────────────────────────────────────────────────────────
+    # -- OPERATORS -------------------------------------------------------------
     "times":      MathSymbol("times",      "×", "\\times",      "&times;",  "&times;",  "*",   "operator", ["mathematics"]),
     "div":        MathSymbol("div",        "÷", "\\div",        "&divide;", "&divide;", "/",   "operator", ["mathematics"]),
     "plus_minus": MathSymbol("plus_minus", "±", "\\pm",         "&plusmn;", "&plusmn;", "+-",  "operator", ["mathematics"]),
@@ -54,7 +54,7 @@ MATH_SYMBOL_REGISTRY: Dict[str, MathSymbol] = {
     "sum":        MathSymbol("sum",        "∑", "\\sum",        "&sum;",    "&sum;",    "sum", "operator", ["mathematics"]),
     "product":    MathSymbol("product",    "∏", "\\prod",       "&prod;",   "&prod;",   "prod","operator", ["mathematics"]),
 
-    # ── RELATIONS ─────────────────────────────────────────────────────────────
+    # -- RELATIONS -------------------------------------------------------------
     "leq":          MathSymbol("leq",          "≤", "\\leq",    "&le;",     "&le;",     "<=",  "relation", ["mathematics"]),
     "geq":          MathSymbol("geq",          "≥", "\\geq",    "&ge;",     "&ge;",     ">=",  "relation", ["mathematics"]),
     "neq":          MathSymbol("neq",          "≠", "\\neq",    "&ne;",     "&ne;",     "!=",  "relation", ["mathematics"]),
@@ -63,14 +63,14 @@ MATH_SYMBOL_REGISTRY: Dict[str, MathSymbol] = {
     "proportional": MathSymbol("proportional", "∝", "\\propto", "&prop;",   "&prop;",   "~",   "relation", ["mathematics", "physics"]),
     "in_set":       MathSymbol("in_set",       "∈", "\\in",     "&isin;",   "&isin;",   "in",  "relation", ["mathematics"]),
 
-    # ── DOMAIN-SPECIFIC ───────────────────────────────────────────────────────
+    # -- DOMAIN-SPECIFIC -------------------------------------------------------
     "ohm":    MathSymbol("ohm",    "Ω", "\\Omega",   "&#937;", "&#937;", "Ohm", "electrical", ["electrical", "electronics"]),
     "angle":  MathSymbol("angle",  "∠", "\\angle",   "&ang;",  "&ang;",  "<|",  "geometry",   ["mathematics", "geometry", "electrical"]),
     "degree": MathSymbol("degree", "°", "^{\\circ}", "&deg;",  "&deg;",  "deg", "geometry",   ["mathematics", "geometry"]),
     "micro":  MathSymbol("micro",  "μ", "\\mu",      "&micro;","&micro;","u",   "prefix",     ["electrical", "physics"]),
 
-    # ── ARROWS ────────────────────────────────────────────────────────────────
-    "rightarrow":     MathSymbol("rightarrow",     "→", "\\rightarrow",     "&rarr;", "&rarr;", "->",  "arrow", ["mathematics"]),
+    # -- ARROWS ----------------------------------------------------------------
+    "rightarrow":     MathSymbol("rightarrow",     "->", "\\rightarrow",     "&rarr;", "&rarr;", "->",  "arrow", ["mathematics"]),
     "Rightarrow":     MathSymbol("Rightarrow",     "⇒", "\\Rightarrow",     "&rArr;", "&rArr;", "=>",  "arrow", ["mathematics", "logic"]),
     "leftarrow":      MathSymbol("leftarrow",      "←", "\\leftarrow",      "&larr;", "&larr;", "<-",  "arrow", ["mathematics"]),
     "leftrightarrow": MathSymbol("leftrightarrow", "↔", "\\leftrightarrow", "&harr;", "&harr;", "<->", "arrow", ["mathematics"]),

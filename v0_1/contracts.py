@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 
-# ── Pipeline health score ─────────────────────────────────────────────────────
+# -- Pipeline health score -----------------------------------------------------
 
 class PipelineHealth:
     """
@@ -53,7 +53,7 @@ class PipelineHealth:
         return list(self._events)
 
 
-# ── Contract violation ────────────────────────────────────────────────────────
+# -- Contract violation --------------------------------------------------------
 
 class ContractViolation(Exception):
     """Raised when a stage receives the wrong contract type."""
@@ -70,7 +70,7 @@ def require_contract(obj: Any, expected_type: type, stage: str):
         )
 
 
-# ── Stage enums ───────────────────────────────────────────────────────────────
+# -- Stage enums ---------------------------------------------------------------
 
 class ExamType(str, Enum):
     IA  = "IA"
@@ -88,7 +88,7 @@ class ValidationVerdict(str, Enum):
     FAIL   = "FAIL"
 
 
-# ── Contracts (ordered by pipeline stage) ────────────────────────────────────
+# -- Contracts (ordered by pipeline stage) ------------------------------------
 
 @dataclass
 class RawFile:
@@ -112,7 +112,7 @@ class ExtractionResult:
     doc_id:        str
     raw_text:      str
     word_count:    int
-    confidence:    float         # 0.0 → 1.0
+    confidence:    float         # 0.0 -> 1.0
     pipeline_used: str           # text_direct / pymupdf / docx / ocr
     pages:         int = 0
     has_math:      bool = False

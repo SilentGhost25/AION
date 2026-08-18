@@ -16,7 +16,7 @@ from typing import Optional
 from .figure_card import FigureCard, VisualFact
 
 
-# ── Moondream-compatible prompt ───────────────────────────────
+# -- Moondream-compatible prompt -------------------------------
 
 _VLM_PROMPT_SIMPLE = """\
 Look at this figure carefully. Answer these questions briefly:
@@ -69,7 +69,7 @@ class VLMAnalyzer:
         self.timeout = timeout
         self._model  = None
 
-    # ── Model detection ───────────────────────────────────────
+    # -- Model detection ---------------------------------------
 
     def _find_available_model(self) -> Optional[str]:
         if self._model:
@@ -95,7 +95,7 @@ class VLMAnalyzer:
             print(f"[VLM] Ollama check failed: {e}")
             return None
 
-    # ── Main analyze ──────────────────────────────────────────
+    # -- Main analyze ------------------------------------------
 
     def analyze(self, card: FigureCard) -> FigureCard:
         """Run VLM on one FigureCard. Never raises."""
@@ -115,21 +115,21 @@ class VLMAnalyzer:
             print(f"[VLM] Cannot read image {card.id}: {e}")
             return self._rule_based_fallback(card)
 
-        # ── Try JSON prompt first ─────────────────────────────
+        # -- Try JSON prompt first -----------------------------
         result = self._try_json_prompt(card, img_b64, model)
         if result:
             return result
 
-        # ── Fallback: simple prompt + parse text ──────────────
+        # -- Fallback: simple prompt + parse text --------------
         result = self._try_simple_prompt(card, img_b64, model)
         if result:
             return result
 
-        # ── Final fallback: rule-based ────────────────────────
+        # -- Final fallback: rule-based ------------------------
         print(f"[VLM] Both prompts failed for {card.id} — using fallback")
         return self._rule_based_fallback(card)
 
-    # ── Strategy 1: JSON prompt ───────────────────────────────
+    # -- Strategy 1: JSON prompt -------------------------------
 
     def _try_json_prompt(
         self,
@@ -162,7 +162,7 @@ class VLMAnalyzer:
             print(f"[VLM] JSON prompt error for {card.id}: {e}")
             return None
 
-    # ── Strategy 2: Simple prompt + text parsing ──────────────
+    # -- Strategy 2: Simple prompt + text parsing --------------
 
     def _try_simple_prompt(
         self,
@@ -191,7 +191,7 @@ class VLMAnalyzer:
             print(f"[VLM] Simple prompt error for {card.id}: {e}")
             return None
 
-    # ── VLM HTTP call ─────────────────────────────────────────
+    # -- VLM HTTP call -----------------------------------------
 
     def _call_vlm(
         self,
@@ -219,7 +219,7 @@ class VLMAnalyzer:
             data = json.loads(res.read())
             return data.get("response", "").strip()
 
-    # ── JSON extraction ───────────────────────────────────────
+    # -- JSON extraction ---------------------------------------
 
     def _extract_json(self, raw: str) -> Optional[dict]:
         """
@@ -290,7 +290,7 @@ class VLMAnalyzer:
 
         return result if len(result) >= 2 else None
 
-    # ── Apply JSON result to card ─────────────────────────────
+    # -- Apply JSON result to card -----------------------------
 
     def _apply_json_result(
         self,
@@ -359,7 +359,7 @@ class VLMAnalyzer:
         )
         return card
 
-    # ── Parse text response ───────────────────────────────────
+    # -- Parse text response -----------------------------------
 
     def _parse_text_response(
         self,
@@ -452,7 +452,7 @@ class VLMAnalyzer:
                 return vtype
         return "unknown"
 
-    # ── Rule-based fallback ───────────────────────────────────
+    # -- Rule-based fallback -----------------------------------
 
     def _rule_based_fallback(self, card: FigureCard) -> FigureCard:
         facts = []
@@ -487,7 +487,7 @@ class VLMAnalyzer:
 
         return card
 
-    # ── Batch ─────────────────────────────────────────────────
+    # -- Batch -------------------------------------------------
 
     def analyze_batch(
         self,

@@ -43,15 +43,15 @@ class CorruptionReport:
         return self.corruption_level in {"CLEAN", "SUSPICIOUS"}
 
 
-# ── SIGNAL THRESHOLDS ─────────────────────────────────────────────────────────
+# -- SIGNAL THRESHOLDS ---------------------------------------------------------
 CORRUPTION_THRESHOLDS = {
     "replacement_char_abs"     : 1,       # even 1 is a warning
-    "replacement_char_rate"    : 0.001,   # > 0.1% → CORRUPTED
-    "control_char_rate"        : 0.005,   # > 0.5% → CORRUPTED
-    "null_byte_abs"            : 1,       # any null → BINARY
-    "nonprintable_rate_warn"   : 0.02,    # > 2% → SUSPICIOUS
-    "nonprintable_rate_fail"   : 0.05,    # > 5% → CORRUPTED
-    "printable_rate_min"       : 0.90,    # < 90% printable → CORRUPTED
+    "replacement_char_rate"    : 0.001,   # > 0.1% -> CORRUPTED
+    "control_char_rate"        : 0.005,   # > 0.5% -> CORRUPTED
+    "null_byte_abs"            : 1,       # any null -> BINARY
+    "nonprintable_rate_warn"   : 0.02,    # > 2% -> SUSPICIOUS
+    "nonprintable_rate_fail"   : 0.05,    # > 5% -> CORRUPTED
+    "printable_rate_min"       : 0.90,    # < 90% printable -> CORRUPTED
     "entropy_academic_max"     : 5.5,     # normal academic text ~3.5–4.8
     "entropy_binary_min"       : 7.0,     # binary data typically > 7.0
     "binary_run_length"        : 4,       # ≥ 4 consecutive non-printable
@@ -80,7 +80,7 @@ class EncodingGate:
                 confidence=0.0,
             )
 
-        # ── STEP 1: IMMEDIATE HARD GATES ─────────────────────────────────────
+        # -- STEP 1: IMMEDIATE HARD GATES -------------------------------------
         null_bytes = text.count("\x00")
         if null_bytes > 0:
             return CorruptionReport(
@@ -99,7 +99,7 @@ class EncodingGate:
                 confidence=1.0,
             )
 
-        # ── STEP 2: CHARACTER ANALYSIS ───────────────────────────────────────
+        # -- STEP 2: CHARACTER ANALYSIS ---------------------------------------
         total_chars       = len(text)
         replacement_chars = text.count("\ufffd")
 
@@ -115,13 +115,13 @@ class EncodingGate:
 
         printable = total_chars - nonprintable
 
-        # ── STEP 3: RATIO COMPUTATION ─────────────────────────────────────────
+        # -- STEP 3: RATIO COMPUTATION -----------------------------------------
         replacement_rate  = replacement_chars / max(total_chars, 1)
         control_rate      = control_chars      / max(total_chars, 1)
         nonprintable_rate = nonprintable       / max(total_chars, 1)
         printable_rate    = printable          / max(total_chars, 1)
 
-        # ── STEP 4: SHANNON ENTROPY ───────────────────────────────────────────
+        # -- STEP 4: SHANNON ENTROPY -------------------------------------------
         char_freq = Counter(text)
         entropy = -sum(
             (n / total_chars) * math.log2(n / total_chars)
@@ -129,7 +129,7 @@ class EncodingGate:
             if n > 0
         )
 
-        # ── STEP 5: BINARY RUN DETECTION ─────────────────────────────────────
+        # -- STEP 5: BINARY RUN DETECTION -------------------------------------
         has_binary_runs = False
         run_count = 0
         for char in text:
@@ -141,7 +141,7 @@ class EncodingGate:
             else:
                 run_count = 0
 
-        # ── STEP 6: SIGNAL AGGREGATION ───────────────────────────────────────
+        # -- STEP 6: SIGNAL AGGREGATION ---------------------------------------
         signals: List[str] = []
 
         if replacement_chars >= CORRUPTION_THRESHOLDS["replacement_char_abs"]:
@@ -159,7 +159,7 @@ class EncodingGate:
         if has_binary_runs:
             signals.append("BINARY_RUNS")
 
-        # ── STEP 7: VERDICT ───────────────────────────────────────────────────
+        # -- STEP 7: VERDICT ---------------------------------------------------
         n = len(signals)
 
         if "NULL_BYTE" in signals or "BINARY_ENTROPY" in signals:

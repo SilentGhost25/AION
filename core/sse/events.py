@@ -14,18 +14,18 @@ from typing import Any, Dict, Optional
 
 
 class SSEEventType(str, Enum):
-    # ── LIFECYCLE EVENTS ──────────────────────────────────────────────────────
+    # -- LIFECYCLE EVENTS ------------------------------------------------------
     CONNECTED          = "connected"          # SSE channel open
     PIPELINE_STARTED   = "pipeline_started"   # first deterministic step complete
     STAGE_STARTED      = "stage_started"      # named stage beginning
     STAGE_COMPLETE     = "stage_complete"     # named stage succeeded
     PROGRESS           = "progress"           # incremental update
 
-    # ── CONTENT EVENTS ────────────────────────────────────────────────────────
+    # -- CONTENT EVENTS --------------------------------------------------------
     QUESTION_READY     = "question_ready"     # one APPROVED question
     PAPER_READY        = "paper_ready"        # all questions APPROVED
 
-    # ── TERMINAL EVENTS (exactly one is always emitted) ───────────────────────
+    # -- TERMINAL EVENTS (exactly one is always emitted) -----------------------
     DONE               = "done"               # terminal: SUCCESS
     PIPELINE_ERROR     = "pipeline_error"     # terminal: FAILED
 

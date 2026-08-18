@@ -10,7 +10,7 @@ critical = []
 high     = []
 medium   = []
 
-# ── Check 1: Token truncation in generator ────────────────────
+# -- Check 1: Token truncation in generator --------------------
 print("\n[1] Checking num_predict / max_tokens limits...")
 gen_file = Path("v0_1/generator.py")
 if gen_file.exists():
@@ -27,7 +27,7 @@ if gen_file.exists():
         print("  WARN: num_predict not found in generator.py")
         high.append("generator.py: no num_predict — using Ollama default (may truncate)")
 
-# ── Check 2: Chunk truncation in retriever ────────────────────
+# -- Check 2: Chunk truncation in retriever --------------------
 print("\n[2] Checking chunk truncation...")
 for fname in ["v0_1/retriever.py", "v0_1/grounding_gate.py", "v0_1/generator.py"]:
     p = Path(fname)
@@ -48,7 +48,7 @@ for fname in ["v0_1/retriever.py", "v0_1/grounding_gate.py", "v0_1/generator.py"
             else:
                 print(f"  OK: {fname}: {risk} {val}")
 
-# ── Check 3: Sentence completion check ───────────────────────
+# -- Check 3: Sentence completion check -----------------------
 print("\n[3] Checking for sentence clipping...")
 for fname in ["v0_1/generator.py", "v0_1/cleaner.py", "v0_1/critic.py"]:
     p = Path(fname)
@@ -65,7 +65,7 @@ for fname in ["v0_1/generator.py", "v0_1/cleaner.py", "v0_1/critic.py"]:
             high.append(f"{fname}: {desc} found — may clip sentences")
             print(f"  HIGH: {fname}: {desc}")
 
-# ── Check 4: result_sent defined before finally ───────────────
+# -- Check 4: result_sent defined before finally ---------------
 print("\n[4] Checking result_sent placement...")
 api = Path("aion_api.py")
 if api.exists():
@@ -85,7 +85,7 @@ if api.exists():
         high.append("Could not verify result_sent placement")
         print(f"  WARN: stream={stream_line} finally={finally_line} init={init_line}")
 
-# ── Check 5: _enforce_marks called ───────────────────────────
+# -- Check 5: _enforce_marks called ---------------------------
 print("\n[5] Checking _enforce_marks is called...")
 if api.exists():
     content = api.read_text(errors="ignore")
@@ -100,7 +100,7 @@ if api.exists():
         critical.append("_enforce_marks not found in aion_api.py — marks will be wrong")
         print("  CRITICAL: _enforce_marks missing")
 
-# ── Check 6: include_visual removed from run_pipeline call ───
+# -- Check 6: include_visual removed from run_pipeline call ---
 print("\n[6] Checking run_pipeline call arguments...")
 if api.exists():
     content = api.read_text(errors="ignore")
@@ -121,7 +121,7 @@ if api.exists():
                 in_call = False
                 break
 
-# ── Check 7: SSE parser has currentEvent ─────────────────────
+# -- Check 7: SSE parser has currentEvent ---------------------
 print("\n[7] Checking SSE parser...")
 step2 = Path("frontend/artifacts/qp-generator/src/components/wizard/Step2Rules.tsx")
 if step2.exists():
@@ -137,7 +137,7 @@ if step2.exists():
         high.append("__aionLastPaper missing — paper assembly will use fallback")
         print("  HIGH: __aionLastPaper missing")
 
-# ── Summary ───────────────────────────────────────────────────
+# -- Summary ---------------------------------------------------
 print("\n" + "=" * 55)
 print(f"CRITICAL : {len(critical)}")
 print(f"HIGH     : {len(high)}")

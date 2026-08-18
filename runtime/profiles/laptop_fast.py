@@ -30,13 +30,13 @@ class LaptopFastProfile(RuntimeProfile):
             except (json.JSONDecodeError, OSError):
                 self._cached = None
 
-    # ── Identity ──────────────────────────────────────────────────────
+    # -- Identity ------------------------------------------------------
 
     @property
     def name(self) -> str:
         return "LAPTOP_FAST"
 
-    # ── Model / Backend (benchmark-driven) ────────────────────────────
+    # -- Model / Backend (benchmark-driven) ----------------------------
 
     @property
     def model_name(self) -> str:
@@ -62,13 +62,13 @@ class LaptopFastProfile(RuntimeProfile):
             return self._cached.get("device", "GPU")
         return "GPU"
 
-    # ── Concurrency ───────────────────────────────────────────────────
+    # -- Concurrency ---------------------------------------------------
 
     @property
     def concurrency(self) -> int:
         return 1  # Always single-worker on laptop
 
-    # ── Retrieval ─────────────────────────────────────────────────────
+    # -- Retrieval -----------------------------------------------------
 
     @property
     def retrieval_strategy(self) -> str:
@@ -80,7 +80,7 @@ class LaptopFastProfile(RuntimeProfile):
             return self._cached.get("top_k", 4)
         return 4
 
-    # ── Context ───────────────────────────────────────────────────────
+    # -- Context -------------------------------------------------------
 
     @property
     def context_length(self) -> int:
@@ -88,19 +88,19 @@ class LaptopFastProfile(RuntimeProfile):
             return self._cached.get("context_length", 4096)
         return 4096
 
-    # ── Recovery ──────────────────────────────────────────────────────
+    # -- Recovery ------------------------------------------------------
 
     @property
     def max_retries(self) -> int:
         return 2  # Bounded retries on laptop
 
-    # ── Caching ───────────────────────────────────────────────────────
+    # -- Caching -------------------------------------------------------
 
     @property
     def caching_enabled(self) -> bool:
         return True  # Always cache on laptop
 
-    # ── Timeouts ──────────────────────────────────────────────────────
+    # -- Timeouts ------------------------------------------------------
 
     @property
     def timeout_budget(self) -> TimeoutBudget:
@@ -114,16 +114,16 @@ class LaptopFastProfile(RuntimeProfile):
             generation=390.0,
             validation=40.0,
             assembly_export=25.0,
-            per_slot=120.0,
+            per_slot=480.0,
         )
 
-    # ── Memory Governor ───────────────────────────────────────────────
+    # -- Memory Governor -----------------------------------------------
 
     @property
     def memory_governor_enabled(self) -> bool:
         return True  # Shared-memory iGPU requires monitoring
 
-    # ── Persistence ───────────────────────────────────────────────────
+    # -- Persistence ---------------------------------------------------
 
     def persist_benchmark_result(self, result: dict) -> None:
         """Save benchmark winner to disk so future runs skip benchmarking."""

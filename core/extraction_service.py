@@ -45,7 +45,7 @@ class ExtractionService:
             return
 
         try:
-            # ── Stage 1: Extracting ───────────────────────────────────────────
+            # -- Stage 1: Extracting -------------------------------------------
             self.registry.set_status(doc_id, DocumentStatus.EXTRACTING)
             print(f"[EXTRACT] Starting: {doc.filename}")
 
@@ -85,7 +85,7 @@ class ExtractionService:
             doc.confidence = confidence
             print(f"[EXTRACT] Done: {doc.word_count} words, conf={confidence:.0%}")
 
-            # ── Stage 2: Module detection ─────────────────────────────────────
+            # -- Stage 2: Module detection -------------------------------------
             self.registry.set_status(doc_id, DocumentStatus.EXTRACTED)
             print(f"[SEGMENT] Detecting modules...")
 
@@ -103,7 +103,7 @@ class ExtractionService:
             doc.save_chunks(chunks)
             print(f"[SEGMENT] {len(modules)} modules, {len(chunks)} chunks")
 
-            # ── Stage 3: Ready ────────────────────────────────────────────────
+            # -- Stage 3: Ready ------------------------------------------------
             self.registry.set_status(doc_id, DocumentStatus.READY)
             print(f"[EXTRACT] Document {doc_id} READY for generation")
 

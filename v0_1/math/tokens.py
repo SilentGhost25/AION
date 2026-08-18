@@ -13,7 +13,7 @@ from typing import Optional, Union, Dict
 from enum import Enum
 
 
-# ── Token Types ───────────────────────────────────────────────────────────────
+# -- Token Types ---------------------------------------------------------------
 
 class MathType(str, Enum):
     # Calculus
@@ -57,7 +57,7 @@ class MathType(str, Enum):
     SIGNAL       = "signal"
 
 
-# ── Unicode Render Dictionary ─────────────────────────────────────────────────
+# -- Unicode Render Dictionary -------------------------------------------------
 # ONLY used at final rendering stage. Never used for reasoning.
 
 UNICODE_MAP: Dict[str, str] = {
@@ -92,7 +92,7 @@ UNICODE_MAP: Dict[str, str] = {
     "<NOT_IN>":    "∉",   "<FORALL>":  "∀",   "<EXISTS>":  "∃",
 
     # Arrows
-    "<RARR>":      "→",   "<LARR>":    "←",   "<DARR>":    "↓",
+    "<RARR>":      "->",   "<LARR>":    "←",   "<DARR>":    "↓",
     "<UARR>":      "↑",   "<LRARR>":   "↔",   "<IMPLIES>": "⇒",
     "<IFF>":       "⟺",
 

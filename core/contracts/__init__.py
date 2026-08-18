@@ -1,7 +1,7 @@
 """
 AION Core Contracts Package
 ============================
-Provides GenerationRequest (frontend→backend contract) and
+Provides GenerationRequest (frontend->backend contract) and
 PipelineTrace (per-request audit log) for the generate_stream route.
 """
 
@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from core.contracts.text_chunk import TextChunk
 
 
-# ── GenerationRequest ─────────────────────────────────────────────────────────
+# -- GenerationRequest ---------------------------------------------------------
 
 class GenerationRequest:
     """
@@ -51,7 +51,7 @@ class GenerationRequest:
         self.department = department
         self.semester   = semester
 
-    # ── factory ───────────────────────────────────────────────────────────────
+    # -- factory ---------------------------------------------------------------
 
     @classmethod
     def from_dict(cls, body: Dict[str, Any]) -> "GenerationRequest":
@@ -70,7 +70,7 @@ class GenerationRequest:
             semester   = int(body.get("semester") or 5),
         )
 
-    # ── validation ────────────────────────────────────────────────────────────
+    # -- validation ------------------------------------------------------------
 
     def validate(self) -> Tuple[bool, List[str]]:
         errors: List[str] = []
@@ -83,7 +83,7 @@ class GenerationRequest:
             )
         return (len(errors) == 0), errors
 
-    # ── diagnostics ───────────────────────────────────────────────────────────
+    # -- diagnostics -----------------------------------------------------------
 
     def print_received_summary(self) -> None:
         print(
@@ -94,7 +94,7 @@ class GenerationRequest:
         )
 
 
-# ── PipelineTrace ─────────────────────────────────────────────────────────────
+# -- PipelineTrace -------------------------------------------------------------
 
 class PipelineTrace:
     """
@@ -114,7 +114,7 @@ class PipelineTrace:
         self.stages:     List[Dict[str, Any]] = []
         self.fail_reason: Optional[str] = None
 
-    # ── stage recording ───────────────────────────────────────────────────────
+    # -- stage recording -------------------------------------------------------
 
     def stage(
         self,
@@ -152,7 +152,7 @@ class PipelineTrace:
         self.fail_reason = reason
         self.finished_at = datetime.now().isoformat()
 
-    # ── reporting ─────────────────────────────────────────────────────────────
+    # -- reporting -------------------------------------------------------------
 
     def print_summary(self) -> None:
         passed  = sum(1 for s in self.stages if s["status"] == "PASS")

@@ -30,10 +30,10 @@ class PatternLearner:
 
     def __init__(self):
         self.templates = Counter()
-        self.bloom_distribution = defaultdict(Counter)   # subject → bloom → count
-        self.type_distribution = defaultdict(Counter)    # subject → type → count
-        self.topic_question_map = defaultdict(list)      # topic → [questions]
-        self.mark_distribution = defaultdict(Counter)    # subject → marks → count
+        self.bloom_distribution = defaultdict(Counter)   # subject -> bloom -> count
+        self.type_distribution = defaultdict(Counter)    # subject -> type -> count
+        self.topic_question_map = defaultdict(list)      # topic -> [questions]
+        self.mark_distribution = defaultdict(Counter)    # subject -> marks -> count
 
     def learn_from_questions(self, questions: List[Dict]):
         """Process a batch of parsed questions and learn patterns."""
@@ -74,7 +74,7 @@ class PatternLearner:
         Convert a specific question into a generic template.
         
         "Explain the concept of virtual memory with a diagram"
-        →
+        ->
         "Explain the concept of {CONCEPT} with a {DETAIL}"
         """
         text = question_text.strip()
@@ -202,10 +202,10 @@ class PatternLearner:
         """
         Generate training pairs from questions for embedding model.
         Multiple strategies:
-        1. Similar questions (same topic) → positive pairs
-        2. Same bloom level questions → weak positive
-        3. Different subject questions → negatives
-        4. Question ↔ extracted concept → positive
+        1. Similar questions (same topic) -> positive pairs
+        2. Same bloom level questions -> weak positive
+        3. Different subject questions -> negatives
+        4. Question ↔ extracted concept -> positive
         """
         pairs = []
         by_subject = defaultdict(list)

@@ -25,7 +25,7 @@ from .expression_tree import (
 )
 
 
-# ── Tokenizer ─────────────────────────────────────────────────────────────────
+# -- Tokenizer -----------------------------------------------------------------
 
 class Token:
     def __init__(self, kind: str, value: str):
@@ -121,7 +121,7 @@ def _normalize(expr: str) -> str:
         '∞': 'inf', 'π': 'pi', 'α': 'alpha', 'β': 'beta',
         'γ': 'gamma', 'δ': 'delta', 'θ': 'theta', 'λ': 'lambda',
         'μ': 'mu', 'σ': 'sigma', 'ω': 'omega', 'φ': 'phi',
-        '→': '->', '←': '<-', '↔': '<->',
+        '->': '->', '←': '<-', '↔': '<->',
         '≤': '<=', '≥': '>=', '≠': '!=', '≈': '~=',
         '±': 'pm',
     }
@@ -139,7 +139,7 @@ def _normalize(expr: str) -> str:
     return expr
 
 
-# ── Pratt Parser ──────────────────────────────────────────────────────────────
+# -- Pratt Parser --------------------------------------------------------------
 
 class PrattParser:
     """
@@ -357,7 +357,7 @@ class PrattParser:
             self.consume()
             if self.peek() and self.peek().kind == "VAR":
                 variable = self.consume().value
-            # Skip -> or →
+            # Skip -> or ->
             if self.peek() and self.peek().kind == "OP":
                 self.consume()
             approach = self._parse_primary() or const("inf")
@@ -366,7 +366,7 @@ class PrattParser:
         return limit(expr_node or var("f"), variable, approach)
 
 
-# ── Main Parser Interface ─────────────────────────────────────────────────────
+# -- Main Parser Interface -----------------------------------------------------
 
 class ExpressionParser:
     """Main interface for parsing mathematical expressions."""

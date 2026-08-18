@@ -12,10 +12,10 @@ BLOOM_DEMAND_TYPE = {
 }
 
 MARKS_OUTPUT_TABLE = [
-    (1,  3,  1),    # 1–3 marks  → 1 outputs
-    (4,  5,  2),    # 4–5 marks  → 2 outputs
-    (6,  8,  3),    # 6–8 marks  → 3 outputs
-    (9,  20, 4),    # 9+ marks   → 4 outputs
+    (1,  3,  1),    # 1–3 marks  -> 1 outputs
+    (4,  5,  2),    # 4–5 marks  -> 2 outputs
+    (6,  8,  3),    # 6–8 marks  -> 3 outputs
+    (9,  20, 4),    # 9+ marks   -> 4 outputs
 ]
 
 

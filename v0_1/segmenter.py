@@ -70,19 +70,19 @@ class RobustSegmenter:
         # Strategy 1: Explicit markers
         segments = self._by_explicit_markers(text, target_n)
         if self._is_valid(segments, min_words):
-            print(f"[SEGMENTER] Strategy: explicit markers → {len(segments)} segments")
+            print(f"[SEGMENTER] Strategy: explicit markers -> {len(segments)} segments")
             return segments
 
         # Strategy 2: Heading detection
         segments = self._by_headings(text, target_n)
         if self._is_valid(segments, min_words):
-            print(f"[SEGMENTER] Strategy: heading detection → {len(segments)} segments")
+            print(f"[SEGMENTER] Strategy: heading detection -> {len(segments)} segments")
             return segments
 
         # Strategy 3: Paragraph density analysis
         segments = self._by_paragraph_density(text, target_n)
         if self._is_valid(segments, min_words):
-            print(f"[SEGMENTER] Strategy: paragraph density → {len(segments)} segments")
+            print(f"[SEGMENTER] Strategy: paragraph density -> {len(segments)} segments")
             return segments
 
         # Strategy 4: Sentence boundary split

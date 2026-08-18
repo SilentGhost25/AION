@@ -17,7 +17,7 @@ from typing import Optional
 from .validator import ACADEMIC_VOCAB, ContentValidator
 
 
-# ── Configuration ─────────────────────────────────────────────────────────────
+# -- Configuration -------------------------------------------------------------
 
 MIN_CHUNKS      = 2      # minimum valid evidence chunks
 MAX_CHUNKS      = 3      # hard ceiling — never send more than 3
@@ -27,7 +27,7 @@ MIN_ACADEMIC    = 3      # minimum academic indicator words in combined context
 ENTITY_COVERAGE = 0.50   # fraction of query key nouns that must appear in evidence
 
 
-# ── Result ────────────────────────────────────────────────────────────────────
+# -- Result --------------------------------------------------------------------
 
 @dataclass
 class GatingResult:
@@ -42,7 +42,7 @@ class GatingResult:
         return self.proceed
 
 
-# ── Grounding Gate ────────────────────────────────────────────────────────────
+# -- Grounding Gate ------------------------------------------------------------
 
 class GroundingGate:
     """

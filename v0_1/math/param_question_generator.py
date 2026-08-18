@@ -22,7 +22,7 @@ class NumericalProblem:
     """A fully parameterized mathematical problem ready for examination."""
     math_type:      str
     question_text:  str           # narrative question
-    given_values:   Dict          # parameter → value with units
+    given_values:   Dict          # parameter -> value with units
     expected_answer: Any          # computed answer
     solution_steps: List[str]     # step-by-step working
     marks:          int
@@ -75,7 +75,7 @@ class ParameterizedQuestionGenerator:
 
         return None
 
-    # ── Integral ──────────────────────────────────────────────────────────────
+    # -- Integral --------------------------------------------------------------
 
     def _gen_integral(
         self, obj: MathObject, marks: int, bloom: int
@@ -124,7 +124,7 @@ class ParameterizedQuestionGenerator:
             ),
         )
 
-    # ── Derivative ────────────────────────────────────────────────────────────
+    # -- Derivative ------------------------------------------------------------
 
     def _gen_derivative(
         self, obj: MathObject, marks: int, bloom: int
@@ -167,7 +167,7 @@ class ParameterizedQuestionGenerator:
             latex_question  = f"f(x) = {coeff}x^{{{power}}} + {sign*offset}x",
         )
 
-    # ── Summation ─────────────────────────────────────────────────────────────
+    # -- Summation -------------------------------------------------------------
 
     def _gen_summation(
         self, obj: MathObject, marks: int, bloom: int
@@ -214,7 +214,7 @@ class ParameterizedQuestionGenerator:
             bloom_level   = bloom,
         )
 
-    # ── Limit ─────────────────────────────────────────────────────────────────
+    # -- Limit -----------------------------------------------------------------
 
     def _gen_limit(
         self, obj: MathObject, marks: int, bloom: int
@@ -256,7 +256,7 @@ class ParameterizedQuestionGenerator:
             bloom_level   = bloom,
         )
 
-    # ── Equation ──────────────────────────────────────────────────────────────
+    # -- Equation --------------------------------------------------------------
 
     def _gen_equation(
         self, obj: MathObject, marks: int, bloom: int
@@ -292,7 +292,7 @@ class ParameterizedQuestionGenerator:
             bloom_level   = bloom,
         )
 
-    # ── Matrix ────────────────────────────────────────────────────────────────
+    # -- Matrix ----------------------------------------------------------------
 
     def _gen_matrix(
         self, obj: MathObject, marks: int, bloom: int
@@ -324,7 +324,7 @@ class ParameterizedQuestionGenerator:
             bloom_level   = bloom,
         )
 
-    # ── Named Formula ─────────────────────────────────────────────────────────
+    # -- Named Formula ---------------------------------------------------------
 
     def _gen_named_formula(
         self, obj: MathObject, marks: int, bloom: int
@@ -361,7 +361,7 @@ class ParameterizedQuestionGenerator:
             bloom_level     = bloom,
         )
 
-    # ── Laplace ───────────────────────────────────────────────────────────────
+    # -- Laplace ---------------------------------------------------------------
 
     def _gen_laplace(
         self, obj: MathObject, marks: int, bloom: int
@@ -385,7 +385,7 @@ class ParameterizedQuestionGenerator:
             bloom_level     = bloom,
         )
 
-    # ── Z-Transform ───────────────────────────────────────────────────────────
+    # -- Z-Transform -----------------------------------------------------------
 
     def _gen_z_transform(
         self, obj: MathObject, marks: int, bloom: int
@@ -409,7 +409,7 @@ class ParameterizedQuestionGenerator:
             bloom_level     = bloom,
         )
 
-    # ── Fourier ───────────────────────────────────────────────────────────────
+    # -- Fourier ---------------------------------------------------------------
 
     def _gen_fourier(
         self, obj: MathObject, marks: int, bloom: int

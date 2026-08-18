@@ -52,7 +52,7 @@ class ClassificationResult:
         return self.confidence >= CONFIDENCE_THRESHOLD and not self.needs_confirmation
 
 
-# ── Signal patterns ──────────────────────────────────────────────────────────
+# -- Signal patterns ----------------------------------------------------------
 
 # Structural patterns for each document type
 STRUCTURAL_SIGNALS: Dict[str, List[re.Pattern]] = {

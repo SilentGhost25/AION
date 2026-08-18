@@ -32,7 +32,7 @@ def assert_figures_propagated(
                 f"Extraction found {extraction_figure_count} figures "
                 f"but mapper received 0. "
                 f"Figure data was lost in the pipeline. "
-                f"Trace: ExtractionGateway → EvidenceArtifact → ModuleSegment → TextChunk → ChunkImageMapper."
+                f"Trace: ExtractionGateway -> EvidenceArtifact -> ModuleSegment -> TextChunk -> ChunkImageMapper."
             )
         )
 

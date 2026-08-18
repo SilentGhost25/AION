@@ -17,7 +17,7 @@ class EvidenceType(str, Enum):
     Determines retrieval eligibility and processing pipeline.
     """
 
-    # ── ACADEMIC EVIDENCE (retrieval eligible) ────────────────────────────────
+    # -- ACADEMIC EVIDENCE (retrieval eligible) --------------------------------
     TEXT_PROSE        = "TEXT_PROSE"        # normal academic paragraph
     TEXT_DEFINITION   = "TEXT_DEFINITION"   # definition / terminology
     TEXT_THEOREM      = "TEXT_THEOREM"      # theorem / lemma / proof
@@ -29,7 +29,7 @@ class EvidenceType(str, Enum):
     FIGURE_CHART      = "FIGURE_CHART"      # chart / plot
     LIST_ENUMERATION  = "LIST_ENUMERATION"  # ordered/unordered list
 
-    # ── NON-ACADEMIC (quarantined — never retrieval eligible) ─────────────────
+    # -- NON-ACADEMIC (quarantined — never retrieval eligible) -----------------
     PDF_METADATA      = "PDF_METADATA"      # /FontFile2, /ToUnicode, /Contents, etc.
     PDF_FONT_DATA     = "PDF_FONT_DATA"     # font stream internals
     PDF_IMAGE_DATA    = "PDF_IMAGE_DATA"    # raw image stream metadata
@@ -37,7 +37,7 @@ class EvidenceType(str, Enum):
     BINARY_STREAM     = "BINARY_STREAM"     # compressed / encoded stream
     UNICODE_CORRUPT   = "UNICODE_CORRUPT"   # replacement char (\ufffd) contamination
 
-    # ── EXCLUDED (not retrieval eligible, but not errors) ─────────────────────
+    # -- EXCLUDED (not retrieval eligible, but not errors) ---------------------
     REFERENCE_LIST    = "REFERENCE_LIST"    # bibliography / references
     INDEX_PAGE        = "INDEX_PAGE"        # book index
     HEADER_FOOTER     = "HEADER_FOOTER"     # page header / footer

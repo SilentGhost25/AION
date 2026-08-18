@@ -16,7 +16,7 @@ EXEMPT_UNICODE_RANGES = [
     (0x0370, 0x03FF),   # Greek and Coptic (α β γ Ω π etc.)
     (0x2200, 0x22FF),   # Mathematical Operators (∫ ∑ ∏ √ ∞ ∈ etc.)
     (0x2100, 0x214F),   # Letterlike Symbols (ℝ ℂ ℕ ℤ)
-    (0x2190, 0x21FF),   # Arrows (→ ← ↔ ⇒)
+    (0x2190, 0x21FF),   # Arrows (-> ← ↔ ⇒)
     (0x00B0, 0x00B0),   # Degree sign °
     (0x00B1, 0x00B1),   # Plus-minus ±
     (0x00D7, 0x00D7),   # Multiplication ×

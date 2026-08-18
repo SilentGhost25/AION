@@ -128,7 +128,7 @@ class QuestionParser:
 
         return enriched
 
-    # ── Parsing strategies (ordered by reliability) ───────────────────────
+    # -- Parsing strategies (ordered by reliability) -----------------------
 
     def _try_structured_parse(self, text: str) -> List[Dict]:
         """
@@ -299,7 +299,7 @@ class QuestionParser:
 
         return questions
 
-    # ── Metadata extraction ───────────────────────────────────────────────
+    # -- Metadata extraction -----------------------------------------------
 
     def _extract_marks(self, raw_line: str) -> Optional[int]:
         """Extract marks from patterns like [5], (5 marks), 5M, etc."""

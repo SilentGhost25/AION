@@ -2,7 +2,7 @@
 AION SHP Stage 4 — Retrieval Healer
 =====================================
 Diagnoses and repairs retrieval failures.
-Prevents "0 chunks → generate anyway" bug.
+Prevents "0 chunks -> generate anyway" bug.
 """
 
 from __future__ import annotations

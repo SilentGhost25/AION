@@ -9,7 +9,7 @@ Per AION Development Context, extraction is layered:
   Layer 3: Image detection
   Layer 4: OCR
   Layer 5: Diagram understanding
-  Layer 6: Merge everything → clean_text.txt
+  Layer 6: Merge everything -> clean_text.txt
 
 Headers/footers/page numbers removed automatically.
 Supports PDF, DOCX, TXT, Scanned PDF, Handwritten Notes, Lecture Slides,
@@ -140,7 +140,7 @@ def extract(pdf_or_text_path: str) -> Document:
 
     print(f"[EXTRACTOR] File: {path.name} | Type: {file_type}", flush=True)
 
-    # ── Prefer layered extractor for ALL supported types ──
+    # -- Prefer layered extractor for ALL supported types --
     if PREFER_LAYERED_EXTRACTOR:
         try:
             from core.extraction.layered_extractor import extract_layered
@@ -165,7 +165,7 @@ def extract(pdf_or_text_path: str) -> Document:
             text = ""
             report = {}
 
-    # ── Legacy fallback if layered didn't produce text ──
+    # -- Legacy fallback if layered didn't produce text --
     if not text or not text.strip():
         if file_type in ("txt", "md"):
             raw   = path.read_text(encoding="utf-8", errors="ignore")

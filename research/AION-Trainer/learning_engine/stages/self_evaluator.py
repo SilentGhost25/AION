@@ -5,7 +5,7 @@ Self-Evaluation Engine — Stage 6 of the Academic Learning Loop.
 After generating questions and answers, AION evaluates the quality
 of its own output and identifies weak concepts that need revisiting.
 
-This is the "Fail → Re-read" step that makes the system self-improving.
+This is the "Fail -> Re-read" step that makes the system self-improving.
 """
 
 from __future__ import annotations

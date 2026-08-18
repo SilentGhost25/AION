@@ -159,7 +159,7 @@ class ConceptExtractor:
         concepts.sort(key=lambda c: c.confidence, reverse=True)
         return concepts
 
-    # ── Segmentation ─────────────────────────────────────────
+    # -- Segmentation -----------------------------------------
 
     def _segment_concept_chunks(self, text: str) -> List[str]:
         """
@@ -208,7 +208,7 @@ class ConceptExtractor:
 
         return chunks
 
-    # ── Name / Definition ────────────────────────────────────
+    # -- Name / Definition ------------------------------------
 
     def _extract_name_definition(self, chunk: str) -> tuple[Optional[str], Optional[str]]:
         lines = chunk.splitlines()
@@ -258,7 +258,7 @@ class ConceptExtractor:
             result = " ".join(result.split()[:3])
         return result
 
-    # ── Classification ───────────────────────────────────────
+    # -- Classification ---------------------------------------
 
     def _classify_type(self, chunk: str) -> str:
         low = chunk.lower()

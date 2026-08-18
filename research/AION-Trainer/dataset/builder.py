@@ -1,7 +1,7 @@
 """
 Dataset Builder — converts Knowledge Objects into training samples.
 
-One Knowledge Object → 40+ training samples.
+One Knowledge Object -> 40+ training samples.
 
 Output format:
 {
@@ -51,16 +51,16 @@ class DatasetBuilder:
     Builds training dataset from Knowledge Objects.
 
     One concept can produce 40+ training examples:
-        Knowledge → Question
-        Knowledge → Expected Answer
-        Knowledge → Bloom
-        Knowledge → Question Style
-        Knowledge → Diagram Requirement
-        Knowledge → Marks
-        Definition → Concept
-        Concept → Definition
-        Algorithm → Question
-        Diagram → Question
+        Knowledge -> Question
+        Knowledge -> Expected Answer
+        Knowledge -> Bloom
+        Knowledge -> Question Style
+        Knowledge -> Diagram Requirement
+        Knowledge -> Marks
+        Definition -> Concept
+        Concept -> Definition
+        Algorithm -> Question
+        Diagram -> Question
         ...
     """
 
@@ -120,7 +120,7 @@ class DatasetBuilder:
         algorithms = [obj.content for obj in objects if obj.kind == "algorithm"]
         has_diagram = any(obj.kind == "image" for obj in objects)
 
-        # 1. Knowledge → Question (multiple bloom levels)
+        # 1. Knowledge -> Question (multiple bloom levels)
         for bloom in self.BLOOM_LEVELS:
             style = self._bloom_to_style(bloom)
             question = self._generate_question_text(topic, style, bloom)
@@ -134,7 +134,7 @@ class DatasetBuilder:
                 sample_type="knowledge_to_question",
             ))
 
-        # 2. Knowledge → Expected Answer
+        # 2. Knowledge -> Expected Answer
         samples.append(TrainingSample(
             knowledge=combined_content[:1000],
             answer_graph=combined_content[:500],
@@ -147,7 +147,7 @@ class DatasetBuilder:
             sample_type="knowledge_to_answer",
         ))
 
-        # 3. Knowledge → Bloom Level Classification
+        # 3. Knowledge -> Bloom Level Classification
         for bloom in self.BLOOM_LEVELS:
             samples.append(TrainingSample(
                 knowledge=combined_content[:500],
@@ -157,7 +157,7 @@ class DatasetBuilder:
                 sample_type="knowledge_to_bloom",
             ))
 
-        # 4. Knowledge → Question Style
+        # 4. Knowledge -> Question Style
         for style in self.QUESTION_STYLES[:10]:  # Limit to 10
             samples.append(TrainingSample(
                 knowledge=combined_content[:500],
@@ -167,7 +167,7 @@ class DatasetBuilder:
                 sample_type="knowledge_to_style",
             ))
 
-        # 5. Knowledge → Diagram Requirement
+        # 5. Knowledge -> Diagram Requirement
         samples.append(TrainingSample(
             knowledge=combined_content[:500],
             bloom="L2",
@@ -177,7 +177,7 @@ class DatasetBuilder:
             sample_type="knowledge_to_diagram",
         ))
 
-        # 6. Knowledge → Marks Allocation
+        # 6. Knowledge -> Marks Allocation
         for marks in [5, 10, 15]:
             samples.append(TrainingSample(
                 knowledge=combined_content[:500],
@@ -187,7 +187,7 @@ class DatasetBuilder:
                 sample_type="knowledge_to_marks",
             ))
 
-        # 7. Definition → Concept
+        # 7. Definition -> Concept
         for definition in definitions[:3]:
             samples.append(TrainingSample(
                 knowledge=definition,
@@ -197,7 +197,7 @@ class DatasetBuilder:
                 sample_type="definition_to_concept",
             ))
 
-        # 8. Concept → Definition
+        # 8. Concept -> Definition
         if definitions:
             samples.append(TrainingSample(
                 knowledge=topic,
@@ -207,7 +207,7 @@ class DatasetBuilder:
                 sample_type="concept_to_definition",
             ))
 
-        # 9. Algorithm → Question
+        # 9. Algorithm -> Question
         for algo in algorithms[:3]:
             samples.append(TrainingSample(
                 knowledge=algo,
@@ -219,7 +219,7 @@ class DatasetBuilder:
                 sample_type="algorithm_to_question",
             ))
 
-        # 10. Diagram → Question
+        # 10. Diagram -> Question
         if has_diagram:
             samples.append(TrainingSample(
                 knowledge=combined_content[:500],

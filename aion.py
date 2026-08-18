@@ -6,6 +6,7 @@ AION CLI — Question Generation Runner with strict VTU Exam layouts.
 import argparse
 import os
 import sys
+
 from pathlib import Path
 
 def main():
@@ -25,13 +26,13 @@ Examples:
         """,
     )
 
-    # ── Positional argument ───────────────────────────────────
+    # -- Positional argument -----------------------------------
     parser.add_argument(
         "path",
         help="Path to PDF, TXT file, or directory (required)",
     )
 
-    # ── Optional arguments ────────────────────────────────────
+    # -- Optional arguments ------------------------------------
     parser.add_argument(
         "-e", "--exam",
         choices=["ia", "see"],
@@ -82,17 +83,17 @@ Examples:
         version="AION v0.1 — VTU Academic Question Generator",
     )
 
-    # ── Parse arguments ───────────────────────────────────────
+    # -- Parse arguments ---------------------------------------
     args = parser.parse_args()
 
-    # ── Validate path ─────────────────────────────────────────
+    # -- Validate path -----------------------------------------
     file_path = Path(args.path)
 
     if not file_path.exists():
         print(f"[ERROR] Path not found: {args.path}")
         sys.exit(1)
 
-    # ── Setup environment ─────────────────────────────────────
+    # -- Setup environment -------------------------------------
     # Change to AION directory
     aion_dir = Path(__file__).parent.resolve()
     os.chdir(aion_dir)
@@ -102,9 +103,9 @@ Examples:
     if args.model:
         os.environ["AION_MODEL"] = args.model
     elif "AION_MODEL" not in os.environ:
-        os.environ["AION_MODEL"] = "qwen2.5:7b"
+        os.environ.setdefault("AION_MODEL", "qwen2.5:3b-instruct")
 
-    # ── Print banner ──────────────────────────────────────────
+    # -- Print banner ------------------------------------------
     if not args.quiet:
         print()
         print("+----------------------------------------------------------+")
@@ -117,7 +118,7 @@ Examples:
         print("+----------------------------------------------------------+")
         print()
 
-    # ── Run pipeline ──────────────────────────────────────────
+    # -- Run pipeline ------------------------------------------
     try:
         from v0_1.main import run_pipeline
 
@@ -128,12 +129,12 @@ Examples:
             exam_type=args.exam
         )
 
-        # ── Save to file if requested ─────────────────────────
+        # -- Save to file if requested -------------------------
         if args.output:
             _save_output(accepted, args.output, args.exam)
             print(f"\n[SAVED] Output written to: {args.output}")
 
-        # ── Return code ───────────────────────────────────────
+        # -- Return code ---------------------------------------
         if len(accepted) > 0:
             sys.exit(0)
         else:

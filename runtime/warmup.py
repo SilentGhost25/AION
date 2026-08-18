@@ -53,7 +53,7 @@ def run_warmup(dataset_dir: str = _DEFAULT_DATASET) -> bool:
 
     all_ok = True
 
-    # ── 1. Load benchmark profile ─────────────────────────────────────
+    # -- 1. Load benchmark profile -------------------------------------
     profile_path = _CACHE_DIR / "runtime_profile.json"
     if not profile_path.exists():
         all_ok &= _status("Benchmark profile", False,
@@ -69,13 +69,13 @@ def run_warmup(dataset_dir: str = _DEFAULT_DATASET) -> bool:
     device = profile.get("device", "GPU")
     all_ok &= _status("Benchmark profile", True, f"{backend_name} / {model_name}")
 
-    # ── 2. Hardware check ─────────────────────────────────────────────
+    # -- 2. Hardware check ---------------------------------------------
     from runtime.device import get_device_report
     report = get_device_report()
     all_ok &= _status("Hardware", True,
                        f"{report['cpu']}, {report['ram_gb']:.0f} GB, {report['gpu']}")
 
-    # ── 3. Load model & tiny inference ────────────────────────────────
+    # -- 3. Load model & tiny inference --------------------------------
     print()
     print("  Loading model...")
 
@@ -111,7 +111,7 @@ def run_warmup(dataset_dir: str = _DEFAULT_DATASET) -> bool:
     except Exception as exc:
         all_ok &= _status("Model warmup", False, str(exc))
 
-    # ── 4. Dataset cache ──────────────────────────────────────────────
+    # -- 4. Dataset cache ----------------------------------------------
     print()
     dataset_path = Path(dataset_dir)
     dataset_hash = ""
@@ -124,16 +124,16 @@ def run_warmup(dataset_dir: str = _DEFAULT_DATASET) -> bool:
     except Exception as exc:
         all_ok &= _status("Dataset", False, str(exc))
 
-    # ── 5. Extraction cache ───────────────────────────────────────────
+    # -- 5. Extraction cache -------------------------------------------
     cache = ExtractionCache()
     ext_ok = cache.manifest_path.exists()
     all_ok &= _status("Evidence cache", ext_ok, "HIT" if ext_ok else "MISS")
 
-    # ── 6. BM25 indexes ──────────────────────────────────────────────
+    # -- 6. BM25 indexes ----------------------------------------------
     bm25_ok = all(cache.bm25_exists(f"M{i}") for i in range(1, 6))
     all_ok &= _status("BM25 cache", bm25_ok, "HIT" if bm25_ok else "MISS")
 
-    # ── 7. Contract test (basic) ──────────────────────────────────────
+    # -- 7. Contract test (basic) --------------------------------------
     try:
         from runtime.profiles.base import TimeoutBudget
         budget = TimeoutBudget()
@@ -142,14 +142,14 @@ def run_warmup(dataset_dir: str = _DEFAULT_DATASET) -> bool:
     except Exception as exc:
         all_ok &= _status("Contract test", False, str(exc))
 
-    # ── 8. Memory check ──────────────────────────────────────────────
+    # -- 8. Memory check ----------------------------------------------
     from runtime.governor import MemoryGovernor, MemoryState
     gov = MemoryGovernor()
     rec = gov.recommend()
     mem_ok = rec.state != MemoryState.CRITICAL
     all_ok &= _status("Memory", mem_ok, rec.state.value)
 
-    # ── 9. Write demo manifest ────────────────────────────────────────
+    # -- 9. Write demo manifest ----------------------------------------
     print()
     if all_ok:
         manifest = {
@@ -171,7 +171,7 @@ def run_warmup(dataset_dir: str = _DEFAULT_DATASET) -> bool:
     else:
         _status("Demo manifest", False, "Prerequisites failed")
 
-    # ── Final Verdict ─────────────────────────────────────────────────
+    # -- Final Verdict -------------------------------------------------
     print()
     print("=" * 48)
     if all_ok:

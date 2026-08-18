@@ -42,7 +42,7 @@ class GenerationRequest:
         if not isinstance(raw, dict):
             raw = {}
 
-        # ── Subject ────────────────
+        # -- Subject ----------------
         subject = (
             raw.get("subject") or
             raw.get("subjectName") or
@@ -51,14 +51,14 @@ class GenerationRequest:
             "General Academic"
         )
 
-        # ── Department & Semester ────
+        # -- Department & Semester ----
         dept = raw.get("department") or raw.get("dept") or "Computer Science & Engineering"
         try:
             sem = int(raw.get("semester") or raw.get("sem") or 5)
         except (ValueError, TypeError):
             sem = 5
 
-        # ── Exam Type ───────────────
+        # -- Exam Type ---------------
         exam_type = (
             raw.get("exam_type") or
             raw.get("examType") or
@@ -66,7 +66,7 @@ class GenerationRequest:
             "SEE"
         )
 
-        # ── Difficulty ──────────────
+        # -- Difficulty --------------
         diff = (
             raw.get("difficulty") or
             raw.get("difficultyLevel") or
@@ -74,7 +74,7 @@ class GenerationRequest:
             "mixed"
         )
 
-        # ── Bloom Levels ────────────
+        # -- Bloom Levels ------------
         bloom_input = raw.get("bloom_levels") or raw.get("bloom") or raw.get("bloomsTaxonomy") or raw.get("bloomLevels")
         if isinstance(bloom_input, str):
             bloom_levels = [b.strip() for b in bloom_input.split(",") if b.strip()]
@@ -83,7 +83,7 @@ class GenerationRequest:
         else:
             bloom_levels = ["L1", "L2", "L3", "L4"]
 
-        # ── Modules ─────────────────
+        # -- Modules -----------------
         mod_input = raw.get("selected_modules") or raw.get("modules") or raw.get("selectedModules") or raw.get("sections")
         if isinstance(mod_input, list):
             selected_modules = []
@@ -102,7 +102,7 @@ class GenerationRequest:
         else:
             selected_modules = [1, 2, 3, 4, 5]
 
-        # ── Question Types ──────────
+        # -- Question Types ----------
         q_type_input = raw.get("question_types") or raw.get("questionTypes") or raw.get("question_type")
         if isinstance(q_type_input, str):
             question_types = [qt.strip() for qt in q_type_input.split(",") if qt.strip()]
@@ -111,10 +111,10 @@ class GenerationRequest:
         else:
             question_types = ["conceptual", "numerical", "derivation"]
 
-        # ── Model ───────────────────
+        # -- Model -------------------
         model = raw.get("model") or raw.get("production_model") or "qwen2.5:14b"
 
-        # ── Visual Mode ─────────────
+        # -- Visual Mode -------------
         visual = raw.get("visual_mode")
         if visual is None:
             visual = raw.get("includeVisual")
@@ -124,7 +124,7 @@ class GenerationRequest:
             visual = True
         visual_mode = bool(visual)
 
-        # ── File ID / Path ──────────
+        # -- File ID / Path ----------
         file_id = raw.get("file_id") or raw.get("fileId")
         file_path = raw.get("file_path") or raw.get("filePath")
         notes_text = raw.get("notes_text") or raw.get("notesText") or raw.get("context")

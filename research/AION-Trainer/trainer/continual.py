@@ -2,8 +2,8 @@
 Continual Learning for AION.
 
 When new books arrive:
-    1. Run `python cli.py ingest` → only new Knowledge Objects added
-    2. Run `python cli.py incremental_train` → model updated
+    1. Run `python cli.py ingest` -> only new Knowledge Objects added
+    2. Run `python cli.py incremental_train` -> model updated
 
 Uses:
     - Replay Buffer (prevents forgetting)

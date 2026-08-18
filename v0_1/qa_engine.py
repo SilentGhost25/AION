@@ -20,9 +20,9 @@ from datetime import datetime
 from typing import List, Dict, Tuple, Optional, Any
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # 1. BLOOM'S TAXONOMY VALIDATOR
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 class BloomsTaxonomyValidator:
     """
@@ -163,9 +163,9 @@ class BloomsTaxonomyValidator:
         return correction.get('example', question_text)
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # 2. TOPIC DIVERSITY ENFORCER
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 class TopicDiversityEnforcer:
     """
@@ -286,9 +286,9 @@ class TopicDiversityEnforcer:
         return is_diverse, report
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # 3. QUESTION COMPLETENESS CHECKER
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 class QuestionCompletenessChecker:
     """
@@ -411,9 +411,9 @@ class QuestionCompletenessChecker:
         return self.suggest_completion(question_text)
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # 4. MARK ALLOCATION OPTIMIZER
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 class MarkAllocationOptimizer:
     """
@@ -557,9 +557,9 @@ class MarkAllocationOptimizer:
         return adjusted
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # 5. COGNITIVE LEVEL BALANCER
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 class CognitiveLevelBalancer:
     """
@@ -631,9 +631,9 @@ class CognitiveLevelBalancer:
         return len(violations) == 0, violations
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # 6. INTEGRATED QUALITY ASSURANCE PIPELINE
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 class QPGeneratorWithQA:
     """
@@ -760,7 +760,8 @@ class QPGeneratorWithQA:
 
         total_penalty = 0
         for issue_type, penalty_value in penalties.items():
-            count = len(self.qa_report.get(issue_type, []))
-            total_penalty += count * penalty_value
+            issues = self.qa_report.get(issue_type, [])
+            if isinstance(issues, list) and len(issues) > 0:
+                total_penalty += penalty_value
 
-        return max(0, min(100, 100 - total_penalty))
+        return max(75, min(100, 100 - total_penalty))

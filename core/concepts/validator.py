@@ -122,7 +122,7 @@ class ConceptValidator:
                 valid.append(c)
         return valid, results
 
-    # ── Helpers ──────────────────────────────────────────────
+    # -- Helpers ----------------------------------------------
 
     def _is_noise(self, text: str) -> bool:
         noise_patterns = [

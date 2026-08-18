@@ -87,7 +87,7 @@ class ChunkValidationReport:
             f"Quarantined               : {self.quarantined_chunks}",
             f"Invalid (excluded)        : {self.invalid_chunks}",
             f"Retrieval Eligible        : {eligible}",
-            "────────────────────────────────────────────────",
+            "------------------------------------------------",
             "Rejection Breakdown:",
         ]
 
@@ -100,7 +100,7 @@ class ChunkValidationReport:
                 lines.append(f"  {reason.value:<24} : {cnt:>4} ({pct:>5.1f}%)")
 
         lines.extend([
-            "────────────────────────────────────────────────",
+            "------------------------------------------------",
             "Per-Module Coverage:",
         ])
         for mod in range(1, 6):
@@ -109,7 +109,7 @@ class ChunkValidationReport:
             lines.append(f"  Module {mod} : {cnt} valid chunks{status_tag}")
 
         lines.extend([
-            "────────────────────────────────────────────────",
+            "------------------------------------------------",
             f"Primary Root Cause : {self.primary_root_cause.value if self.primary_root_cause else 'NONE'}",
             f"Hard Stop Triggered: {'YES' if self.hard_stop_triggered else 'NO'}",
         ])

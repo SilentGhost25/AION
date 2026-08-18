@@ -17,7 +17,7 @@ from pathlib import Path
 from datetime import datetime
 import requests
 
-# ── Path setup ────────────────────────────────────────────────
+# -- Path setup ------------------------------------------------
 ROOT = Path(__file__).parent.resolve()
 os.chdir(ROOT)
 sys.path.insert(0, str(ROOT))
@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT))
 from core.config.production_model import get_production_model, get_resolution_info
 os.environ.setdefault("AION_MODEL", get_production_model())
 
-# ── Core Services Imports ──────────────────────────────────────
+# -- Core Services Imports --------------------------------------
 from core.document_registry  import DocumentRegistry, DocumentStatus
 from core.extraction_service import ExtractionService
 from core.generation_context import GenerationContext
@@ -33,7 +33,7 @@ from core.planner            import Planner
 from core.numerical_engine   import NumericalEngine
 from v0_1.unified_pipeline   import run_unified, FinalPaper
 
-# ── Flask imports ─────────────────────────────────────────────
+# -- Flask imports ---------------------------------------------
 try:
     from flask import Flask, request, jsonify, Response, stream_with_context
     from flask_cors import CORS
@@ -42,7 +42,7 @@ except ImportError:
     print("Run: pip install flask flask-cors")
     sys.exit(1)
 
-# ── App setup ─────────────────────────────────────────────────
+# -- App setup -------------------------------------------------
 app = Flask(__name__)
 
 # ✅ PERMANENT FIX 1: Allow ALL origins, ALL methods, ALL headers
@@ -80,7 +80,7 @@ def handle_preflight():
         response.headers["Access-Control-Max-Age"]               = "86400"
         return response
 
-# ── API v1 Blueprint ──────────────────────────────────────────
+# -- API v1 Blueprint ------------------------------------------
 try:
     from api.v1 import api_v1_bp
     app.register_blueprint(api_v1_bp)
@@ -112,7 +112,7 @@ def api_v1_root():
         },
     })
 
-# ── Storage & Core Registry ────────────────────────────────────
+# -- Storage & Core Registry ------------------------------------
 UPLOAD_DIR = ROOT / "workspace" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -169,9 +169,9 @@ def warmup_model():
 
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # Startup Checks & Memory Governor
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 from runtime.profiles import get_active_profile
 from runtime.memory_governor import MemoryGovernor
 from core.validation.math_validator import KaTeXAvailabilityGate
@@ -236,9 +236,9 @@ def run_startup_checks() -> None:
     LOG.info("═══════════════════════════════════════════")
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # Health & Readiness Routes
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 @app.route("/api/tags", methods=["GET"])
 def get_tags():
@@ -437,9 +437,9 @@ def ready():
     }), 200 if ready_status else 503
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # File upload
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 @app.route("/api/upload", methods=["POST"])
 def upload():
@@ -526,6 +526,15 @@ def upload():
         ArtifactStatusTransition.transition(manifest, ArtifactStatus.READY, store=store)
         manifest = store.get(doc.id)
         doc.status = DocumentStatus.READY
+
+        # -- Self-Learning: extract concepts from uploaded document ---------
+        try:
+            from v0_1.self_learning import learn_from_document
+            _subject = body.get("subject") or doc.subject or "general"
+            learn_from_document(dest_path, subject=_subject, doc_id=doc.id)
+        except Exception as _le:
+            print(f"[SELF-LEARNING] Non-critical learn step failed: {_le}")
+
     except Exception as exc:
         print(f"[UPLOAD SYNCHRONOUS EXTRACTION ERROR] {doc.id}: {exc}")
         extract_svc.extract_async(doc.id)
@@ -599,21 +608,21 @@ def delete_file(file_id):
     return jsonify({"ok": True})
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # SSE helper
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # Generate — SSE stream
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # Generate — SSE stream
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 @app.route("/api/generate/stream", methods=["POST"])
 def generate_stream():
@@ -885,13 +894,13 @@ def generate_stream():
                 _exam_type
             )
 
-            # ── HARD CONTRACT GATE ───────────────────────────────────────
+            # -- HARD CONTRACT GATE ---------------------------------------
             try:
                 validate_final_paper_contract(result, _exam_type)
             except Exception as contract_err:
                 print(f"[CONTRACT GATE] Notice: {contract_err}", flush=True)
 
-            # ── PREVIEW QA & VALIDATION ─────────────────────────────────
+            # -- PREVIEW QA & VALIDATION ---------------------------------
             qa_score = (qa_report or {}).get("legacy_qa_score", 100)
             target_attemptable = 50 if _exam_type in ("IA", "IAT1", "IAT2", "IAT3", "MID") else 100
             from v0_1.paper_validator import PaperValidator
@@ -919,6 +928,14 @@ def generate_stream():
                 "question_count": total_subquestions,
                 "canonical_hash": canonical_hash
             }
+
+            # -- Self-Learning: record generated questions as learned patterns --
+            try:
+                from v0_1.self_learning import learn_from_generated_paper
+                _subject = gen_req.subject or "general"
+                learn_from_generated_paper(result.get("modules", []), subject=_subject, exam_type=_exam_type)
+            except Exception as _sle:
+                print(f"[SELF-LEARNING] Post-generation learning failed (non-critical): {_sle}")
 
             if qa_status == "PASS":
                 print(f"[QUALITY GATE] EXPORTABLE — Paper passed all QA and structural validation gates (QA Score: {qa_score}/100)", flush=True)
@@ -968,9 +985,9 @@ def generate_stream():
     )
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # Generate — async job
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 @app.route("/api/generate", methods=["POST"])
 def generate_async():
@@ -1288,7 +1305,7 @@ def _format_paper(paper, subject, exam_type, mode, qa_report=None):
     result = gp.to_dict()
     result["modules"] = _enforce_marks(result.get("modules", []), exam_type)
 
-    # ── Validate paper before returning ──────────────────────────────────────
+    # -- Validate paper before returning --------------------------------------
     try:
         from v0_1.paper_validator import PaperValidator
         validator = PaperValidator()
@@ -1375,9 +1392,9 @@ def generate_emergency():
         }), 500
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # Compatibility Routes for Frontend Artifacts
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 @app.route("/api/paper/generate", methods=["POST"])
 @app.route("/api/v1/paper/generate", methods=["POST"])
@@ -1439,9 +1456,9 @@ def document_diagnostics(document_id):
     return jsonify(diag), 200
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # Entry point
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 if __name__ == "__main__":
     port = int(os.environ.get("AION_PORT", 8100))

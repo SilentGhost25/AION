@@ -188,7 +188,7 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
         notes_text: combinedNotes,
         model: "qwen2.5:14b",
         sub_question_count: sections[0]?.subQuestionsPerQ ?? 2,
-        sub_question_counts: sections.map(s => s.subQuestionsPerQ ?? 2),
+        subQuestionCount: sections[0]?.subQuestionsPerQ ?? 2,
       })
 
       if (!response.ok) {
@@ -330,8 +330,8 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
             "Analyze performance tradeoffs and design alternatives",
             "Evaluate solution quality and system specifications",
           ],
-          coCoverage: { co1: 20, co2: 20, co3: 20, co4: 20, co5: 20 },
-          syllabusCoverage: { s1: 20, s2: 20, s3: 20, s4: 20, s5: 20 },
+          coCoverage: { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 },
+          syllabusCoverage: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0 },
         }
 
         setCurrentStage(null)

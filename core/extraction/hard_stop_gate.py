@@ -41,7 +41,7 @@ class ExtractionHardStopGate:
     ) -> GateDecision:
         eligible = report.get_retrieval_eligible_count()
 
-        # ── CHECK 1: ABSOLUTE MINIMUM ─────────────────────────────────────────
+        # -- CHECK 1: ABSOLUTE MINIMUM -----------------------------------------
         if eligible < cls.MIN_VALID_CHUNKS:
             report.hard_stop_triggered = True
             report.hard_stop_reason = f"INSUFFICIENT_VALID_EVIDENCE: Retrieval eligible chunks ({eligible}) < MIN_VALID_CHUNKS ({cls.MIN_VALID_CHUNKS})"
@@ -63,7 +63,7 @@ class ExtractionHardStopGate:
                 http_payload=payload,
             )
 
-        # ── CHECK 2: PER-MODULE MINIMUM ───────────────────────────────────────
+        # -- CHECK 2: PER-MODULE MINIMUM ---------------------------------------
         for mod in range(1, requested_modules + 1):
             mod_chunks = report.per_module_coverage.get(mod, 0)
             if mod_chunks < cls.MIN_CHUNKS_PER_MODULE:
@@ -87,7 +87,7 @@ class ExtractionHardStopGate:
                     http_payload=payload,
                 )
 
-        # ── CHECK 3: BINARY CONTAMINATION DOMINANCE ───────────────────────────
+        # -- CHECK 3: BINARY CONTAMINATION DOMINANCE ---------------------------
         tot = max(report.total_chunks, 1)
         binary_cnt = report.rejection_breakdown.get(RejectionReason.BINARY_CONTAMINATION, 0)
         binary_rate = binary_cnt / tot

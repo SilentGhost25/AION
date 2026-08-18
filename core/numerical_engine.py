@@ -159,7 +159,7 @@ class NumericalEngine:
         topic = self._extract_topic(combined, domain)
         return self.generate(domain, topic, marks, seed)
 
-    # ── Domain-specific generators ────────────────────────────────────────────
+    # -- Domain-specific generators --------------------------------------------
 
     def _gen_data_structures(self, topic: str, marks: int) -> NumericalTemplate:
         n      = random.randint(6, 10)
@@ -489,7 +489,7 @@ class NumericalEngine:
                 f"force exerted by the fluid on the pipe contraction."
             ),
             params    = {"V1": v1, "D1": d1, "D2": d2, "P1": p1},
-            solution_hint = "A1V1=A2V2 → V2=V1(D1/D2)², P1+½ρV1²=P2+½ρV2²",
+            solution_hint = "A1V1=A2V2 -> V2=V1(D1/D2)², P1+½ρV1²=P2+½ρV2²",
             marks_hint    = f"{split_a}+{split_b}",
             bloom_level   = "L3",
         )

@@ -28,7 +28,7 @@ class ExtractionRecoveryManager:
 
         primary_reason = chunk.rejection_reasons[0]
 
-        # ── STRATEGY: BINARY_CONTAMINATION ────────────────────────────────────
+        # -- STRATEGY: BINARY_CONTAMINATION ------------------------------------
         if primary_reason == RejectionReason.BINARY_CONTAMINATION:
             healed_dict = QuarantineHealer.heal(
                 {"text": chunk.text, "document_id": chunk.document_id},
@@ -40,7 +40,7 @@ class ExtractionRecoveryManager:
                 chunk.rejection_reasons = []
                 return chunk
 
-        # ── STRATEGY: UNICODE_CORRUPTION ──────────────────────────────────────
+        # -- STRATEGY: UNICODE_CORRUPTION --------------------------------------
         if primary_reason == RejectionReason.UNICODE_CORRUPTION:
             healed_dict = QuarantineHealer.heal(
                 {"text": chunk.text, "document_id": chunk.document_id},
@@ -52,7 +52,7 @@ class ExtractionRecoveryManager:
                 chunk.rejection_reasons = []
                 return chunk
 
-        # ── STRATEGY: EQUATION_REFERENCE_WITHOUT_EQ ───────────────────────────
+        # -- STRATEGY: EQUATION_REFERENCE_WITHOUT_EQ ---------------------------
         if primary_reason == RejectionReason.EQUATION_PARSE_FAIL:
             healed_dict = QuarantineHealer.heal(
                 {"text": chunk.text, "document_id": chunk.document_id},
@@ -64,7 +64,7 @@ class ExtractionRecoveryManager:
                 chunk.rejection_reasons = []
                 return chunk
 
-        # ── STRATEGY: MISSING_PROVENANCE ─────────────────────────────────────
+        # -- STRATEGY: MISSING_PROVENANCE -------------------------------------
         if primary_reason == RejectionReason.MISSING_PROVENANCE:
             if not chunk.document_id:
                 chunk.document_id = "doc_recovered"

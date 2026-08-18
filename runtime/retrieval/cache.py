@@ -57,7 +57,7 @@ class ExtractionCache:
         self.bm25_dir = self.root / "bm25"
         self._manifest: Optional[CacheManifest] = None
 
-    # ── Manifest I/O ──────────────────────────────────────────────────
+    # -- Manifest I/O --------------------------------------------------
 
     def _load_manifest(self) -> CacheManifest:
         if self._manifest is not None:
@@ -91,7 +91,7 @@ class ExtractionCache:
         with open(self.manifest_path, "w", encoding="utf-8") as f:
             json.dump(raw, f, indent=2)
 
-    # ── Cache Query ───────────────────────────────────────────────────
+    # -- Cache Query ---------------------------------------------------
 
     def is_valid(self, module_id: str, source_sha256: str) -> bool:
         """Check if the cache for a module is still valid."""
@@ -107,7 +107,7 @@ class ExtractionCache:
             and entry.bm25_version == BM25_VERSION
         )
 
-    # ── Extraction Cache ──────────────────────────────────────────────
+    # -- Extraction Cache ----------------------------------------------
 
     def get_extraction(self, module_id: str) -> Optional[Any]:
         """Load cached extraction output for a module."""
@@ -136,7 +136,7 @@ class ExtractionCache:
         )
         self._save_manifest()
 
-    # ── BM25 Index Cache ──────────────────────────────────────────────
+    # -- BM25 Index Cache ----------------------------------------------
 
     def get_bm25_dir(self, module_id: str) -> Path:
         """Return the directory for a module's BM25 index files."""
@@ -148,7 +148,7 @@ class ExtractionCache:
         d = self.get_bm25_dir(module_id)
         return d.exists() and any(d.iterdir())
 
-    # ── Dataset Hash ──────────────────────────────────────────────────
+    # -- Dataset Hash --------------------------------------------------
 
     def set_dataset_hash(self, combined_hash: str) -> None:
         manifest = self._load_manifest()

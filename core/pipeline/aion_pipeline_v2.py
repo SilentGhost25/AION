@@ -4,9 +4,9 @@ This is the production pipeline that actually uses the new architecture end-to-e
 not just logs it. Every stage enriches QuestionSpec, never rewrites free-form text.
 
 Flow:
-Document → Structure Classifier → Concept Extraction → Knowledge Unit (rich) →
-Assessment Objective → QuestionSpec → Variation Engine → Deterministic Numerical →
-Composer V2 (Draft→Academic Rewriter→Grammar→VTU) → Domain Integrity → Strict Audit
+Document -> Structure Classifier -> Concept Extraction -> Knowledge Unit (rich) ->
+Assessment Objective -> QuestionSpec -> Variation Engine -> Deterministic Numerical ->
+Composer V2 (Draft->Academic Rewriter->Grammar->VTU) -> Domain Integrity -> Strict Audit
 
 This fixes the audit's "documentation ahead of implementation" — now the output
 actually changes when these modules change.
@@ -19,7 +19,7 @@ from core.spec.question_spec import QuestionSpec
 from core.education.variation_engine import VariationEngine
 
 class PipelineV2Harness:
-    """Test harness to demonstrate fully wired QuestionSpec → Composer V2 flow
+    """Test harness to demonstrate fully wired QuestionSpec -> Composer V2 flow
     for Modul 2 and Module 3 without needing to rewrite the entire main pipeline at once.
     Call this from tests to verify question quality actually improves.
     """
@@ -144,7 +144,7 @@ class PipelineV2Harness:
         for spec in specs:
             q = self.composer.compose(spec)
             questions.append(q)
-            print(f"\n[V2] {spec.knowledge_unit} → {spec.archetype} (L{spec.bloom_level})")
+            print(f"\n[V2] {spec.knowledge_unit} -> {spec.archetype} (L{spec.bloom_level})")
             print(f"  Spec scenario: {spec.scenario[:100] if spec.scenario else 'None'}...")
             print(f"  Question: {q}")
         return questions

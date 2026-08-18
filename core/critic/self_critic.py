@@ -1,7 +1,7 @@
 """
 Self-Critic — Reasoning-level review before Auditor
 Validates: reasoning operations, expected answer alignment, examiner style, Bloom via operations (not verb)
-Sits after Composer, before Auditor: Composer → Self-Critic → Auditor
+Sits after Composer, before Auditor: Composer -> Self-Critic -> Auditor
 """
 
 import re

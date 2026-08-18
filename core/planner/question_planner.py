@@ -23,12 +23,12 @@ class QuestionPlannerError(Exception):
 
 # Canonical single Bloom verbs per level
 BLOOM_VERB_MAP: Dict[str, List[str]] = {
-    "L1": ["Define", "List", "Identify", "Name", "State"],
-    "L2": ["Explain", "Describe", "Summarize", "Illustrate"],
-    "L3": ["Calculate", "Apply", "Demonstrate", "Determine", "Solve"],
-    "L4": ["Analyze", "Compare", "Examine", "Differentiate"],
-    "L5": ["Evaluate", "Critique", "Justify", "Assess"],
-    "L6": ["Design", "Develop", "Construct", "Propose", "Formulate"],
+    "L1": ["Define", "List", "Identify", "State"],
+    "L2": ["Explain", "Describe", "Summarize", "Discuss"],
+    "L3": ["Calculate", "Determine", "Solve", "Apply"],
+    "L4": ["Analyze", "Compare", "Differentiate", "Examine"],
+    "L5": ["Evaluate", "Justify", "Assess", "Critique"],
+    "L6": ["Design", "Propose", "Formulate", "Develop"],
 }
 
 BLOOM_OPERATION_MAP: Dict[str, str] = {
@@ -53,23 +53,38 @@ class QuestionPlanner:
     ) -> QuestionIntent:
         assert isinstance(slot, SlotDescriptor), "slot must be a SlotDescriptor"
 
-        rng = random.Random(seed + hash(slot.slot_id))
+        slot_entropy = hash((slot.slot_id, slot.marks, slot.bloom,
+                             slot.module_id, getattr(slot, "question_num", 1)))
+        rng = random.Random(seed + slot_entropy)
 
         # Step 2: Concept Selection
         module_chunks = artifact.get_chunks_for_module(slot.module_id)
-        chosen_chunk = rng.choice(module_chunks) if module_chunks else {
-            "chunk_id": "chk_001",
-            "concept_id": f"c_mod_{slot.module_id}",
-            "topic": f"Module {slot.module_id} Concept",
-            "text": f"Core concepts and principles for Module {slot.module_id}.",
-            "page_start": 1,
-            "concept_tags": ["core"],
-        }
+        if module_chunks:
+            sub_idx = {"a": 0, "b": 1, "c": 2, "d": 3}.get(str(slot.sub_label).lower(), 0)
+            n = len(module_chunks)
+
+            # Even-numbered OR alternative gets a far offset
+            alt_offset = (n // 2) if (slot.question_no % 2 == 0 and n > 1) else 0
+
+            # Deterministic but diverse selection per slot
+            base_idx = abs(hash((seed, slot.slot_id, slot.question_no, slot.module_id, slot.marks, slot.bloom))) % n
+            chosen_idx = (base_idx + sub_idx + alt_offset) % n
+            chosen_chunk = module_chunks[chosen_idx]
+        else:
+            chosen_chunk = {
+                "chunk_id": "chk_001",
+                "concept_id": f"c_mod_{slot.module_id}",
+                "topic": f"Module {slot.module_id} Concept",
+                "text": f"Core concepts and principles for Module {slot.module_id}.",
+                "page_start": 1,
+                "concept_tags": ["core"],
+            }
 
         # Step 3: Single Bloom Verb Selection
         bloom_level = slot.bloom if slot.bloom in BLOOM_VERB_MAP else "L2"
         bloom_verbs = BLOOM_VERB_MAP[bloom_level]
-        bloom_verb = rng.choice(bloom_verbs)
+        verb_idx = abs(hash((seed, slot.slot_id, slot.sub_label, slot.question_no))) % max(1, len(bloom_verbs))
+        bloom_verb = bloom_verbs[verb_idx]
         bloom_op = BLOOM_OPERATION_MAP.get(bloom_level, "UNDERSTAND")
 
         # Step 5: Math Protection

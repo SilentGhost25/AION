@@ -1,6 +1,6 @@
 """
 AION Paper Formatter
-Renders generated JSON → HTML → PDF (VTU standard)
+Renders generated JSON -> HTML -> PDF (VTU standard)
 """
 from __future__ import annotations
 import os

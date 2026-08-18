@@ -75,7 +75,7 @@ class ModuleMapper:
             mapping = self._assign_module(chapter, i)
             mappings.append(mapping)
 
-        # Build module → chapters map
+        # Build module -> chapters map
         mod_to_chapters: Dict[int, List[str]] = {}
         for m in mappings:
             mod_to_chapters.setdefault(m.assigned_module, []).append(m.chapter_title)
@@ -93,7 +93,7 @@ class ModuleMapper:
         )
 
         logger.info(
-            f"[ModuleMapper] Mapped {len(chapters)} chapters → "
+            f"[ModuleMapper] Mapped {len(chapters)} chapters -> "
             f"{len(mod_to_chapters)} modules "
             f"(confidence={overall:.2f}, ambiguous={len(ambiguous)})"
         )

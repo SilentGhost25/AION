@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Tuple
 
 
-# ── Bloom taxonomy ────────────────────────────────────────────────────────────
+# -- Bloom taxonomy ------------------------------------------------------------
 
 BLOOM_VERBS = {
     1: ["define", "list", "state", "recall", "identify", "name", "write"],
@@ -30,7 +30,7 @@ TARGET_BLOOM_SEE = {1: 5,  2: 15, 3: 30, 4: 25, 5: 15, 6: 10}
 CO_TOLERANCE = 10
 
 
-# ── Result types ──────────────────────────────────────────────────────────────
+# -- Result types --------------------------------------------------------------
 
 @dataclass
 class ValidationIssue:
@@ -58,7 +58,7 @@ class PaperValidationReport:
         return f"{'PASS' if self.passed else 'FAIL'} — {e} errors, {w} warnings"
 
 
-# ── Main validator ────────────────────────────────────────────────────────────
+# -- Main validator ------------------------------------------------------------
 
 class PaperValidator:
     """
@@ -73,7 +73,7 @@ class PaperValidator:
         modules = paper.get("modules", [])
         target  = paper.get("totalMarks", 50)
 
-        # ── Rule 1: Total marks ───────────────────────────────────────────────
+        # -- Rule 1: Total marks -----------------------------------------------
         actual_total = self._compute_attemptable_marks(modules)
         ok = abs(actual_total - target) <= 2
         checklist["total_marks"] = ok
@@ -85,37 +85,37 @@ class PaperValidator:
                 fix      = "Adjust sub-question marks so OR pairs sum to correct total.",
             ))
 
-        # ── Rule 2: OR parity ────────────────────────────────────────────────
+        # -- Rule 2: OR parity ------------------------------------------------
         or_ok, or_issues = self._validate_or_parity(modules)
         checklist["or_parity"] = or_ok
         issues.extend(or_issues)
 
-        # ── Rule 3: All questions have text ──────────────────────────────────
+        # -- Rule 3: All questions have text ----------------------------------
         text_ok, text_issues = self._validate_question_text(modules)
         checklist["question_text"] = text_ok
         issues.extend(text_issues)
 
-        # ── Rule 4: Sub-question count ────────────────────────────────────────
+        # -- Rule 4: Sub-question count ----------------------------------------
         subq_ok, subq_issues = self._validate_subquestion_count(modules, exam_type)
         checklist["subquestion_count"] = subq_ok
         issues.extend(subq_issues)
 
-        # ── Rule 5: Bloom distribution ───────────────────────────────────────
+        # -- Rule 5: Bloom distribution ---------------------------------------
         bloom_ok, bloom_issues = self._validate_bloom(modules, exam_type)
         checklist["bloom_distribution"] = bloom_ok
         issues.extend(bloom_issues)
 
-        # ── Rule 6: CO coverage ───────────────────────────────────────────────
+        # -- Rule 6: CO coverage -----------------------------------------------
         co_ok, co_issues = self._validate_co(modules)
         checklist["co_coverage"] = co_ok
         issues.extend(co_issues)
 
-        # ── Rule 7: No duplicate questions ───────────────────────────────────
+        # -- Rule 7: No duplicate questions -----------------------------------
         dup_ok, dup_issues = self._validate_duplicates(modules)
         checklist["no_duplicates"] = dup_ok
         issues.extend(dup_issues)
 
-        # ── Rule 8: Question numbering ────────────────────────────────────────
+        # -- Rule 8: Question numbering ----------------------------------------
         num_ok = self._validate_numbering(modules)
         checklist["numbering"] = num_ok
         if not num_ok:
@@ -126,12 +126,12 @@ class PaperValidator:
                 fix      = "Re-index questions starting from 1.",
             ))
 
-        # ── Rule 9: Marks per sub-question sums to main question total ────────
+        # -- Rule 9: Marks per sub-question sums to main question total --------
         sum_ok, sum_issues = self._validate_submarks_sum(modules)
         checklist["submarks_sum"] = sum_ok
         issues.extend(sum_issues)
 
-        # ── Rule 10: Bloom verb matches bloom level ───────────────────────────
+        # -- Rule 10: Bloom verb matches bloom level ---------------------------
         verb_ok, verb_issues = self._validate_bloom_verbs(modules)
         checklist["bloom_verbs"] = verb_ok
         issues.extend(verb_issues)
@@ -143,7 +143,7 @@ class PaperValidator:
             checklist = checklist,
         )
 
-    # ── Rule implementations ──────────────────────────────────────────────────
+    # -- Rule implementations --------------------------------------------------
 
     def _compute_attemptable_marks(self, modules: list) -> int:
         """Sum max marks of each OR pair per module."""
@@ -447,7 +447,7 @@ class PaperValidator:
         return len(words_a & words_b) / max(len(words_a), len(words_b))
 
 
-# ── OR marks enforcer (called in generator) ───────────────────────────────────
+# -- OR marks enforcer (called in generator) -----------------------------------
 
 def enforce_or_parity(
     question_a: dict,

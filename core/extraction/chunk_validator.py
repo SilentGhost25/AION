@@ -47,7 +47,7 @@ class ContentAwareChunkValidator:
         rejection_reasons: List[RejectionReason] = []
         suspicious_count = 0
 
-        # ── STEP 1: CONTENT TYPE ROUTING FOR LAYOUT ARTIFACTS ────────────────
+        # -- STEP 1: CONTENT TYPE ROUTING FOR LAYOUT ARTIFACTS ----------------
         if chunk.content_type in (ContentType.HEADER, ContentType.FOOTER):
             chunk.status = ChunkStatus.INVALID
             chunk.rejection_reasons = [RejectionReason.EMPTY_CONTENT]
@@ -65,7 +65,7 @@ class ContentAwareChunkValidator:
                 action="ROUTE_TO_VRE_NOT_TEXT_RETRIEVAL",
             )
 
-        # ── STEP 2: UNIVERSAL GATES ──────────────────────────────────────────
+        # -- STEP 2: UNIVERSAL GATES ------------------------------------------
 
         # Gate U1: Binary Contamination (highest priority)
         encoding_report = EncodingGate.analyze(chunk.text)
@@ -102,7 +102,7 @@ class ContentAwareChunkValidator:
                 rejection_reasons=[RejectionReason.EMPTY_CONTENT],
             )
 
-        # ── STEP 3: CONTENT-SPECIFIC VALIDATION ──────────────────────────────
+        # -- STEP 3: CONTENT-SPECIFIC VALIDATION ------------------------------
 
         # TEXT Validation
         if chunk.content_type in (ContentType.TEXT, ContentType.MIXED):
@@ -136,7 +136,7 @@ class ContentAwareChunkValidator:
                     rejection_reasons=[RejectionReason.EQUATION_PARSE_FAIL],
                 )
 
-        # ── STEP 4: FINAL STATUS DECISION ─────────────────────────────────────
+        # -- STEP 4: FINAL STATUS DECISION -------------------------------------
         if suspicious_count >= 2:
             chunk.status = ChunkStatus.SUSPICIOUS
             chunk.retrieval_penalty = 0.40

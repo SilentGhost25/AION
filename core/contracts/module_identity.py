@@ -42,7 +42,7 @@ def make_module_id(number: int) -> str:
     """
     Build a canonical module_id string from a 1-based integer.
 
-    Example: make_module_id(3) → "module_3"
+    Example: make_module_id(3) -> "module_3"
     """
     if number < 1:
         raise ValueError(f"Module number must be ≥ 1, got {number!r}.")
@@ -53,7 +53,7 @@ def make_co(module_number: int) -> str:
     """
     Build the Course Outcome label for a module.
 
-    Example: make_co(3) → "CO3"
+    Example: make_co(3) -> "CO3"
     """
     if module_number < 1:
         raise ValueError(f"Module number must be ≥ 1, got {module_number!r}.")
@@ -64,7 +64,7 @@ def parse_co_number(co: str) -> int:
     """
     Parse the integer from a CO label (inverse of make_co).
 
-    Example: parse_co_number("CO3") → 3
+    Example: parse_co_number("CO3") -> 3
     """
     m = re.fullmatch(r"CO(\d+)", co.strip())
     if not m:

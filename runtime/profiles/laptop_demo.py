@@ -37,7 +37,7 @@ class LaptopDemoProfile(LaptopFastProfile):
     def name(self) -> str:
         return "LAPTOP_DEMO"
 
-    # ── Manifest Validation ───────────────────────────────────────────
+    # -- Manifest Validation -------------------------------------------
 
     def _load_manifest(self) -> dict:
         """Load and validate the demo manifest, raising on mismatch."""

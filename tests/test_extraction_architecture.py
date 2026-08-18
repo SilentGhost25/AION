@@ -31,7 +31,7 @@ from core.generation.bloom_grammar import BloomGrammarValidator
 from core.validators.semantic_validator import SemanticValidator
 
 
-# ── INV-1: WEIGHTED PDF INTERNALS TESTS ───────────────────────────────────────
+# -- INV-1: WEIGHTED PDF INTERNALS TESTS ---------------------------------------
 
 def test_pdf_internal_weighted_scoring():
     # PDF metadata leak snippet
@@ -50,7 +50,7 @@ def test_pdf_internal_legitimate_word_object_passes():
     assert report.total_score < 5
 
 
-# ── INV-2: CHUNK-LEVEL UNICODE INTEGRITY & MATH EXEMPTIONS ───────────────────
+# -- INV-2: CHUNK-LEVEL UNICODE INTEGRITY & MATH EXEMPTIONS -------------------
 
 def test_chunk_level_unicode_quarantine():
     clean_text = "The electronic control unit calculates engine timing."
@@ -70,7 +70,7 @@ def test_unicode_math_symbols_exempt():
     assert report.clean is True
 
 
-# ── INV-3: OR PAIR SEMANTIC DISTINCTNESS ─────────────────────────────────────
+# -- INV-3: OR PAIR SEMANTIC DISTINCTNESS -------------------------------------
 
 def test_or_pair_distinctness_score_detects_identical():
     q1 = "Describe the operating principles of Antilock Braking Systems."
@@ -87,7 +87,7 @@ def test_or_pair_distinctness_score_accepts_distinct():
     assert report.is_distinct is True
 
 
-# ── INV-4: BLOOM GRAMMAR VALIDATION ──────────────────────────────────────────
+# -- INV-4: BLOOM GRAMMAR VALIDATION ------------------------------------------
 
 def test_bloom_verb_grammar_forbidden_combos():
     rep1 = BloomGrammarValidator.validate_verb_phrase("Create", "Create between the two control system architectures.")
@@ -100,7 +100,7 @@ def test_bloom_verb_grammar_forbidden_combos():
     assert rep3.valid is True
 
 
-# ── COVERAGE GATE & HARD STOP TESTS ─────────────────────────────────────────
+# -- COVERAGE GATE & HARD STOP TESTS -----------------------------------------
 
 def test_evidence_coverage_gate_blocks_missing_module():
     chunks = [

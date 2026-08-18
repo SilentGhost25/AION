@@ -71,7 +71,7 @@ class ContentHealer:
                 {"word_count": word_count},
             )
             raw_text = self._force_truncate(raw_text, MAX_MODULE_WORDS)
-            repairs.append(f"SH-021 [{RepairCategory.ENCODING_REPAIR}]: Truncated {word_count}w → {MAX_MODULE_WORDS}w")
+            repairs.append(f"SH-021 [{RepairCategory.ENCODING_REPAIR}]: Truncated {word_count}w -> {MAX_MODULE_WORDS}w")
             self.kb.resolve(rec, "Truncated to max module size")
 
         from v0_1.cleaner import semantic_clean

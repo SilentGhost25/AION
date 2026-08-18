@@ -20,7 +20,7 @@ from core.artifacts.assertions import assert_not_txt_source, assert_gateway_rece
 from core.extraction.gateway import ExtractionGateway, ExtractionError
 
 
-# ── TEST 1: MAGIC BYTE MIME DETECTION ──────────────────────────────────────────
+# -- TEST 1: MAGIC BYTE MIME DETECTION ------------------------------------------
 
 def test_magic_byte_mime_detection_pdf(tmp_path):
     # A PDF file saved with a .txt extension
@@ -41,7 +41,7 @@ def test_magic_byte_mime_detection_docx(tmp_path):
     assert mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
-# ── TEST 2: ARTIFACT STORE LIFECYCLE & INTEGRITY ─────────────────────────────
+# -- TEST 2: ARTIFACT STORE LIFECYCLE & INTEGRITY -----------------------------
 
 def test_artifact_store_lifecycle(tmp_path):
     store = ArtifactStore(base_dir=str(tmp_path))
@@ -82,7 +82,7 @@ def test_artifact_store_source_integrity_failure(tmp_path):
         store.get("doc_corrupt")
 
 
-# ── TEST 3: GENERATION REQUEST RESOLVER ──────────────────────────────────────
+# -- TEST 3: GENERATION REQUEST RESOLVER --------------------------------------
 
 def test_generation_request_resolver(tmp_path):
     store = ArtifactStore(base_dir=str(tmp_path))
@@ -100,7 +100,7 @@ def test_generation_request_resolver(tmp_path):
     assert source.manifest.source.authoritative is True
 
 
-# ── TEST 4: DERIVED CACHE MANAGEMENT ─────────────────────────────────────────
+# -- TEST 4: DERIVED CACHE MANAGEMENT -----------------------------------------
 
 def test_derived_cache_management(tmp_path):
     store = ArtifactStore(base_dir=str(tmp_path))
@@ -125,7 +125,7 @@ def test_derived_cache_management(tmp_path):
     assert len(inv_manifest.derived) == 0
 
 
-# ── TEST 5: GATEWAY SELF-CORRECTION & DIAGNOSTIC ASSERTIONS ─────────────────
+# -- TEST 5: GATEWAY SELF-CORRECTION & DIAGNOSTIC ASSERTIONS -----------------
 
 def test_gateway_self_correction_of_txt_path(tmp_path):
     store = ArtifactStore(base_dir=str(tmp_path))

@@ -75,47 +75,47 @@ class EquationKnowledgeObject:
     Every equation in AION is stored as an EKO — never as a string.
     """
 
-    # ── Identity ──────────────────────────────────────────────────────────────
+    # -- Identity --------------------------------------------------------------
     eko_id:       str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     name:         str = ""               # "Quadratic Formula", "Ohm's Law"
     aliases:      List[str] = field(default_factory=list)
 
-    # ── Mathematical Core ─────────────────────────────────────────────────────
+    # -- Mathematical Core -----------------------------------------------------
     tree:         Optional[ExprNode] = None    # the expression tree
     sympy_expr:   Any = None                   # sympy representation for solving
     canonical:    str = ""                     # canonical string form
 
-    # ── Variables ─────────────────────────────────────────────────────────────
+    # -- Variables -------------------------------------------------------------
     variables:    List[VariableSpec] = field(default_factory=list)
     constants:    List[VariableSpec] = field(default_factory=list)
     unknowns:     List[str] = field(default_factory=list)   # what is being solved for
 
-    # ── Context ───────────────────────────────────────────────────────────────
+    # -- Context ---------------------------------------------------------------
     subject:      str = ""
     topic:        str = ""
     subtopic:     str = ""
     domains:      List[str] = field(default_factory=list)   # where it applies
     prerequisites: List[str] = field(default_factory=list) # concept names
 
-    # ── Question Generation ───────────────────────────────────────────────────
+    # -- Question Generation ---------------------------------------------------
     blueprints:   List[QuestionBlueprint] = field(default_factory=list)
     param_generator: Optional[Callable] = None    # function that generates values
     auto_solver:  Optional[Callable] = None       # function that solves for unknowns
 
-    # ── Knowledge ─────────────────────────────────────────────────────────────
+    # -- Knowledge -------------------------------------------------------------
     derivation:   List[DerivationStep] = field(default_factory=list)
     special_cases: List[dict] = field(default_factory=list)
     limitations:  List[str] = field(default_factory=list)
     applications: List[str] = field(default_factory=list)
     related_ecos: List[str] = field(default_factory=list)   # other EKO ids
 
-    # ── Quality ───────────────────────────────────────────────────────────────
+    # -- Quality ---------------------------------------------------------------
     difficulty:   str = "medium"     # easy / medium / hard
     confidence:   float = 1.0
     verified:     bool = False
     source:       str = ""
 
-    # ── Rendering Cache ───────────────────────────────────────────────────────
+    # -- Rendering Cache -------------------------------------------------------
     _latex_cache: str = field(default="", repr=False)
     _unicode_cache: str = field(default="", repr=False)
 
@@ -246,7 +246,7 @@ class EquationKnowledgeObject:
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), indent=2)
 
-    # ── Private helpers ───────────────────────────────────────────────────────
+    # -- Private helpers -------------------------------------------------------
 
     def _solve(
         self, values: dict, unknown: str

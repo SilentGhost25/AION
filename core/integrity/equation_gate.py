@@ -51,7 +51,7 @@ class EquationIntegrityGate:
                 issues=["Empty LaTeX string"],
             )
 
-        # ── STEP 1: BINARY CONTAMINATION ──────────────────────────────────────
+        # -- STEP 1: BINARY CONTAMINATION --------------------------------------
         if "\x00" in latex or "\ufffd" in latex:
             return EquationReport(
                 status="BINARY_CONTAMINATION",
@@ -69,7 +69,7 @@ class EquationIntegrityGate:
                 issues=[f"{nonprintable} non-printable characters in equation"],
             )
 
-        # ── STEP 2: UTF-8 ROUND TRIP ──────────────────────────────────────────
+        # -- STEP 2: UTF-8 ROUND TRIP ------------------------------------------
         utf8_valid = True
         try:
             latex.encode("utf-8").decode("utf-8")
@@ -77,10 +77,10 @@ class EquationIntegrityGate:
             utf8_valid = False
             issues.append("UTF-8 round-trip decode failed")
 
-        # ── STEP 3: DELIMITER BALANCE ─────────────────────────────────────────
+        # -- STEP 3: DELIMITER BALANCE -----------------------------------------
         delimiters_balanced = cls._check_delimiter_balance(latex, issues)
 
-        # ── STEP 4: KNOWN SYMBOL COVERAGE ─────────────────────────────────────
+        # -- STEP 4: KNOWN SYMBOL COVERAGE -------------------------------------
         commands = re.findall(r"\\[a-zA-Z]+", latex)
         unknown_count = sum(1 for c in commands if c not in KNOWN_LATEX_COMMANDS)
         unknown_ratio = unknown_count / max(len(commands), 1)
@@ -88,18 +88,18 @@ class EquationIntegrityGate:
         if unknown_ratio > 0.30:
             issues.append(f"High unknown LaTeX command ratio: {unknown_ratio:.0%}")
 
-        # ── STEP 5: CONFIDENCE SCORE ─────────────────────────────────────────
+        # -- STEP 5: CONFIDENCE SCORE -----------------------------------------
         confidence = (
             (1.0 if utf8_valid else 0.0) * 0.30 +
             (1.0 if delimiters_balanced else 0.5) * 0.40 +
             (1.0 - min(1.0, unknown_ratio)) * 0.30
         )
 
-        # ── STEP 6: SHA256 CANONICAL HASH ─────────────────────────────────────
+        # -- STEP 6: SHA256 CANONICAL HASH -------------------------------------
         normalized = re.sub(r"\s+", " ", latex.strip())
         canonical_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
-        # ── STEP 7: VERDICT ───────────────────────────────────────────────────
+        # -- STEP 7: VERDICT ---------------------------------------------------
         if not utf8_valid or not delimiters_balanced or confidence < 0.60:
             status = "INVALID"
         elif confidence >= 0.90:

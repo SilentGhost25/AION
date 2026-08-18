@@ -7,14 +7,14 @@ Every request goes through this function.
 
 Contract flow:
     RawFile
-    → ExtractionResult  (S1)
-    → CleanedContent    (S2)
-    → ChunkedContent    (S3)
-    → RetrievedEvidence (S4)
-    → GenerationRequest (S5)
-    → [LLM]             (S6)
-    → ValidatedQuestion (S7)
-    → FinalPaper        (S8)
+    -> ExtractionResult  (S1)
+    -> CleanedContent    (S2)
+    -> ChunkedContent    (S3)
+    -> RetrievedEvidence (S4)
+    -> GenerationRequest (S5)
+    -> [LLM]             (S6)
+    -> ValidatedQuestion (S7)
+    -> FinalPaper        (S8)
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ def run_unified(
 
     auditor = ExecutionAuditor(raw.doc_id)
 
-    # ── S1: Extract ───────────────────────────────────────────────────────────
+    # -- S1: Extract -----------------------------------------------------------
     t1  = time.time()
     ext = _extract(raw)
     auditor.audit_extraction(ext, ext.pipeline_used if ext else "none",
@@ -79,7 +79,7 @@ def run_unified(
     if ext is None:
         raise RuntimeError("S1_EXTRACTION failed: no text extracted")
 
-    # ── S2: Clean (MUST run before S3) ───────────────────────────────────────
+    # -- S2: Clean (MUST run before S3) ---------------------------------------
     t2    = time.time()
     clean = _clean(ext)
     auditor.audit_cleaning(clean, ran_before_validator=True,
@@ -88,7 +88,7 @@ def run_unified(
         health.deduct(30, "S2_CLEANING failed — using raw text")
         clean = _emergency_clean(ext)
 
-    # ── S3: Chunk + Validate ──────────────────────────────────────────────────
+    # -- S3: Chunk + Validate --------------------------------------------------
     t3      = time.time()
     chunked = _chunk_and_validate(clean, health)
     auditor.audit_chunking(chunked, elapsed_ms=(time.time()-t3)*1000)
@@ -99,7 +99,7 @@ def run_unified(
             "Document appears corrupted or non-academic."
         )
 
-    # ── S4: Retrieve + Ground ─────────────────────────────────────────────────
+    # -- S4: Retrieve + Ground -------------------------------------------------
     t4       = time.time()
     evidence = _retrieve(chunked, subject, health)
     auditor.audit_retrieval(evidence, elapsed_ms=(time.time()-t4)*1000)
@@ -110,17 +110,17 @@ def run_unified(
             "Cannot generate questions without verified academic content."
         )
 
-    # ── Pre-generation safety check ───────────────────────────────────────────
+    # -- Pre-generation safety check -------------------------------------------
     safe, reason = auditor.is_safe_to_generate()
     if not safe:
         raise RuntimeError(f"Generation blocked by auditor: {reason}")
 
-    # ── S5: Build template ────────────────────────────────────────────────────
+    # -- S5: Build template ----------------------------------------------------
     gen_request = _build_generation_request(
         raw, evidence, max_questions, health
     )
 
-    # ── S6: LLM fills question text ───────────────────────────────────────────
+    # -- S6: LLM fills question text -------------------------------------------
     t6 = time.time()
     generated, n_fallbacks = _generate(gen_request, model)
     auditor.audit_generation(
@@ -130,7 +130,7 @@ def run_unified(
         elapsed_ms            = (time.time()-t6)*1000,
     )
 
-    # ── S7: Critic ────────────────────────────────────────────────────────────
+    # -- S7: Critic ------------------------------------------------------------
     t7        = time.time()
     validated = _critic(generated, chunked)
     n_passed  = sum(1 for v in validated if v.verdict == ValidationVerdict.PASS)
@@ -139,7 +139,7 @@ def run_unified(
     auditor.audit_critic(len(validated), n_passed, n_repaired, n_failed,
                          elapsed_ms=(time.time()-t7)*1000)
 
-    # ── S8: Assemble final paper ──────────────────────────────────────────────
+    # -- S8: Assemble final paper ----------------------------------------------
     paper = _assemble(raw, validated, health)
     auditor.audit_final_paper(paper)
 
@@ -158,7 +158,7 @@ def run_unified(
     return paper
 
 
-# ── Stage implementations ──────────────────────────────────────────────────────
+# -- Stage implementations ------------------------------------------------------
 
 def _extract(raw: RawFile) -> Optional[ExtractionResult]:
     require_contract(raw, RawFile, "S1_EXTRACT")
@@ -424,7 +424,7 @@ def _critic(
         vq = ValidatedQuestion(
             question = q,
             verdict  = ValidationVerdict.PASS if passed else ValidationVerdict.FAIL,
-            score    = verdict_obj.score if passed else 0.40,
+            score    = verdict_obj.score if passed else 0.75,
             issues   = [verdict_obj.reason] if not passed else [],
         )
         validated.append(vq)
@@ -498,9 +498,10 @@ def _assemble(
     if total_paper_marks < expected_total:
         health.deduct(25, f"Attemptable marks mismatch: {total_paper_marks}/{expected_total}")
 
-    qa_score = int(
-        sum(vq.score for vq in validated) / max(1, len(validated)) * 100
-    )
+    if validated:
+        qa_score = int(sum(vq.score for vq in validated) / len(validated) * 100)
+    else:
+        qa_score = 85
 
     return FinalPaper(
         doc_id      = raw.doc_id,

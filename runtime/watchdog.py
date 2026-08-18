@@ -4,17 +4,17 @@
 Budget breakdown:
     600s HARD_DEADLINE (total)
     540s TARGET (presentation-safe)
-    ├── dataset_discovery   5s
-    ├── extraction         60s
-    ├── indexing            15s
-    ├── planning            5s
-    ├── generation        390s  (per-slot: ~45s)
-    ├── validation         40s
-    └── assembly_export    25s
+    ├-- dataset_discovery   5s
+    ├-- extraction         60s
+    ├-- indexing            15s
+    ├-- planning            5s
+    ├-- generation        390s  (per-slot: ~45s)
+    ├-- validation         40s
+    └-- assembly_export    25s
 
 If a slot exceeds its budget:
     1. Targeted retry with shorter output
-    2. If timeout again → block slot
+    2. If timeout again -> block slot
     3. Never allow one bad inference to consume the entire paper's budget
 """
 
@@ -117,7 +117,7 @@ class PipelineWatchdog:
         for phase, secs in phase_budgets.items():
             self._phases[phase] = PhaseTimer(phase=phase, budget_seconds=secs)
 
-    # ── Global Timer ──────────────────────────────────────────────────
+    # -- Global Timer --------------------------------------------------
 
     def start(self) -> None:
         """Start the global pipeline timer."""
@@ -157,7 +157,7 @@ class PipelineWatchdog:
                 f"{self._budget.hard_deadline:.0f}s"
             )
 
-    # ── Phase Timer ───────────────────────────────────────────────────
+    # -- Phase Timer ---------------------------------------------------
 
     def start_phase(self, phase: Phase) -> PhaseTimer:
         """Begin tracking a pipeline phase."""
@@ -190,7 +190,7 @@ class PipelineWatchdog:
                 f"{timer.elapsed:.1f}s > {timer.budget_seconds:.0f}s"
             )
 
-    # ── Slot Timer ────────────────────────────────────────────────────
+    # -- Slot Timer ----------------------------------------------------
 
     def start_slot(self, slot_id: str, attempt: int = 1) -> SlotTimer:
         """Begin tracking a generation slot."""
@@ -231,7 +231,7 @@ class PipelineWatchdog:
                 timer.blocked = True
         logger.error(f"Slot {slot_id} BLOCKED — all retries exhausted")
 
-    # ── Status Report ─────────────────────────────────────────────────
+    # -- Status Report -------------------------------------------------
 
     def status(self) -> dict:
         """Return a summary of all timers for display."""

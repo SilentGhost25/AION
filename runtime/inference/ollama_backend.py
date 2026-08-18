@@ -96,7 +96,7 @@ class OllamaBackend(InferenceBackend):
 
         t0 = time.perf_counter()
         try:
-            with urllib.request.urlopen(req, timeout=120.0) as resp:
+            with urllib.request.urlopen(req, timeout=480.0) as resp:
                 raw = json.loads(resp.read().decode("utf-8"))
         except urllib.error.URLError as exc:
             raise RuntimeError(f"Ollama inference failed: {exc}") from exc

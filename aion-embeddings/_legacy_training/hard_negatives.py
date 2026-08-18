@@ -65,7 +65,7 @@ class HardNegativeMiner:
             normalize_embeddings=True
         )
         
-        # Build text → embedding lookup
+        # Build text -> embedding lookup
         text_to_idx = {text: i for i, text in enumerate(all_texts)}
         
         print("[MINING] Finding hard negatives...")

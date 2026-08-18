@@ -28,8 +28,8 @@ class AIonIndex:
         self.dim = self.config["model"]["embedding_dim"]
         
         self.indices: Dict[str, faiss.Index] = {}
-        self.id_maps: Dict[str, List[str]] = {}  # subject → list of chunk_ids
-        self.chunk_texts: Dict[str, str] = {}    # chunk_id → text
+        self.id_maps: Dict[str, List[str]] = {}  # subject -> list of chunk_ids
+        self.chunk_texts: Dict[str, str] = {}    # chunk_id -> text
         
         self._load_all_indices()
     

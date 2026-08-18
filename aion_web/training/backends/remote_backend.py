@@ -43,7 +43,7 @@ class RemoteBackend(TrainingBackend):
         self._active_job_id: Optional[str] = None
         self._lock = threading.Lock()
 
-    # ── Core operations ───────────────────────────────────────────────
+    # -- Core operations -----------------------------------------------
 
     def analyse(
         self,
@@ -213,7 +213,7 @@ class RemoteBackend(TrainingBackend):
     def is_busy(self) -> bool:
         return self._active_job_id is not None
 
-    # ── Private HTTP helpers ──────────────────────────────────────────
+    # -- Private HTTP helpers ------------------------------------------
 
     def _get(self, path: str) -> Dict:
         r = self._session.get(f"{self.server_url}{path}", timeout=self.timeout)

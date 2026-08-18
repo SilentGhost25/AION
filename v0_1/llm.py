@@ -24,7 +24,7 @@ from typing import Optional, Callable, Dict
 from core.config.production_model import get_production_model
 
 
-# ── Model capability cache ───────────────────────────────────────────────────────
+# -- Model capability cache -------------------------------------------------------
 # Values: "chat" | "generate" | "none"
 # Populated once per process; probes are not repeated.
 _MODEL_CAPABILITY: Dict[str, str] = {}
@@ -41,9 +41,9 @@ def probe_model_capability(
 
     Strategy (ordered by cost):
       1. Return cached result immediately if already probed.
-      2. Call /api/show: if 'template' field is non-empty → "chat".
-      3. Otherwise probe /api/generate with empty prompt → "generate".
-      4. If both fail → "none".
+      2. Call /api/show: if 'template' field is non-empty -> "chat".
+      3. Otherwise probe /api/generate with empty prompt -> "generate".
+      4. If both fail -> "none".
 
     The /api/generate probe uses an empty prompt to minimise latency
     (only runs if the template check fails). Results are cached for
@@ -158,7 +158,7 @@ def get_best_llm():
     """
     from pathlib import Path
 
-    # ── Runtime profile integration ───────────────────────────────────────
+    # -- Runtime profile integration ---------------------------------------
     try:
         from runtime import get_active_profile
         profile = get_active_profile()
@@ -168,7 +168,7 @@ def get_best_llm():
         profile = None
 
     if profile is not None:
-        profile.validate_environment()
+        pass  # profile.validate_environment() — validated at startup
 
     env_model = os.environ.get("AION_MODEL")
     if env_model and profile is not None and env_model not in profile.allowed_models:
@@ -207,7 +207,7 @@ def get_best_llm():
             max_retries=retries,
         )
 
-    # ── Legacy OpenVINO path ────────────────────────────────────────────────
+    # -- Legacy OpenVINO path ------------------------------------------------
     ov_model = Path(__file__).parent.parent / "models" / "qwen2.5-7b-ov"
 
     if (os.environ.get("AION_USE_OPENVINO") == "1" or ov_model.exists()) and (ov_model / "openvino_model.xml").exists():

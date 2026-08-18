@@ -26,7 +26,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any, Tuple
 
-# ── Data Contracts ──────────────────────────────────────────
+# -- Data Contracts ------------------------------------------
 
 @dataclass
 class ExtractionLayerResult:
@@ -70,7 +70,7 @@ class LayeredExtractionResult:
         return alias
 
 
-# ── Layer 1: Native Text Extraction ──────────────────────────
+# -- Layer 1: Native Text Extraction --------------------------
 
 def _layer1_native_text(path: Path) -> ExtractionLayerResult:
     """Extract digital text via PyMuPDF without OCR."""
@@ -113,7 +113,7 @@ def _layer1_native_text(path: Path) -> ExtractionLayerResult:
         return ExtractionLayerResult("L1_native", False, "", 0.0, warnings=[str(e)])
 
 
-# ── Layer 2: Layout Analysis ─────────────────────────────────
+# -- Layer 2: Layout Analysis ---------------------------------
 
 def _layer2_layout_analysis(path: Path) -> ExtractionLayerResult:
     """Layout-aware extraction via Docling if available, else heading heuristic."""
@@ -170,7 +170,7 @@ def _layer2_layout_analysis(path: Path) -> ExtractionLayerResult:
         return ExtractionLayerResult("L2_layout", False, "", 0.0, warnings=[str(e)])
 
 
-# ── Layer 3: Image Detection ─────────────────────────────────
+# -- Layer 3: Image Detection ---------------------------------
 
 def _layer3_image_detection(path: Path) -> ExtractionLayerResult:
     """Detect images/figures: captions + bbox. Returns descriptive text for downstream."""
@@ -207,7 +207,7 @@ def _layer3_image_detection(path: Path) -> ExtractionLayerResult:
         return ExtractionLayerResult("L3_images", False, "", 0.0, warnings=[str(e)])
 
 
-# ── Layer 4: OCR ─────────────────────────────────────────────
+# -- Layer 4: OCR ---------------------------------------------
 
 def _layer4_ocr(path: Path) -> ExtractionLayerResult:
     """OCR for scanned/handwritten/image PDFs via RapidOCR -> Tesseract fallback."""
@@ -267,7 +267,7 @@ def _layer4_ocr(path: Path) -> ExtractionLayerResult:
         return ExtractionLayerResult("L4_ocr", False, "", 0.0, warnings=[f"tesseract unavailable: {e}"])
 
 
-# ── Layer 5: Diagram Understanding ───────────────────────────
+# -- Layer 5: Diagram Understanding ---------------------------
 
 def _layer5_diagram_understanding(path: Path, l3_result: ExtractionLayerResult) -> ExtractionLayerResult:
     """
@@ -318,7 +318,7 @@ def _layer5_diagram_understanding(path: Path, l3_result: ExtractionLayerResult) 
     return ExtractionLayerResult("L5_diagram", True, "", 0.5, metadata={"diagram_types": []}, warnings=["no diagram signatures"])
 
 
-# ── Layer 6: Merge + Cleaning ────────────────────────────────
+# -- Layer 6: Merge + Cleaning --------------------------------
 
 _HEADER_FOOTER_MIN_REPEAT = 3  # Appears on >=3 pages -> header/footer
 
@@ -454,7 +454,7 @@ def _layer6_merge(layers: List[ExtractionLayerResult], original_text_fallback: s
     return cleaned, round(min(weighted_conf, 0.98), 2), method, warnings
 
 
-# ── Public Orchestrator ──────────────────────────────────────
+# -- Public Orchestrator --------------------------------------
 
 def extract_layered(
     source_path: str | Path,
@@ -484,7 +484,7 @@ def extract_layered(
     ext = path.suffix.lower()
     file_type = ext.lstrip(".") or "unknown"
 
-    # ── Handle non-PDF natively then wrap as layered result ──
+    # -- Handle non-PDF natively then wrap as layered result --
     if ext in (".txt", ".md"):
         raw = path.read_text(encoding="utf-8", errors="ignore")
         cleaned, removed = _remove_headers_footers(raw)
@@ -621,7 +621,7 @@ def extract_layered(
             res.save_clean_text(output_dir)
         return res
 
-    # ── PDF pipeline: run all 6 layers ──
+    # -- PDF pipeline: run all 6 layers --
     if ext == ".pdf":
         # Layers execute sequentially; L5 depends on L3
         l1 = _layer1_native_text(path)
@@ -713,7 +713,7 @@ def extract_layered(
     raise ValueError(f"Unsupported file type: {ext} ({path.name}). Allowed: .pdf, .docx, .txt, .md, .pptx, .png/.jpg")
 
 
-# ── Convenience wrapper for v0_1 compatibility ────────────────
+# -- Convenience wrapper for v0_1 compatibility ----------------
 
 def extract_document(source_path: str | Path, output_dir: str | Path = "extracted_output") -> LayeredExtractionResult:
     """Drop-in for v0_1.extractor.extract — returns same Document-like but with clean_text."""

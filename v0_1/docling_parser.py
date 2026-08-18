@@ -59,7 +59,7 @@ def parse_with_docling(pdf_path: str) -> Optional[DoclingResult]:
         result    = converter.convert(pdf_path)
         doc       = result.document
 
-        # ── Extract structure (heading hierarchy) ─────────────
+        # -- Extract structure (heading hierarchy) -------------
         structure = []
         for item in doc.iterate_items():
             label = getattr(item, "label", "")
@@ -71,7 +71,7 @@ def parse_with_docling(pdf_path: str) -> Optional[DoclingResult]:
                     "text":  text.strip(),
                 })
 
-        # ── Extract tables ────────────────────────────────────
+        # -- Extract tables ------------------------------------
         tables = []
         for table_item in getattr(doc, "tables", []):
             try:
@@ -92,7 +92,7 @@ def parse_with_docling(pdf_path: str) -> Optional[DoclingResult]:
             except Exception:
                 continue
 
-        # ── Layout-aware text ─────────────────────────────────
+        # -- Layout-aware text ---------------------------------
         try:
             layout_text = doc.export_to_markdown()
         except Exception:

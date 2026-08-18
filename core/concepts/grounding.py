@@ -126,7 +126,7 @@ class ConceptGroundingEngine:
             reasoning_trace=trace,
         )
 
-    # ── Expected Answer Construction ─────────────────────────
+    # -- Expected Answer Construction -------------------------
 
     def _build_expected_answer(self, concept: ExtractedConcept, bloom: int) -> tuple[str, List[str], List[str]]:
         evidence = concept.supporting_evidence

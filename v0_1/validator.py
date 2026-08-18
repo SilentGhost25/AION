@@ -12,8 +12,8 @@ Algorithm:
         3. Compute word_density     (real words vs symbol soup)
         4. Compute academic_density (subject-relevant vocabulary)
         5. Compute length_score     (too short = useless, too long = unfocused)
-        6. Aggregate → quality_score ∈ [0.0, 1.0]
-        7. quality_score >= MIN_QUALITY → PASS, else REJECT
+        6. Aggregate -> quality_score ∈ [0.0, 1.0]
+        7. quality_score >= MIN_QUALITY -> PASS, else REJECT
 
 Thresholds (tuned for VTU academic material):
     MIN_PRINTABLE   = 0.85   (85% of chars must be printable ASCII/Unicode letters)
@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-# ── Thresholds ────────────────────────────────────────────────────────────────
+# -- Thresholds ----------------------------------------------------------------
 
 MIN_PRINTABLE    = 0.85
 MIN_WORD_DENSITY = 0.60
@@ -74,7 +74,7 @@ CORRUPTION_PATTERNS: list[re.Pattern] = [
 ]
 
 
-# ── Result Types ──────────────────────────────────────────────────────────────
+# -- Result Types --------------------------------------------------------------
 
 @dataclass
 class ChunkScore:
@@ -115,7 +115,7 @@ class ValidationReport:
                 f"{self.rejected} rejected")
 
 
-# ── Validator ─────────────────────────────────────────────────────────────────
+# -- Validator -----------------------------------------------------------------
 
 class ContentValidator:
     """
@@ -137,7 +137,7 @@ class ContentValidator:
         self.min_academic     = min_academic
         self.min_words        = min_words
 
-    # ── Public API ────────────────────────────────────────────────────────────
+    # -- Public API ------------------------------------------------------------
 
     def validate_chunk(self, text: str) -> ChunkScore:
         """Score a single chunk. Returns ChunkScore with pass/fail decision."""
@@ -152,7 +152,7 @@ class ContentValidator:
 
         text = text.strip()
 
-        # ── Check 1: Corruption pattern match (fast reject) ───────────────────
+        # -- Check 1: Corruption pattern match (fast reject) -------------------
         for pattern in CORRUPTION_PATTERNS:
             if pattern.search(text):
                 return ChunkScore(
@@ -162,7 +162,7 @@ class ContentValidator:
                     passed=False, rejection_reason="CORRUPTION_PATTERN",
                 )
 
-        # ── Check 2: Printable ratio ──────────────────────────────────────────
+        # -- Check 2: Printable ratio ------------------------------------------
         printable_ratio = self._printable_ratio(text)
         if printable_ratio < self.min_printable:
             return ChunkScore(
@@ -173,7 +173,7 @@ class ContentValidator:
                 rejection_reason=f"LOW_PRINTABLE({printable_ratio:.0%})",
             )
 
-        # ── Check 3: Word count ───────────────────────────────────────────────
+        # -- Check 3: Word count -----------------------------------------------
         words      = text.split()
         word_count = len(words)
         if word_count < self.min_words:
@@ -186,7 +186,7 @@ class ContentValidator:
                 rejection_reason=f"TOO_SHORT({word_count}<{self.min_words})",
             )
 
-        # ── Check 4: Word density (real words vs symbol soup) ─────────────────
+        # -- Check 4: Word density (real words vs symbol soup) -----------------
         word_density = self._word_density(words)
         if word_density < self.min_word_density:
             return ChunkScore(
@@ -198,11 +198,11 @@ class ContentValidator:
                 rejection_reason=f"LOW_WORD_DENSITY({word_density:.0%})",
             )
 
-        # ── Check 5: Academic vocabulary density ──────────────────────────────
+        # -- Check 5: Academic vocabulary density ------------------------------
         text_lower    = text.lower()
         academic_count = sum(1 for w in ACADEMIC_VOCAB if w in text_lower)
 
-        # ── Compute quality score ─────────────────────────────────────────────
+        # -- Compute quality score ---------------------------------------------
         quality_score = self._compute_quality(
             printable_ratio, word_density, academic_count, word_count
         )
@@ -246,7 +246,7 @@ class ContentValidator:
         print(f"[VALIDATOR] Evaluated {len(chunks)} chunks -> Passed: {report.passed}, Rejected: {report.rejected}")
         return report
 
-    # ── Scoring Algorithms ────────────────────────────────────────────────────
+    # -- Scoring Algorithms ----------------------------------------------------
 
     def _printable_ratio(self, text: str) -> float:
         """
@@ -319,7 +319,7 @@ class ContentValidator:
         return text.strip()
 
 
-# ── Module-level singleton ────────────────────────────────────────────────────
+# -- Module-level singleton ----------------------------------------------------
 
 _validator = ContentValidator()
 

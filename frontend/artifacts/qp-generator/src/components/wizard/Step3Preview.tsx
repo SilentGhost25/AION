@@ -15,13 +15,44 @@ export function Step3Preview({
   const { config, questions, courseOutcomes } = paper
   const isSEE = config.examType === 'SEE'
 
-  const coCoverage = (paper as any).coCoverage ?? {
-    co1: 20, co2: 20, co3: 20, co4: 20, co5: 20
-  }
+  const allQs: any[] = [];
+  (questions as any[])?.forEach((q: any) => {
+    if (q.subQuestions && Array.isArray(q.subQuestions)) {
+      allQs.push(...q.subQuestions);
+    } else {
+      allQs.push(q);
+    }
+  });
 
-  const syllabusCoverage = (paper as any).syllabusCoverage ?? {
-    s1: 20, s2: 20, s3: 20, s4: 20, s5: 20
-  }
+  const totalMarksComputed = allQs.reduce((sum, q) => sum + (Number(q.marks) || 0), 0) || 1;
+
+  const coTotalsComputed: Record<string, number> = {};
+  allQs.forEach((q: any) => {
+    const co = (q.co || q.coMapping || "CO1").toString().toUpperCase();
+    coTotalsComputed[co] = (coTotalsComputed[co] || 0) + (Number(q.marks) || 0);
+  });
+
+  const coCoverage = {
+    co1: Math.round(((coTotalsComputed["CO1"] || 0) / totalMarksComputed) * 100),
+    co2: Math.round(((coTotalsComputed["CO2"] || 0) / totalMarksComputed) * 100),
+    co3: Math.round(((coTotalsComputed["CO3"] || 0) / totalMarksComputed) * 100),
+    co4: Math.round(((coTotalsComputed["CO4"] || 0) / totalMarksComputed) * 100),
+    co5: Math.round(((coTotalsComputed["CO5"] || 0) / totalMarksComputed) * 100),
+  };
+
+  const modTotalsComputed: Record<number, number> = {};
+  allQs.forEach((q: any) => {
+    const mod = Number(q.module || q.moduleIndex || q.module_index || 1);
+    modTotalsComputed[mod] = (modTotalsComputed[mod] || 0) + (Number(q.marks) || 0);
+  });
+
+  const syllabusCoverage = {
+    s1: Math.round(((modTotalsComputed[1] || 0) / totalMarksComputed) * 100),
+    s2: Math.round(((modTotalsComputed[2] || 0) / totalMarksComputed) * 100),
+    s3: Math.round(((modTotalsComputed[3] || 0) / totalMarksComputed) * 100),
+    s4: Math.round(((modTotalsComputed[4] || 0) / totalMarksComputed) * 100),
+    s5: Math.round(((modTotalsComputed[5] || 0) / totalMarksComputed) * 100),
+  };
 
   const validationReport = (paper as any).validationReport
 

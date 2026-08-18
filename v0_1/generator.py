@@ -22,9 +22,9 @@ from .semantic_enforcer import SemanticEnforcer, get_enforcer
 
 _enforcer = get_enforcer(strict=False)  # auto-repair mode
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # VTU Standard Partitions — MAX 3 sub-questions
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 # IA = 10 marks total
 IA_PARTITIONS = [
@@ -53,7 +53,7 @@ SEE_PARTITIONS = [
 ]
 
 
-# ── Bloom Distribution Controller ────────────────────────────────────────────
+# -- Bloom Distribution Controller --------------------------------------------
 # Ensures a paper has the correct spread of cognitive levels.
 # Called by the pipeline orchestrator when selecting Bloom levels per question.
 
@@ -107,9 +107,9 @@ class BloomDistributionController:
         total = max(1, sum(self.used.values()))
         return {b: round(m / total * 100) for b, m in self.used.items()}
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # Prompt Templates
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 _TEXT_PROMPT = """\
 SOURCE MATERIAL:
@@ -153,9 +153,9 @@ Output ONLY the question text.
 Question:"""
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # Stop sequences
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 _STOP = [
     "Ideal Answer", "ideal answer", "Answer:", "answer:",
@@ -164,9 +164,9 @@ _STOP = [
     "as described in", "from the material", "according to",
 ]
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # Off-domain guard
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 _OFF_DOMAIN = re.compile(
     r"\b(resistor|capacitor|inductor|voltage|watt|"
@@ -223,9 +223,9 @@ def get_bloom_level_name(level: int) -> str:
     }.get(level, "Understand")
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # Core question generators
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 def get_vtu_vibe_question(
     chunk:       str,

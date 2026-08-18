@@ -35,7 +35,7 @@ def get_mode_config() -> ModeConfig:
     return current_app.config["MODE_CONFIG"]
 
 
-# ── Mode management ───────────────────────────────────────────────────────────
+# -- Mode management -----------------------------------------------------------
 
 @training_bp.get("/mode")
 def get_mode():
@@ -98,7 +98,7 @@ def switch_mode():
     })
 
 
-# ── Health ────────────────────────────────────────────────────────────────────
+# -- Health --------------------------------------------------------------------
 
 @training_bp.get("/health")
 def get_health():
@@ -110,7 +110,7 @@ def get_health():
         return jsonify({"healthy": False, "details": str(e)}), 500
 
 
-# ── Core Operations ───────────────────────────────────────────────────────────
+# -- Core Operations -----------------------------------------------------------
 
 @training_bp.post("/analyse")
 def run_analyse():

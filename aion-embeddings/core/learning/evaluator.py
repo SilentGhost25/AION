@@ -37,7 +37,7 @@ class EmbeddingEvaluator:
             
             report = f"""
 Evaluation Report
-─────────────────
+-----------------
 Model: {checkpoint_path}
 Recall@10: {score:.4f}
 Min Required: {self.min_score:.4f}

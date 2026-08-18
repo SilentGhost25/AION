@@ -2,13 +2,13 @@
 AION Visual Reasoning Engine (VRE) — Guarded Orchestrator
 =========================================================
 Architectural Directives:
-    NO VALID VKO               → NO NPE
-    NO VALID NPE               → NO QUESTION
-    NO SOLVER ANSWER           → NO QUESTION
-    QUESTION ≠ VKO             → REJECT
-    SVG ≠ VKO                  → REJECT
-    NO PROVENANCE              → REJECT
-    ALL VISUAL ATTEMPTS FAILED → TEXT-ONLY FALLBACK
+    NO VALID VKO               -> NO NPE
+    NO VALID NPE               -> NO QUESTION
+    NO SOLVER ANSWER           -> NO QUESTION
+    QUESTION ≠ VKO             -> REJECT
+    SVG ≠ VKO                  -> REJECT
+    NO PROVENANCE              -> REJECT
+    ALL VISUAL ATTEMPTS FAILED -> TEXT-ONLY FALLBACK
 """
 
 from __future__ import annotations

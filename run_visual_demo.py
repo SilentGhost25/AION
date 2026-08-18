@@ -90,7 +90,7 @@ def main():
             print(f"Caption  : {q_dict['visualEvidence'][0]['caption'] or 'None'}")
             print(f"--------------------------------------------------")
         else:
-            print(f"[VERIFIER FAIL] {card.id}: {reason} → Fail-closed to text question")
+            print(f"[VERIFIER FAIL] {card.id}: {reason} -> Fail-closed to text question")
 
     print(f"\n[SUMMARY] Successfully generated {generated_count} verified visual questions.")
 

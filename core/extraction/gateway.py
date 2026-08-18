@@ -69,7 +69,7 @@ class ExtractionGateway:
     def extract(cls, source_path: str, document_id: str = "doc_001", store: Optional[Any] = None) -> DocumentArtifact:
         path = Path(source_path)
 
-        # ── MANIFEST SELF-CORRECTION & INTEGRITY CHECK ──────────────────────────
+        # -- MANIFEST SELF-CORRECTION & INTEGRITY CHECK --------------------------
         manifest = None
         try:
             from core.artifacts.store import ArtifactStore
@@ -95,7 +95,7 @@ class ExtractionGateway:
                 action="STOP",
             )
 
-        # ── PLAIN TEXT (.TXT / .MD) UPLOAD ROUTING & SELF-CORRECTION ────────────
+        # -- PLAIN TEXT (.TXT / .MD) UPLOAD ROUTING & SELF-CORRECTION ------------
         if path.suffix.lower() in (".txt", ".md"):
             if manifest and manifest.source.mime_type == "text/plain":
                 logger.info(f"[GATEWAY] Source is TXT — text-only extraction mode; equations/figures unavailable")
@@ -139,7 +139,7 @@ class ExtractionGateway:
         mime_type = "application/pdf" if path.suffix.lower() == ".pdf" else "application/octet-stream"
         adapters_used: List[str] = []
 
-        # ── LEVEL 1: NATIVE PDF EXTRACTION (PyMuPDF) ──────────────────────────
+        # -- LEVEL 1: NATIVE PDF EXTRACTION (PyMuPDF) --------------------------
         l1_adapter = PyMuPDFAdapter()
         if l1_adapter.is_available() and l1_adapter.can_handle(source_path):
             result_l1 = l1_adapter.extract(source_path)
@@ -154,7 +154,7 @@ class ExtractionGateway:
 
         primary_result = result_l1
 
-        # ── LEVEL 2: STRUCTURAL EXTRACTION (Docling) ─────────────────────────
+        # -- LEVEL 2: STRUCTURAL EXTRACTION (Docling) -------------------------
         if not result_l1.success or result_l1.metrics.overall_quality() < 0.70:
             l2_adapter = DoclingAdapter()
             if l2_adapter.is_available() and l2_adapter.can_handle(source_path):
@@ -196,7 +196,7 @@ class ExtractionGateway:
                 module_id="1",
             ))
 
-        # ── CHUNK VALIDATION & RECOVERY ───────────────────────────────────────
+        # -- CHUNK VALIDATION & RECOVERY ---------------------------------------
         validated_chunks: List[EvidenceChunk] = []
         for chunk in raw_chunks:
             val_res = ContentAwareChunkValidator.validate(chunk)
@@ -209,10 +209,22 @@ class ExtractionGateway:
             else:
                 validated_chunks.append(chunk)
 
+        # -- LEARNING-AWARE BOOST ---------------------------------------------
+        # Boost chunks containing high-confidence learned concepts
+        try:
+            from core.extraction.learning_boost import boost_chunks
+            validated_chunks = boost_chunks(
+                validated_chunks,
+                subject="general",   # subject enriched later by pipeline
+                module_id=1,
+            )
+        except Exception as _lb_err:
+            logger.debug(f"[GATEWAY] Learning boost skipped: {_lb_err}")
+
         # Build validation report
         report = ChunkValidationReport.from_chunks(validated_chunks)
 
-        # ── HARD STOP GATE ───────────────────────────────────────────────────
+        # -- HARD STOP GATE ---------------------------------------------------
         gate_decision = ExtractionHardStopGate.check(
             report,
             requested_modules=5,
@@ -228,7 +240,7 @@ class ExtractionGateway:
                 detail=gate_decision.http_payload,
             )
 
-        # ── MANDATORY GATEWAY LOG ─────────────────────────────────────────────
+        # -- MANDATORY GATEWAY LOG ---------------------------------------------
         logger.info("════════════════════════════════════════════")
         logger.info("[GATEWAY] EXTRACTION COMPLETE")
         logger.info(f"  Source       : {source_path}")

@@ -104,7 +104,7 @@ class TrainingBackend(abc.ABC):
 
     mode: TrainingMode
 
-    # ── Core operations ──────────────────────────────────────────────
+    # -- Core operations ----------------------------------------------
 
     @abc.abstractmethod
     def analyse(
@@ -160,7 +160,7 @@ class TrainingBackend(abc.ABC):
         Returns {"healthy": bool, "details": str}
         """
 
-    # ── Status ───────────────────────────────────────────────────────
+    # -- Status -------------------------------------------------------
 
     @property
     @abc.abstractmethod

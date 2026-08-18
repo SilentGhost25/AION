@@ -42,7 +42,7 @@ def validate_tables(
     """
     validated = []
 
-    # ── Step 1: Process Docling tables (primary) ──────────────
+    # -- Step 1: Process Docling tables (primary) --------------
     docling_pages = set()
     for tbl in docling_tables:
         warnings = []
@@ -79,7 +79,7 @@ def validate_tables(
         ))
         docling_pages.add(tbl.page)
 
-    # ── Step 2: Fill gaps from OCR tables ─────────────────────
+    # -- Step 2: Fill gaps from OCR tables ---------------------
     for ocr_tbl in ocr_tables:
         page = ocr_tbl.get("page", 0)
         text = ocr_tbl.get("content", "")
@@ -95,7 +95,7 @@ def validate_tables(
                 warnings   = ["ocr_only_no_docling_confirmation"],
             ))
 
-    # ── Step 3: Detect missing tables via gap analysis ────────
+    # -- Step 3: Detect missing tables via gap analysis --------
     if validated:
         all_pages = sorted(v.page for v in validated)
         for i in range(len(all_pages) - 1):

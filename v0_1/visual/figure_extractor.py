@@ -22,7 +22,7 @@ def _clean_pdf_artifacts(text: str) -> str:
     return text.strip()
 
 
-# ── Visual type classifier (rule-based, no ML needed) ────────
+# -- Visual type classifier (rule-based, no ML needed) --------
 
 _VISUAL_TYPE_RULES = {
     "flowchart":    re.compile(
@@ -114,7 +114,7 @@ def _compute_provenance_score(card: FigureCard) -> float:
     return round(min(score, 1.0), 3)
 
 
-# ── PDF Extractor ─────────────────────────────────────────────
+# -- PDF Extractor ---------------------------------------------
 
 def _extract_from_pdf(
     path:        Path,
@@ -322,7 +322,7 @@ def _quick_ocr(img_bytes: bytes) -> str:
     return ""
 
 
-# ── DOCX Extractor ───────────────────────────────────────────
+# -- DOCX Extractor -------------------------------------------
 
 def _extract_from_docx(
     path:        Path,
@@ -472,7 +472,7 @@ def _extract_from_docx(
     return cards
 
 
-# ── Public API ────────────────────────────────────────────────
+# -- Public API ------------------------------------------------
 
 def extract_figures(
     file_path:        str,

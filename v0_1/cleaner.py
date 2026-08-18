@@ -74,7 +74,7 @@ def clean(document: Document) -> CleanedDocument:
     )
 
 
-# ── Stage 3 Extension ─────────────────────────────────────────────────────────
+# -- Stage 3 Extension ---------------------------------------------------------
 
 _PDF_ARTIFACTS = [
     re.compile(r'\b\d+\s+\d+\s+obj\b.*?endobj', re.DOTALL | re.IGNORECASE),

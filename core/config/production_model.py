@@ -12,10 +12,10 @@ Resolution order (highest to lowest priority):
   5. Production default                     (qwen2.5:14b)
 
 Device profiles:
-  server    → qwen2.5:14b   (L40 / A100 / production GPU server)
-  desktop   → qwen2.5:7b    (RTX 3090 / high-end workstation)
-  laptop    → qwen2.5:3b    (Intel Arc / 16GB RAM laptop)
-  light     → qwen2.5:1.5b  (CI / testing / very low RAM)
+  server    -> qwen2.5:14b   (L40 / A100 / production GPU server)
+  desktop   -> qwen2.5:7b    (RTX 3090 / high-end workstation)
+  laptop    -> qwen2.5:3b    (Intel Arc / 16GB RAM laptop)
+  light     -> qwen2.5:1.5b  (CI / testing / very low RAM)
 """
 
 from __future__ import annotations
@@ -28,19 +28,19 @@ from pathlib import Path
 from typing import Optional, Dict, Tuple, List
 
 
-# ── Model Profiles ────────────────────────────────────────────────────────────
+# -- Model Profiles ------------------------------------------------------------
 
 @dataclass(frozen=True)
 class ModelProfile:
     production:  str = "qwen2.5:14b"
     desktop:     str = "qwen2.5:7b"
     laptop:      str = "qwen2.5:3b"
-    lightweight: str = "qwen2.5:1.5b"
+    lightweight: str = "qwen2.5:1.5b-instruct"
 
 
 PROFILE = ModelProfile()
 
-# Maps AION_DEVICE value → model name
+# Maps AION_DEVICE value -> model name
 DEVICE_MAP: Dict[str, str] = {
     "server":      PROFILE.production,
     "production":  PROFILE.production,
@@ -55,10 +55,10 @@ DEVICE_MAP: Dict[str, str] = {
 
 # RAM thresholds for auto-detection (GB)
 RAM_THRESHOLDS: List[Tuple[float, str]] = [
-    (32.0, PROFILE.production),   # ≥ 32 GB  → 14B
-    (12.0, PROFILE.desktop),      # ≥ 12 GB  → 7B
-    (6.0,  PROFILE.laptop),       # ≥  6 GB  → 3B
-    (0.0,  PROFILE.lightweight),  # < 6 GB   → 1.5B
+    (32.0, PROFILE.production),   # ≥ 32 GB  -> 14B
+    (12.0, PROFILE.desktop),      # ≥ 12 GB  -> 7B
+    (6.0,  PROFILE.laptop),       # ≥  6 GB  -> 3B
+    (0.0,  PROFILE.lightweight),  # < 6 GB   -> 1.5B
 ]
 
 # Where to look for user config
@@ -69,7 +69,7 @@ _CONFIG_PATHS = [
 ]
 
 
-# ── Resolution Source (for health endpoint reporting) ────────────────────────
+# -- Resolution Source (for health endpoint reporting) ------------------------
 
 _last_resolution: dict = {}
 
@@ -161,7 +161,7 @@ def is_production() -> bool:
     return info.get("device") in ("server", "production")
 
 
-# ── Internal Helpers ──────────────────────────────────────────────────────────
+# -- Internal Helpers ----------------------------------------------------------
 
 def _read_config_file() -> Optional[str]:
     """Read model from user config.json if it exists."""

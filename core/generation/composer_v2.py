@@ -2,7 +2,7 @@
 Composer V2 — True Natural Language Generation from QuestionSpec
 Per audit: Composer should receive QuestionSpec and write fresh academic question, never copy planner text.
 
-Pipeline: QuestionSpec → Compose → Polish → Grammar pass → VTU formatting
+Pipeline: QuestionSpec -> Compose -> Polish -> Grammar pass -> VTU formatting
 Final wording independent of planner.
 """
 

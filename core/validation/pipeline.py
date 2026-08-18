@@ -2,8 +2,8 @@
 Multi-stage Validation Pipeline — 7 Gates
 ==========================================
 Every question passes:
-  Grammar → Semantic validation → Bloom validation → Grounding validation
-        → Marks validation → Diagram validation → Final audit
+  Grammar -> Semantic validation -> Bloom validation -> Grounding validation
+        -> Marks validation -> Diagram validation -> Final audit
 Reject otherwise.
 
 Each gate returns pass/fail + score + reason code.
@@ -137,7 +137,7 @@ class MultiStageValidator:
             confidence=confidence,
         )
 
-    # ── Gates ────────────────────────────────────────────────
+    # -- Gates ------------------------------------------------
 
     def _gate_grammar(self, text: str) -> ValidationGateResult:
         score = 1.0

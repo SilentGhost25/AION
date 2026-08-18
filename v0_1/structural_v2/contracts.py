@@ -143,7 +143,7 @@ class QuestionSlot:
     and CONTENT (filled later).
     """
 
-    # ── STRUCTURAL FIELDS (locked at S3) ─────────────────────────────────────
+    # -- STRUCTURAL FIELDS (locked at S3) -------------------------------------
     slot_id          : str                 # e.g. "Q1a"
     question_number  : int                 # e.g. 1
     sub_label        : str                 # e.g. "a"
@@ -156,20 +156,20 @@ class QuestionSlot:
     visual_prior     : VisualPrior         # IMMUTABLE after S3
     status           : SlotStatus = SlotStatus.EMPTY
 
-    # ── CONTENT FIELDS (filled at content stage) ──────────────────────────────
+    # -- CONTENT FIELDS (filled at content stage) ------------------------------
     concept          : Optional[Any] = None
     evidence_chunks  : Optional[List[Dict[str, Any]]] = None
     evidence_pages   : Optional[List[int]]  = None
     grounding_score  : Optional[float] = None
 
-    # ── GENERATION FIELDS (filled by Qwen) ───────────────────────────────────
+    # -- GENERATION FIELDS (filled by Qwen) -----------------------------------
     question_text    : Optional[str] = None
     visual_decision  : Optional[VisualDecision] = None
     visual_asset     : Optional[Dict[str, Any]] = None
     solver_context   : Optional[Dict[str, Any]] = None   # from VRE/solver
     generation_context: Optional[Dict[str, Any]] = None
 
-    # ── PROVENANCE (audit trail) ──────────────────────────────────────────────
+    # -- PROVENANCE (audit trail) ----------------------------------------------
     generation_seed  : Optional[int] = None
     model_used       : Optional[str] = None
     source_chunk_ids : List[str] = field(default_factory=list)

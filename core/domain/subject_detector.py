@@ -1,6 +1,6 @@
 """
 Subject Detector — Canonical Subject Profile after extraction
-Per audit: Document → Subject Detector → Subject Profile → Knowledge Units
+Per audit: Document -> Subject Detector -> Subject Profile -> Knowledge Units
 Every downstream component uses that profile. Greatly reduces cross-domain contamination.
 """
 

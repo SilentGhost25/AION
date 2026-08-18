@@ -47,7 +47,7 @@ def get_dashboard_summary():
             "vram_total_gb": 8.0,
         },
         "system_health": "healthy" if ollama_ok else "degraded",
-        "pipeline": "Upload → Extract → Understand → Build Concept Graph → Ground → Reason → Plan → Compose → Audit → Output",
+        "pipeline": "Upload -> Extract -> Understand -> Build Concept Graph -> Ground -> Reason -> Plan -> Compose -> Audit -> Output",
     })
 
 

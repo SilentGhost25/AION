@@ -132,7 +132,7 @@ class SubjectDetector:
         top_code, top_score = sorted_scores[0]
         second_score = sorted_scores[1][1] if len(sorted_scores) > 1 else 0.0
 
-        # Normalise: max keyword score → confidence band
+        # Normalise: max keyword score -> confidence band
         confidence = min(0.98, top_score * 1.5)
         needs_confirmation = (
             confidence < CONFIDENCE_THRESHOLD

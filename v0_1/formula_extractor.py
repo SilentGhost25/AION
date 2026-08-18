@@ -21,7 +21,7 @@ class Formula:
     formula_type: str        # equation | expression | definition | algorithm
 
 
-# ── Detection patterns ────────────────────────────────────────
+# -- Detection patterns ----------------------------------------
 
 _LATEX_PATTERN = re.compile(
     r"\$\$?.+?\$\$?|"                  # $...$ or $$...$$

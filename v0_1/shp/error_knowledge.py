@@ -14,7 +14,7 @@ from enum import Enum
 from typing import Any, Callable, Optional
 
 
-# ── Recovery Actions ──────────────────────────────────────────────────────────
+# -- Recovery Actions ----------------------------------------------------------
 
 class RecoveryAction(str, Enum):
     RETRY            = "retry"
@@ -36,7 +36,7 @@ class Severity(str, Enum):
     INFO     = "INFO"
 
 
-# ── Error Record ──────────────────────────────────────────────────────────────
+# -- Error Record --------------------------------------------------------------
 
 @dataclass
 class ErrorRecord:
@@ -66,7 +66,7 @@ class HealingRule:
     description: str = ""
 
 
-# ── Rule Definitions ──────────────────────────────────────────────────────────
+# -- Rule Definitions ----------------------------------------------------------
 
 HEALING_RULES: dict[str, HealingRule] = {
 
@@ -103,7 +103,7 @@ HEALING_RULES: dict[str, HealingRule] = {
         action      = RecoveryAction.LOWER_THRESHOLD,
         max_retries = 2,
         fallback    = RecoveryAction.STOP,
-        description = "Relax academic threshold 0.70 → 0.55 → 0.40. Retry validation.",
+        description = "Relax academic threshold 0.70 -> 0.55 -> 0.40. Retry validation.",
     ),
 
     "SH-021": HealingRule(

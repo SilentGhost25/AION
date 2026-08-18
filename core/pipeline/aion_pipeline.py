@@ -14,14 +14,14 @@ Upload
   ↓ Audit
   ↓ Output
 
-NOT: Upload → Prompt LLM → Return Output
+NOT: Upload -> Prompt LLM -> Return Output
 LLM is only one component, not the architecture.
 
 This file implements the Universal Academic Pipeline:
 
-Document → Cleaning (Header/TOC/Title/Section) → Concept Extraction
-        → Concept Validation → Knowledge Unit Builder → Grounding → Reasoning Engine
-        → Question Planning (intent + KU) → Question Composition (KU-aware) → Self-Critic → Audit
+Document -> Cleaning (Header/TOC/Title/Section) -> Concept Extraction
+        -> Concept Validation -> Knowledge Unit Builder -> Grounding -> Reasoning Engine
+        -> Question Planning (intent + KU) -> Question Composition (KU-aware) -> Self-Critic -> Audit
 
 Properties:
 - Stateless APIs (each stage is stateless function)
@@ -186,7 +186,7 @@ class AionUniversalPipeline:
         self.validator = MultiStageValidator(strict=True)
         self.recovery_engine = ConfidenceRecoveryEngine(allow_external=allow_external)
 
-        # New layers per 9→10 roadmap
+        # New layers per 9->10 roadmap
         self.preprocessor = DocumentPreprocessor() if HAS_PREPROCESSOR else None
         self.ku_builder = KnowledgeUnitBuilder() if HAS_KU else None
         self.reasoning_engine = ReasoningEngine() if HAS_REASONING else None
@@ -205,7 +205,7 @@ class AionUniversalPipeline:
         target_bloom: Optional[int] = None,
     ) -> AionPipelineResult:
         """
-        Run full pipeline: Upload → Extract → Preprocess → Understand → KU Builder → Ground → Reason → Plan → Compose → Self-Critic → Audit → Output
+        Run full pipeline: Upload -> Extract -> Preprocess -> Understand -> KU Builder -> Ground -> Reason -> Plan -> Compose -> Self-Critic -> Audit -> Output
         Stateless: each call independent.
         """
         t0 = time.time()
@@ -214,7 +214,7 @@ class AionUniversalPipeline:
         metrics = PipelineMetrics()
         component_conf = ComponentConfidence()
 
-        # ── Stage 0: Document Structure Classification (block-level) — first stage after OCR
+        # -- Stage 0: Document Structure Classification (block-level) — first stage after OCR
         # Classify every block as Heading/Formula/Caption/Algorithm/Procedure/Example/Exercise/Concept/Definition/Table/Diagram/Footnote
         # Worked examples are gold for numerical questions
         structure_conf = 0.85
@@ -233,7 +233,7 @@ class AionUniversalPipeline:
             print(f"[STRUCTURE] Classifier failed: {e}")
             structure_conf = 0.70
 
-        # ── Stage 1: Extract (Layered — 6 layers) ──────────────
+        # -- Stage 1: Extract (Layered — 6 layers) --------------
         t = time.time()
         print(f"\n{'='*60}\n[PIPELINE] Stage 1: Layered Extraction — {Path(source).name}\n{'='*60}")
         if extract_layered is None:
@@ -252,13 +252,13 @@ class AionUniversalPipeline:
         recovery = self.recovery_engine.recover(layered)
         recovery_note = self.recovery_engine.mark_output(recovery)
         if recovery.recovery_path != ["no_recovery_needed"]:
-            print(f"[RECOVERY] Path: {' → '.join(recovery.recovery_path)} | final_conf={recovery.final_confidence:.0%}")
+            print(f"[RECOVERY] Path: {' -> '.join(recovery.recovery_path)} | final_conf={recovery.final_confidence:.0%}")
             warnings.extend(recovery.warnings)
             clean_text = recovery.clean_text
             metrics.extraction_confidence = recovery.final_confidence
             component_conf.extraction = recovery.final_confidence
 
-        # ── Stage 1.5: Preprocessing (Header/TOC/Title/Section) ──
+        # -- Stage 1.5: Preprocessing (Header/TOC/Title/Section) --
         t = time.time()
         preproc_conf = 0.9
         if self.preprocessor:
@@ -282,7 +282,7 @@ class AionUniversalPipeline:
             component_conf.preprocessing = 0.85
             print("[PREPROCESS] Skipped (module not available)")
 
-        # ── Stage 2: Understand (Concept Extraction) ───────────
+        # -- Stage 2: Understand (Concept Extraction) -----------
         t = time.time()
         print(f"\n[PIPELINE] Stage 2: Concept Extraction (concept-level, not paragraph)")
         source_id = hashlib.sha256(source.encode()).hexdigest()[:8]
@@ -296,7 +296,7 @@ class AionUniversalPipeline:
         for c in concepts[:3]:
             print(f"  - [{c.concept_id}] {c.concept_name[:60]} | conf={c.confidence:.0%} | type={c.concept_type}")
 
-        # ── Stage 3: Concept Validation ────────────────────────
+        # -- Stage 3: Concept Validation ------------------------
         t = time.time()
         print(f"[PIPELINE] Stage 3: Concept Validation")
         valid_concepts, validation_results = self.concept_validator.validate_batch(concepts)
@@ -324,7 +324,7 @@ class AionUniversalPipeline:
             self._current_subject_profile = None
         self.retriever.index(valid_concepts)
 
-        # ── Stage 3.6: Knowledge Unit Builder ──────────────────
+        # -- Stage 3.6: Knowledge Unit Builder ------------------
         t = time.time()
         knowledge_units = []
         if self.ku_builder and valid_concepts:
@@ -348,9 +348,9 @@ class AionUniversalPipeline:
             metrics.ku_build_ms = 0
             print("[KU] Skipped (builder not available or no valid concepts)")
 
-        # ── Stage 4: Ground ────────────────────────────────────
+        # -- Stage 4: Ground ------------------------------------
         t = time.time()
-        print(f"[PIPELINE] Stage 4: Grounding (Text → Concept → Evidence → Expected Answer → Question)")
+        print(f"[PIPELINE] Stage 4: Grounding (Text -> Concept -> Evidence -> Expected Answer -> Question)")
         grounded = self.grounding_engine.ground(valid_concepts, target_bloom=target_bloom)
         metrics.grounding_ms = round((time.time() - t) * 1000, 1)
         if grounded:
@@ -367,7 +367,7 @@ class AionUniversalPipeline:
                     canon = f" | canon_ans: {matching.expected_answer_canonical[:60]}..."
             print(f"  ▶ [{g.concept.concept_id}] Bloom L{g.bloom_level} | expected: {g.expected_answer[:80]}...{canon}")
 
-        # ── Stage 5: Reason (Reasoning Engine) ─────────────────
+        # -- Stage 5: Reason (Reasoning Engine) -----------------
         t = time.time()
         reasoning_intents = []
         if self.reasoning_engine and knowledge_units:
@@ -389,9 +389,9 @@ class AionUniversalPipeline:
         if grounded:
             sample_q = grounded[0].concept.concept_name
             retrieved = self.retriever.retrieve(sample_q, top_k=3)
-            print(f"[RETRIEVE] Sample '{sample_q}' → {len(retrieved)} related concepts")
+            print(f"[RETRIEVE] Sample '{sample_q}' -> {len(retrieved)} related concepts")
 
-        # ── Stage 6: Plan Question ─────────────────────────────
+        # -- Stage 6: Plan Question -----------------------------
         t = time.time()
         print(f"[PIPELINE] Stage 6: Question Planning (Planner decides intent, Composer will write)")
         self.planner.config.num_questions = num_questions * 2
@@ -424,7 +424,7 @@ class AionUniversalPipeline:
         ku_by_raw = {ku.raw_concept: ku for ku in knowledge_units} if knowledge_units else {}
         intent_by_kuid = {ri.ku_id: ri for ri in reasoning_intents} if reasoning_intents else {}
 
-        # ── Stage 6.5: Domain Integrity Gate (will be applied after composition on final questions)
+        # -- Stage 6.5: Domain Integrity Gate (will be applied after composition on final questions)
         # Pre-check: build grounded vocab for post-composition check
         try:
             from core.domain.integrity_gate import DomainIntegrityGate
@@ -436,7 +436,7 @@ class AionUniversalPipeline:
             print(f"[INTEGRITY] Gate prep failed: {e}")
             self._integrity_gate = None
 
-        # ── Stage 7: Compose Question (KU-aware) ───────────────
+        # -- Stage 7: Compose Question (KU-aware) ---------------
         t = time.time()
         print(f"[PIPELINE] Stage 7: Question Composition (KU-aware, scenario-based, not generic)")
         questions: List[ComposedQuestion] = []
@@ -476,7 +476,7 @@ class AionUniversalPipeline:
         for q in questions[:2]:
             print(f"  ✎ [{q.concept_id}] {q.question_text}")
 
-        # ── Stage 7.5: Self-Critic (Reasoning-level) ───────────
+        # -- Stage 7.5: Self-Critic (Reasoning-level) -----------
         t = time.time()
         critic_results = []
         if self.self_critic and knowledge_units and reasoning_intents:
@@ -502,9 +502,9 @@ class AionUniversalPipeline:
             metrics.critic_ms = 0
             print("[CRITIC] Skipped (self-critic not available)")
 
-        # ── Stage 8: Audit (Multi-stage Validation) ────────────
+        # -- Stage 8: Audit (Multi-stage Validation) ------------
         t = time.time()
-        print(f"[PIPELINE] Stage 8: Audit (7 gates: Grammar → Semantic → Bloom → Grounding → Marks → Diagram → Final + Self-Critic)")
+        print(f"[PIPELINE] Stage 8: Audit (7 gates: Grammar -> Semantic -> Bloom -> Grounding -> Marks -> Diagram -> Final + Self-Critic)")
         validations: List[ValidationReport] = []
         accepted: List[ComposedQuestion] = []
         rejected_list: List[tuple[ComposedQuestion, ValidationReport]] = []
@@ -673,7 +673,7 @@ class AionUniversalPipeline:
                 print(f"[STRICT GATE] {q.concept_id} semantic {semantic_gate.score:.0%} <75% — correctly REJECTED")
 
         print(f"[AUDIT] {len(accepted)} accepted, {len(rejected_list)} rejected | {metrics.audit_ms}ms")
-        print(f"[CONFIDENCE] Per-component: extr={component_conf.extraction:.0%} preproc={component_conf.preprocessing:.0%} concept={component_conf.concept:.0%} ground={component_conf.grounding:.0%} reason={component_conf.reasoning:.0%} comp={component_conf.composition:.0%} audit={component_conf.auditing:.0%} → overall={component_conf.overall:.0%}")
+        print(f"[CONFIDENCE] Per-component: extr={component_conf.extraction:.0%} preproc={component_conf.preprocessing:.0%} concept={component_conf.concept:.0%} ground={component_conf.grounding:.0%} reason={component_conf.reasoning:.0%} comp={component_conf.composition:.0%} audit={component_conf.auditing:.0%} -> overall={component_conf.overall:.0%}")
         print(f"{'='*60}\n[PIPELINE] Done in {metrics.total_ms}ms | Extraction {metrics.extraction_confidence:.0%} | "
               f"Grounding {metrics.grounding_avg:.0%} | Hallucination {metrics.hallucination_rate:.0%} | Overall {component_conf.overall:.0%}\n{'='*60}")
 

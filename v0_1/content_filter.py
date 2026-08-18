@@ -13,9 +13,9 @@ from typing import Dict, List, Optional, Tuple
 import fitz  # PyMuPDF
 
 
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 # Patterns
-# ─────────────────────────────────────────────
+# ---------------------------------------------
 
 TOC_HEADINGS = [
     r"^\s*contents\s*$",
@@ -203,7 +203,7 @@ class AcademicContentFilter:
                 for pn in range(pdf_start, pdf_end + 1):
                     kept_idx.add(pn)
 
-        # ── If toc_guided kept very few pages, fall back to body_heuristic ──
+        # -- If toc_guided kept very few pages, fall back to body_heuristic --
         if method == "toc_guided" and len(kept_idx) < max(10, len(pages) // 10):
             print(f"[CONTENT_FILTER] TOC mapping kept only {len(kept_idx)}/{len(pages)} pages — falling back to body heuristic")
             kept_idx = set()
@@ -381,7 +381,7 @@ class AcademicContentFilter:
         if words < 40:
             return False
         signals = 0
-        if re.search(r"[=∑∫√≤≥±→←]|\\frac|\\sum", page.text):
+        if re.search(r"[=∑∫√≤≥±->←]|\\frac|\\sum", page.text):
             signals += 1
         if re.search(r"\b(definition|theorem|lemma|proof|example|figure|table)\b", page.text, re.I):
             signals += 1
@@ -398,14 +398,14 @@ class AcademicContentFilter:
             if not ln.strip():
                 continue
 
-            # ── Format 1: Standard (title first, page at end) ──
+            # -- Format 1: Standard (title first, page at end) --
             # "Chapter 8 Hashing .......... 395"
             m = re.search(
                 r"^(?P<title>.+?)\s+(?:\.{2,}|-{2,}|\s{2,})\s*(?P<page>\d{1,4})\s*$",
                 ln
             )
 
-            # ── Format 2: Reversed (page first, title after) ──
+            # -- Format 2: Reversed (page first, title after) --
             # "395  8.1  Hash Tables"
             if not m:
                 m2 = re.match(
@@ -420,7 +420,7 @@ class AcademicContentFilter:
                         entries.append(TocEntry(title=title, page=page, level=level))
                     continue
 
-            # ── Format 3: Simple "title  page" with no leader dots ──
+            # -- Format 3: Simple "title  page" with no leader dots --
             if not m:
                 m = re.search(r"^(?P<title>.{5,100}?)\s{2,}(?P<page>\d{1,4})\s*$", ln)
                 if m:
@@ -488,7 +488,7 @@ class AcademicContentFilter:
         Handles books with blank early pages and reversed TOC format.
         """
 
-        # ── Step 1: Try offset from chapter title text matching ──
+        # -- Step 1: Try offset from chapter title text matching --
         offset = None
         for e in sorted(toc_entries, key=lambda x: x.page or 0):
             if not e.page:
@@ -514,7 +514,7 @@ class AcademicContentFilter:
             if offset is not None:
                 break
 
-        # ── Step 2: If no offset found, try footer number correlation ──
+        # -- Step 2: If no offset found, try footer number correlation --
         if offset is None:
             offsets_found = []
             for p in pages[5:min(50, len(pages))]:   # skip first few blank pages
@@ -530,7 +530,7 @@ class AcademicContentFilter:
                 from collections import Counter
                 offset = Counter(offsets_found).most_common(1)[0][0]
 
-        # ── Step 3: Build the mapping ──
+        # -- Step 3: Build the mapping --
         mapping: Dict[int, int] = {}
 
         if offset is not None:
@@ -584,7 +584,7 @@ class AcademicContentFilter:
             if not self.keep_exercises and re.match(r"^\s*(exercises|review questions|practice problems)\b", s, re.I):
                 break
 
-            # ── Code / path / config line filters ──
+            # -- Code / path / config line filters --
             if re.match(r"^\s*(import|from)\s+\w+", s):
                 continue
             if re.match(r"^\s*\w+[/\\]\w+[/\\]?\w*\s*$", s):

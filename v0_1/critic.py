@@ -48,12 +48,12 @@ def review(q: GeneratedQuestion) -> Tuple[bool, str]:
     return True, "ACCEPTED"
 
 
-# ── Stage 8 Extended Critic ───────────────────────────────────────────────────
+# -- Stage 8 Extended Critic ---------------------------------------------------
 
 @dataclass
 class CriticVerdict:
     passed:       bool
-    score:        float          # 0.0 → 1.0
+    score:        float          # 0.0 -> 1.0
     reason_code:  str            # RC-01 … RC-12
     reason:       str
     fix:          str = ""

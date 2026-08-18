@@ -73,7 +73,7 @@ class EquationType(str, Enum):
 
 
 class HealerAction(str, Enum):
-    SYMBOL_REPLACE    = "SYMBOL_REPLACE"    # π → \pi
+    SYMBOL_REPLACE    = "SYMBOL_REPLACE"    # π -> \pi
     ENCODING_REPAIR   = "ENCODING_REPAIR"   # UTF-8 re-decode
     DELIMITER_BALANCE = "DELIMITER_BALANCE" # close open \[
     OCR_RERUN         = "OCR_RERUN"         # re-OCR equation image

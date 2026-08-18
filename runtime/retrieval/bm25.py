@@ -30,7 +30,7 @@ class RetrievedChunk:
     module_id: str
 
 
-# ── Tokeniser ─────────────────────────────────────────────────────────
+# -- Tokeniser ---------------------------------------------------------
 
 _STOPWORDS = frozenset({
     "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
@@ -60,7 +60,7 @@ def _tokenise(text: str) -> List[str]:
     ]
 
 
-# ── BM25 Index ────────────────────────────────────────────────────────
+# -- BM25 Index --------------------------------------------------------
 
 # BM25 tuning parameters
 _K1 = 1.5
@@ -153,7 +153,7 @@ class BM25Index:
             for doc_id, score in ranked
         ]
 
-    # ── Serialisation ─────────────────────────────────────────────────
+    # -- Serialisation -------------------------------------------------
 
     def save(self, directory: Path) -> None:
         """Persist the index to disk."""

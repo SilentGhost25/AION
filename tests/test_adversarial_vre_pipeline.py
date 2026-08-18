@@ -40,7 +40,7 @@ def avl_tree_image(tmp_path) -> str:
     return str(img_path)
 
 
-# ── Test 1: DSA Weighted Graph (Dijkstra) ─────────────────────────────────────
+# -- Test 1: DSA Weighted Graph (Dijkstra) -------------------------------------
 
 def test_adversarial_dsa_dijkstra(dsa_graph_image):
     request = VRERequest(
@@ -70,7 +70,7 @@ def test_adversarial_dsa_dijkstra(dsa_graph_image):
     assert output.question_plan_hash != ""
 
 
-# ── Test 2: AI / DSA AVL Tree Insertion & Rotation ───────────────────────────
+# -- Test 2: AI / DSA AVL Tree Insertion & Rotation ---------------------------
 
 def test_adversarial_avl_tree_insert(avl_tree_image):
     request = VRERequest(
@@ -94,7 +94,7 @@ def test_adversarial_avl_tree_insert(avl_tree_image):
     assert output.figure_svg is not None
 
 
-# ── Test 3: ECE Circuit Analysis (Equivalent Resistance) ──────────────────────
+# -- Test 3: ECE Circuit Analysis (Equivalent Resistance) ----------------------
 
 def test_adversarial_ece_circuit_analysis(ece_circuit_image):
     request = VRERequest(
@@ -118,7 +118,7 @@ def test_adversarial_ece_circuit_analysis(ece_circuit_image):
     assert output.figure_svg is not None
 
 
-# ── Test 4: Corrupted & Low Word Count Input Guard ────────────────────────────
+# -- Test 4: Corrupted & Low Word Count Input Guard ----------------------------
 
 def test_adversarial_corrupted_input_rejection(tmp_path):
     corrupted_file = tmp_path / "corrupted_document.txt"
@@ -134,7 +134,7 @@ def test_adversarial_corrupted_input_rejection(tmp_path):
         )
 
 
-# ── Test 5: Full FinalPaper JSON & Asset Serialization Integrity ─────────────
+# -- Test 5: Full FinalPaper JSON & Asset Serialization Integrity -------------
 
 def test_adversarial_full_paper_export_integrity(tmp_path):
     paper_file = tmp_path / "valid_academic_paper.txt"

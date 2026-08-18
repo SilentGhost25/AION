@@ -36,9 +36,9 @@ class OCRResult:
     raw_text:       str  = ""
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # Digital PDF extractor (existing PyMuPDF — keep as-is)
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 def _extract_digital(pdf_path: str) -> Optional[OCRResult]:
     """
@@ -178,9 +178,9 @@ def _classify_block(
     return "paragraph", 0
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # Unlimited-OCR extractor (scanned PDFs)
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 def _extract_with_unlimited_ocr(pdf_path: str) -> Optional[OCRResult]:
     """
@@ -201,7 +201,7 @@ def _extract_with_unlimited_ocr(pdf_path: str) -> Optional[OCRResult]:
         for page_result in getattr(result, "pages", []):
             ocr_pages += 1
 
-            # ── Paragraphs ────────────────────────────────────
+            # -- Paragraphs ------------------------------------
             for para in getattr(page_result, "paragraphs", []):
                 text = getattr(para, "text", "").strip()
                 if text and len(text.split()) > 3:
@@ -212,7 +212,7 @@ def _extract_with_unlimited_ocr(pdf_path: str) -> Optional[OCRResult]:
                         confidence = getattr(para, "confidence", 0.85),
                     ))
 
-            # ── Headings ──────────────────────────────────────
+            # -- Headings --------------------------------------
             for heading in getattr(page_result, "headings", []):
                 text  = getattr(heading, "text", "").strip()
                 level = getattr(heading, "level", 2)
@@ -225,7 +225,7 @@ def _extract_with_unlimited_ocr(pdf_path: str) -> Optional[OCRResult]:
                         level      = level,
                     ))
 
-            # ── Figures ───────────────────────────────────────
+            # -- Figures ---------------------------------------
             for figure in getattr(page_result, "figures", []):
                 caption = getattr(figure, "caption", "") or ""
                 has_figures = True
@@ -237,7 +237,7 @@ def _extract_with_unlimited_ocr(pdf_path: str) -> Optional[OCRResult]:
                     bbox       = getattr(figure, "bbox", None),
                 ))
 
-            # ── Candidate tables ──────────────────────────────
+            # -- Candidate tables ------------------------------
             for table in getattr(page_result, "candidate_tables", []):
                 raw = getattr(table, "raw_text", "") or ""
                 has_tables = True

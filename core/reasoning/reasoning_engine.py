@@ -1,10 +1,10 @@
 """
 Reasoning Engine — Decides what to ask and how to think
-Per audit: Text → Concept → Question works for definitions, not engineering.
+Per audit: Text -> Concept -> Question works for definitions, not engineering.
 Engineering needs: Concepts + Relationships + Procedures + Calculations + Figures + Constraints
 
 Reasoning Engine sits between Knowledge Unit Builder and Planner:
-  Extraction → Concept → Knowledge Unit Builder → Grounding → Reasoning Engine → Planner → Composer → Self-Critic → Auditor
+  Extraction -> Concept -> Knowledge Unit Builder -> Grounding -> Reasoning Engine -> Planner -> Composer -> Self-Critic -> Auditor
 """
 
 import re

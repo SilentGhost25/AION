@@ -540,9 +540,9 @@ SUBJECTS = [
     }
 ]
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # AUDIT ENGINE
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 class AIONExamAuditor:
     """
@@ -682,9 +682,9 @@ class AIONExamAuditor:
         }
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # AUTO-CORRECTION / SELF-HEALING ENGINE
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 class AIONAutoHealer:
     """
@@ -796,9 +796,9 @@ class AIONAutoHealer:
         return healed
 
 
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # RUN EXAM GENERATION AND AUDIT PIPELINE
-# ─────────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 def run_test_suite() -> str:
     print("=" * 80)
@@ -925,9 +925,9 @@ def run_test_suite() -> str:
         print(f"  - {g}: {count} issues")
     print("=" * 80)
 
-    # ─────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------
     # BUILD MARKDOWN REPORT FORMAT
-    # ─────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------
     md = []
     md.append("# AION: Academic Intelligence Oriented Network")
     md.append("## Fine-Tuned Model 'aion-exam' Testing & Audit Report")
@@ -994,7 +994,7 @@ def run_test_suite() -> str:
             md.append(f"  > *\"{r['original_text']}\"*")
             md.append(f"- **Healed Corrected Output:**")
             md.append(f"  > **\"{r['healed_text']}\"**")
-            md.append(f"- **Score Improvement:** `{r['original_score']}` → **`{r['healed_score']}`**")
+            md.append(f"- **Score Improvement:** `{r['original_score']}` -> **`{r['healed_score']}`**")
             md.append("")
             sample_count += 1
 

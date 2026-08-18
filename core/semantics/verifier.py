@@ -194,7 +194,7 @@ class AcademicSemanticsVerifier:
             evidence_coverage=round(coverage, 2),
         )
 
-    # ── Domain Detection ─────────────────────────────────────
+    # -- Domain Detection -------------------------------------
 
     def _detect_domain(self, text: str) -> str:
         scores: Dict[str, int] = {}

@@ -75,7 +75,7 @@ class AIonEmbedder:
         if subject == self._current_subject:
             return {"status": "no_change", "subject": subject}
         
-        print(f"[EMBEDDER] Switching subject: {self._current_subject} → {subject}")
+        print(f"[EMBEDDER] Switching subject: {self._current_subject} -> {subject}")
         self._load_model(subject)
         
         return {

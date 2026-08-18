@@ -49,7 +49,7 @@ def save_config(config: dict):
     with open("config/aion_config.yaml", "w") as f:
         yaml.dump(config, f, default_flow_style=False)
 
-# ── Request / Response Models ──────────────────────────────────────────────
+# -- Request / Response Models ----------------------------------------------
 
 class EmbedRequest(BaseModel):
     texts: List[str]
@@ -69,7 +69,7 @@ class FeedbackRequest(BaseModel):
     subject: Optional[str] = None
 
 class ConfigUpdateRequest(BaseModel):
-    updates: Dict[str, Any]  # dot-notation keys → values
+    updates: Dict[str, Any]  # dot-notation keys -> values
 
 class TrainRequest(BaseModel):
     subject: Optional[str] = None
@@ -82,7 +82,7 @@ class SwitchSubjectRequest(BaseModel):
 class BuildIndexRequest(BaseModel):
     subject: Optional[str] = None
 
-# ── Core Endpoints ─────────────────────────────────────────────────────────
+# -- Core Endpoints ---------------------------------------------------------
 
 @app.get("/health")
 async def health():
@@ -130,7 +130,7 @@ async def search(request: SearchRequest):
         "count": len(results)
     }
 
-# ── Admin Endpoints ────────────────────────────────────────────────────────
+# -- Admin Endpoints --------------------------------------------------------
 
 @app.post("/admin/switch-subject")
 async def switch_subject(request: SwitchSubjectRequest):

@@ -27,7 +27,7 @@ from aion_web.training.backends.base import (
 )
 
 
-# ── Fake data constants ───────────────────────────────────────────────────────
+# -- Fake data constants -------------------------------------------------------
 
 FAKE_CONCEPTS = {
     1: ["Introduction to AI", "Intelligent Agents", "PEAS Framework", "Problem Formulation"],
@@ -109,7 +109,7 @@ class DemoBackend(TrainingBackend):
         self._active_job_id: Optional[str] = None
         self._lock = threading.Lock()
 
-    # ── Core operations ───────────────────────────────────────────────
+    # -- Core operations -----------------------------------------------
 
     def analyse(
         self,

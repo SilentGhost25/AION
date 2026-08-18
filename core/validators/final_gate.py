@@ -61,7 +61,7 @@ class FinalQualityGate:
         failures: List[str] = []
         warnings: List[str] = []
 
-        # ── CATEGORY A — STRUCTURE (weight 0.30) ──────────────────────────────
+        # -- CATEGORY A — STRUCTURE (weight 0.30) ------------------------------
         cat_a_pass = True
 
         if len(plan.or_pairs) != plan.module_count:
@@ -94,7 +94,7 @@ class FinalQualityGate:
                 exportable=False,
             )
 
-        # ── CATEGORY B — CONTENT INTEGRITY (weight 0.20) ──────────────────────
+        # -- CATEGORY B — CONTENT INTEGRITY (weight 0.20) ----------------------
         cat_b_score = 1.0
         b_fails = 0
         for gq in generated_questions:
@@ -108,7 +108,7 @@ class FinalQualityGate:
         if b_fails > 0:
             cat_b_score = max(0.0, 1.0 - (b_fails * 0.25))
 
-        # ── CATEGORY C — PROMPT SAFETY (weight 0.15) ─────────────────────────
+        # -- CATEGORY C — PROMPT SAFETY (weight 0.15) -------------------------
         cat_c_pass = True
         for gq in generated_questions:
             q_text_lower = gq.question_text.lower()
@@ -131,7 +131,7 @@ class FinalQualityGate:
                 exportable=False,
             )
 
-        # ── CATEGORY D — BLOOM / ACADEMIC INTEGRITY (weight 0.15) ─────────────
+        # -- CATEGORY D — BLOOM / ACADEMIC INTEGRITY (weight 0.15) -------------
         cat_d_score = 1.0
         d_fails = 0
         for gq in generated_questions:
@@ -145,10 +145,10 @@ class FinalQualityGate:
         if d_fails > 0:
             cat_d_score = max(0.0, 1.0 - (d_fails * 0.15))
 
-        # ── CATEGORY E — GROUNDING (weight 0.10) ──────────────────────────────
+        # -- CATEGORY E — GROUNDING (weight 0.10) ------------------------------
         cat_e_score = 1.0
 
-        # ── CATEGORY F — RENDERING (weight 0.10) ─────────────────────────────
+        # -- CATEGORY F — RENDERING (weight 0.10) -----------------------------
         cat_f_score = 1.0
 
         # Weighted calculation: A (0.30), B (0.20), C (0.15), D (0.15), E (0.10), F (0.10)
@@ -209,14 +209,14 @@ class FinalQualityGate:
             "AION FINAL QUALITY GATE",
             "════════════════════════════════════════════════════════",
             f"Plan ID              : {plan.plan_id}",
-            "────────────────────────────────────────────────────────",
+            "--------------------------------------------------------",
             f"STRUCTURE   [A01–A09]: {'PASS' if status != 'BLOCKED' or reason != 'STRUCTURAL_FAILURE' else 'FAIL'}",
             f"CONTENT     [B01–B05]: {'PASS' if score > 70 else 'WARN'}",
             f"SAFETY      [C01–C04]: {'PASS' if status != 'BLOCKED' or reason != 'PROMPT_SAFETY_FAILURE' else 'FAIL'}",
             f"BLOOM       [D01–D05]: PASS",
             f"GROUNDING   [E01–E05]: PASS",
             f"RENDERING   [F01–F04]: PASS",
-            "────────────────────────────────────────────────────────",
+            "--------------------------------------------------------",
             f"QA Score             : {score:.1f}/100",
             f"Final Status         : {status}",
         ]

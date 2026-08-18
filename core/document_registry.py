@@ -5,7 +5,7 @@ Single source of truth for all uploaded documents.
 Replaces the raw file_registry dict in aion_api.py.
 
 Every document goes through states:
-  UPLOADED → EXTRACTING → EXTRACTED → INDEXING → READY → GENERATING → DONE
+  UPLOADED -> EXTRACTING -> EXTRACTED -> INDEXING -> READY -> GENERATING -> DONE
 
 Nothing touches the filesystem path after READY.
 """

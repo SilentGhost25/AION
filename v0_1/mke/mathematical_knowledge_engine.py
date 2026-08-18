@@ -37,7 +37,7 @@ class MathematicalKnowledgeEngine:
 
     def __init__(self, persist_path: Optional[Path] = None):
         self.registry:  Dict[str, EquationKnowledgeObject] = {}
-        self.by_name:   Dict[str, str] = {}      # name → eko_id
+        self.by_name:   Dict[str, str] = {}      # name -> eko_id
         self.by_topic:  Dict[str, List[str]] = {}
         self.by_subject: Dict[str, List[str]] = {}
         self.parser     = ExpressionParser()
@@ -51,7 +51,7 @@ class MathematicalKnowledgeEngine:
         if persist_path and persist_path.exists():
             self._load_from_disk(persist_path)
 
-    # ── Registration ──────────────────────────────────────────────────────────
+    # -- Registration ----------------------------------------------------------
 
     def register(self, eko: EquationKnowledgeObject):
         """Add an EKO to the registry."""
@@ -68,7 +68,7 @@ class MathematicalKnowledgeEngine:
         if eko.subject:
             self.by_subject.setdefault(eko.subject, []).append(eko.eko_id)
 
-    # ── Query ─────────────────────────────────────────────────────────────────
+    # -- Query -----------------------------------------------------------------
 
     def get(self, name: str) -> Optional[EquationKnowledgeObject]:
         """Look up an EKO by name."""
@@ -116,7 +116,7 @@ class MathematicalKnowledgeEngine:
 
         return found
 
-    # ── Generation ────────────────────────────────────────────────────────────
+    # -- Generation ------------------------------------------------------------
 
     def generate_problem(
         self,
@@ -160,7 +160,7 @@ class MathematicalKnowledgeEngine:
             f"({split_b} marks) Explain how {eko.name} applies in {eko.domains[0] if eko.domains else eko.topic}."
         )
 
-    # ── Rendering ─────────────────────────────────────────────────────────────
+    # -- Rendering -------------------------------------------------------------
 
     def render_unicode(self, eko: EquationKnowledgeObject) -> str:
         if eko.tree:
@@ -172,7 +172,7 @@ class MathematicalKnowledgeEngine:
             return self.renderer.to_latex(eko.tree)
         return eko.canonical
 
-    # ── Built-in Equations ────────────────────────────────────────────────────
+    # -- Built-in Equations ----------------------------------------------------
 
     def _load_builtin_equations(self):
         """Load the built-in equation knowledge base."""

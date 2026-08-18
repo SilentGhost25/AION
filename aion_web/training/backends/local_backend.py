@@ -47,7 +47,7 @@ class LocalBackend(TrainingBackend):
         self._jobs: Dict[str, Dict] = {}
         self._lock = threading.Lock()
 
-    # ── Core operations ───────────────────────────────────────────────
+    # -- Core operations -----------------------------------------------
 
     def analyse(
         self,
@@ -270,7 +270,7 @@ class LocalBackend(TrainingBackend):
     def is_busy(self) -> bool:
         return self._active_job_id is not None
 
-    # ── Private helpers ───────────────────────────────────────────────
+    # -- Private helpers -----------------------------------------------
 
     def _assert_ollama_available(self):
         health = self.health_check()

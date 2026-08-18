@@ -1,11 +1,11 @@
 """
 Domain Integrity Gate — Safety layer before composition
 Per audit: Don't rely on lexicons alone. Add gate immediately before composition:
-Question → Extract technical entities → Compare against Knowledge Unit + Retrieved Concepts → Any unseen domain entity? → Reject → Repair
+Question -> Extract technical entities -> Compare against Knowledge Unit + Retrieved Concepts -> Any unseen domain entity? -> Reject -> Repair
 
 For Data Structures example:
 Knowledge Unit: Binary Tree, BST, Traversal, AVL
-Generated question contains ECU → ECU ∉ KU, ∉ Retrieved Evidence → Reject
+Generated question contains ECU -> ECU ∉ KU, ∉ Retrieved Evidence -> Reject
 
 This catches the problem regardless of whether ECU is in manually maintained automotive lexicon.
 """

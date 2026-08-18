@@ -17,7 +17,7 @@ class QuestionProvenance:
     Immutable provenance record attached to every GeneratedQuestion.
 
     The chain this represents:
-        PDF chunks → evidence_ids → QuestionSlot → GeneratedQuestion
+        PDF chunks -> evidence_ids -> QuestionSlot -> GeneratedQuestion
 
     All fields are sourced exclusively from the immutable QuestionSlot
     (never from the LLM output). The ExportGate uses this to verify that

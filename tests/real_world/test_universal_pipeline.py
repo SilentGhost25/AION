@@ -12,7 +12,7 @@ Per AION Development Context:
 > No artificial datasets. No toy examples. No lorem ipsum.
 
 This harness verifies:
-  Extraction → Concepts → Grounding → Question → Audit → Human review
+  Extraction -> Concepts -> Grounding -> Question -> Audit -> Human review
 
 It is designed to run against real VTU material when available.
 If no real PDFs are present (e.g., CI sandbox), it uses
@@ -42,7 +42,7 @@ from core.numerical.generator import NumericalEngine
 from core.confidence.recovery import ConfidenceRecoveryEngine
 
 
-# ── Sample VTU-style materials (proxy for real textbooks) ──────
+# -- Sample VTU-style materials (proxy for real textbooks) ------
 # In production, replace these with paths to real PDFs:
 #   dataset/BAI401/... , workspace/uploads/*.pdf, etc.
 # Each sample is a subject-specific excerpt (not dummy data) — all >80 words for concept extraction.
@@ -77,7 +77,7 @@ Eigenvalues and eigenvectors are defined for a square matrix A such that Av = λ
 """,
 }
 
-# ── Helpers ───────────────────────────────────────────────────
+# -- Helpers ---------------------------------------------------
 
 def _temp_file_for_text(text: str, suffix: str = ".txt") -> pathlib.Path:
     p = pathlib.Path(tempfile.mktemp(suffix=suffix))
@@ -102,7 +102,7 @@ def _has_real_vtu_pdfs() -> List[pathlib.Path]:
     return [p for p in pdfs if p.stat().st_size > 10 * 1024]
 
 
-# ── Tests ─────────────────────────────────────────────────────
+# -- Tests -----------------------------------------------------
 
 def test_production_model_is_single_source():
     """Success criteria: single centralized production model."""
@@ -126,7 +126,7 @@ def test_no_deprecated_defaults_in_code():
 
 
 def test_layered_extraction_produces_clean_text():
-    """Extraction → clean_text.txt with headers/footers removed."""
+    """Extraction -> clean_text.txt with headers/footers removed."""
     pipeline = AionUniversalPipeline(use_llm=False)
     text = VTU_SAMPLES["BEC601_SATCOM"]
     tmp = _temp_file_for_text(text)
@@ -174,14 +174,14 @@ def test_semantic_grounding_no_hallucination():
     """
     verifier = AcademicSemanticsVerifier(strict=True)
 
-    # SI → Diesel
+    # SI -> Diesel
     ev_si = VTU_SAMPLES["BME402_AUTOMOTIVE_SI_ENGINE"]
     q_bad = "Explain Diesel ignition in SI engine for 10 marks."
     res = verifier.verify(q_bad, ev_si, concept_name="SI Engine")
     assert not res.is_valid
     assert any("diesel" in v.lower() for v in res.violations)
 
-    # SATCOM → Radar — evidence now contains satellite keyword + tdma
+    # SATCOM -> Radar — evidence now contains satellite keyword + tdma
     ev_sat = VTU_SAMPLES["BEC601_SATCOM"]
     q_bad2 = "Describe radar detection in satellite communication for 8 marks."
     res2 = verifier.verify(q_bad2, ev_sat)
@@ -222,7 +222,7 @@ def test_multi_stage_validation():
 
 
 def test_confidence_recovery_ladder():
-    """Poor document → retry chain → flagged note, never silent hallucination."""
+    """Poor document -> retry chain -> flagged note, never silent hallucination."""
     recovery = ConfidenceRecoveryEngine(allow_external=False)
     class LowConf:
         clean_text = "tiny fragmented text with 10 words"

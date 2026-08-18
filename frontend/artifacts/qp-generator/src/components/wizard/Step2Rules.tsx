@@ -362,8 +362,8 @@ export function Step2Rules({
           courseOutcomes: [1,2,3,4,5].map(i =>
             `Understand and apply Module ${i} concepts of ${config.subjectName || "the subject"}.`
           ),
-          coCoverage:       { co1: 20, co2: 20, co3: 20, co4: 20, co5: 20 },
-          syllabusCoverage: { s1: 20, s2: 20, s3: 20, s4: 20, s5: 20 },
+          coCoverage:       { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 },
+          syllabusCoverage: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0 },
         }
 
         // DOM Count & Question ID Verification (🔴 11, 🔴 12 & Change 2)
@@ -454,8 +454,8 @@ export function Step2Rules({
         config,
         questions,
         courseOutcomes,
-        coCoverage:       { co1: 20, co2: 20, co3: 20, co4: 20, co5: 20 },
-        syllabusCoverage: { s1: 20,  s2: 20,  s3: 20,  s4: 20,  s5: 20  },
+        coCoverage:       { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 },
+        syllabusCoverage: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0 },
       }
 
       setBuildStatus("")

@@ -24,7 +24,7 @@ class EvidenceClassifier:
 
         meta = meta or {}
 
-        # ── PRIORITY 1: HARD DISQUALIFIERS ────────────────────────────────────
+        # -- PRIORITY 1: HARD DISQUALIFIERS ------------------------------------
 
         # PDF Internals check (INV-1)
         pdf_report = detect_pdf_internals(text)
@@ -40,7 +40,7 @@ class EvidenceClassifier:
         if "\x00" in text:
             return EvidenceType.BINARY_STREAM
 
-        # ── PRIORITY 2: STRUCTURAL EXCLUSIONS ──────────────────────────────────
+        # -- PRIORITY 2: STRUCTURAL EXCLUSIONS ----------------------------------
 
         lines = [l.strip() for l in text.splitlines() if l.strip()]
         first_line = lines[0].lower() if lines else ""
@@ -54,7 +54,7 @@ class EvidenceClassifier:
         if len(text.strip()) < 80 and re.search(r"^\d+\s*\|\s*page", first_line):
             return EvidenceType.HEADER_FOOTER
 
-        # ── PRIORITY 3: ACADEMIC CONTENT CLASSIFICATION ──────────────────────
+        # -- PRIORITY 3: ACADEMIC CONTENT CLASSIFICATION ----------------------
 
         # Equation block
         if meta.get("equation_ids") or "LaTeX" in meta or re.search(r"\\(begin|frac|sum|int|sqrt)", text):

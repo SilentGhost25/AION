@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Tuple, List, Dict
 
 
-# ── Constants ──────────────────────────────────────────────────────────────────
+# -- Constants ------------------------------------------------------------------
 
 EXAM_RULES = {
     "IA": {
@@ -60,7 +60,7 @@ REASON_CODES = {
 }
 
 
-# ── Data Classes ───────────────────────────────────────────────────────────────
+# -- Data Classes ---------------------------------------------------------------
 
 @dataclass
 class ValidationResult:
@@ -81,7 +81,7 @@ class ValidationResult:
         self.warnings.append(msg)
 
 
-# ── Main Enforcer ──────────────────────────────────────────────────────────────
+# -- Main Enforcer --------------------------------------------------------------
 
 class SemanticEnforcer:
     """
@@ -91,12 +91,12 @@ class SemanticEnforcer:
 
     def __init__(self, strict_mode: bool = False):
         """
-        strict_mode=True  → reject any question with violations
-        strict_mode=False → attempt auto-repair first
+        strict_mode=True  -> reject any question with violations
+        strict_mode=False -> attempt auto-repair first
         """
         self.strict_mode = strict_mode
 
-    # ── Public API ─────────────────────────────────────────────────────────────
+    # -- Public API -------------------------------------------------------------
 
     def validate_request(
         self,
@@ -163,7 +163,7 @@ class SemanticEnforcer:
         """
         result = ValidationResult(valid=True)
 
-        # ── Step 1: Parse JSON ─────────────────────────────────────────────────
+        # -- Step 1: Parse JSON -------------------------------------------------
         parsed = self._extract_json(raw_response)
         if parsed is None:
             result.add_error(
@@ -189,7 +189,7 @@ class SemanticEnforcer:
             )
             return result
 
-        # ── Step 2: Validate each question ────────────────────────────────────
+        # -- Step 2: Validate each question ------------------------------------
         repaired_questions = []
         for i, q in enumerate(questions):
             q_result, q_fixed = self._validate_question(
@@ -206,7 +206,7 @@ class SemanticEnforcer:
                 result.fixed = True
             repaired_questions.append(q_fixed or q)
 
-        # ── Step 3: Build fixed output ─────────────────────────────────────────
+        # -- Step 3: Build fixed output -----------------------------------------
         if len(repaired_questions) == 1:
             result.fixed_data = repaired_questions[0]
         else:
@@ -305,7 +305,7 @@ OUTPUT FORMAT:
 
         return prompt
 
-    # ── Private Validators ─────────────────────────────────────────────────────
+    # -- Private Validators -----------------------------------------------------
 
     def _validate_question(
         self,
@@ -321,7 +321,7 @@ OUTPUT FORMAT:
 
         rules = EXAM_RULES.get(exam_type, EXAM_RULES["IA"])
 
-        # ── Check 1: Required fields ───────────────────────────────────────────
+        # -- Check 1: Required fields -------------------------------------------
         for field_name in ["question", "sub_questions", "total_marks"]:
             if field_name not in q:
                 result.add_error(f"Missing field: '{field_name}'", "RC-08")
@@ -333,7 +333,7 @@ OUTPUT FORMAT:
         sub_questions = q.get("sub_questions", [])
         total_marks   = q.get("total_marks", rules["total_marks"])
 
-        # ── Check 2: Marks sum ────────────────────────────────────────────────
+        # -- Check 2: Marks sum ------------------------------------------------
         declared_sum = sum(sq.get("marks", 0) for sq in sub_questions)
         expected     = rules["total_marks"]
 
@@ -341,7 +341,7 @@ OUTPUT FORMAT:
             if auto_repair:
                 fixed_q = self._repair_marks(fixed_q, exam_type)
                 result.add_warning(
-                    f"Marks repaired: {declared_sum} → {expected} "
+                    f"Marks repaired: {declared_sum} -> {expected} "
                     f"using {exam_type} split."
                 )
                 result.fixed = True
@@ -352,7 +352,7 @@ OUTPUT FORMAT:
                     "RC-03"
                 )
 
-        # ── Check 3: Sub-question count ────────────────────────────────────────
+        # -- Check 3: Sub-question count ----------------------------------------
         max_subq = rules["max_subquestions"]
         if len(sub_questions) > max_subq:
             if auto_repair:
@@ -369,7 +369,7 @@ OUTPUT FORMAT:
                     "RC-08"
                 )
 
-        # ── Check 4: Bloom verb consistency ───────────────────────────────────
+        # -- Check 4: Bloom verb consistency -----------------------------------
         expected_verbs = BLOOM_VERBS.get(bloom_level, [])
         question_lower = question_text.lower()
         verb_found     = any(v in question_lower for v in expected_verbs)
@@ -388,7 +388,7 @@ OUTPUT FORMAT:
                         flags=re.IGNORECASE
                     )
                     result.add_warning(
-                        f"Bloom verb repaired: '{old_verb}' → '{correct_verb}' "
+                        f"Bloom verb repaired: '{old_verb}' -> '{correct_verb}' "
                         f"for level {bloom_level}."
                     )
                     result.fixed = True
@@ -398,7 +398,7 @@ OUTPUT FORMAT:
                     f"Expected one of: {', '.join(expected_verbs[:3])}",
                 )
 
-        # ── Check 5: Diagram flag auto-set ────────────────────────────────────
+        # -- Check 5: Diagram flag auto-set ------------------------------------
         uses_diagram_verb = any(
             v in question_lower for v in DIAGRAM_VERBS
         )
@@ -407,7 +407,7 @@ OUTPUT FORMAT:
             result.add_warning("Auto-set requires_diagram=true based on command verb.")
             result.fixed = True
 
-        # ── Check 6: Basic grounding check ────────────────────────────────────
+        # -- Check 6: Basic grounding check ------------------------------------
         content_words = set(
             re.findall(r"\b[a-zA-Z]{4,}\b", academic_content.lower())
         )
@@ -423,7 +423,7 @@ OUTPUT FORMAT:
             )
             result.reason_codes.append("RC-04")
 
-        # ── Check 7: Ensure exam_type is set ──────────────────────────────────
+        # -- Check 7: Ensure exam_type is set ----------------------------------
         if "exam_type" not in fixed_q:
             fixed_q["exam_type"] = exam_type
             result.fixed = True
@@ -510,7 +510,7 @@ OUTPUT FORMAT:
         return None
 
 
-# ── Convenience function ───────────────────────────────────────────────────────
+# -- Convenience function -------------------------------------------------------
 
 def get_enforcer(strict: bool = False) -> SemanticEnforcer:
     return SemanticEnforcer(strict_mode=strict)

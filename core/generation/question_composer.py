@@ -126,7 +126,7 @@ class QuestionComposer:
     def compose_batch(self, plans: List[QuestionPlan]) -> List[ComposedQuestion]:
         return [self.compose(p) for p in plans]
 
-    # ── Knowledge-Unit aware composition (planner intent only, no raw chunk) ──
+    # -- Knowledge-Unit aware composition (planner intent only, no raw chunk) --
     def compose_from_ku(self, ku: "KnowledgeUnit", intent: "ReasoningIntent", plan: QuestionPlan) -> ComposedQuestion:
         """
         Composer that sees ONLY:
@@ -278,7 +278,7 @@ Question:"""
             return f"{verb} {concept} — {ku.definition[:90]}. Address the common misconception that {ku.misconceptions[0][:70].lower()} and clarify the correct principle for {marks} marks."
         return f"{verb} {concept} where {ku.definition[:100]} for {marks} marks."
 
-    # ── LLM Composition ──────────────────────────────────────
+    # -- LLM Composition --------------------------------------
 
     def _compose_with_llm(self, plan: QuestionPlan, numerical_payload: Optional[Dict[str, Any]]) -> str:
         # Tight prompt: evidence-bound, verb-forced, marks-aware
@@ -338,7 +338,7 @@ Question:"""
 
         return self._compose_template(plan, numerical_payload)
 
-    # ── Template fallback ────────────────────────────────────
+    # -- Template fallback ------------------------------------
     # Templates are grounded: they embed evidence keywords to pass grounding gate (<1% hallucination)
 
     def _extract_key_phrase(self, snippet: str) -> str:
@@ -388,7 +388,7 @@ Question:"""
         else:
             return f"{verb} {concept} critically ({key_phrase}) and evaluate its implications for {marks} marks."
 
-    # ── Post-process ─────────────────────────────────────────
+    # -- Post-process -----------------------------------------
 
     def _post_process(self, text: str, plan: QuestionPlan) -> str:
         t = text.strip()

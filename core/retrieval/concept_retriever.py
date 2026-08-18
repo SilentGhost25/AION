@@ -156,7 +156,7 @@ class ConceptLevelRetriever:
         # Use concept's evidence as query to find related
         return self.retrieve(target.supporting_evidence[:500], top_k=top_k)
 
-    # ── Helpers ──────────────────────────────────────────────
+    # -- Helpers ----------------------------------------------
 
     def _cosine(self, a: Counter, b: Counter) -> float:
         if not a or not b:
