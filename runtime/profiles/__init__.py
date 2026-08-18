@@ -161,23 +161,60 @@ LAPTOP_DEMO_PROFILE = RuntimeProfile(
 )
 
 PROFILE_REGISTRY: dict[str, RuntimeProfile] = {
-    "PRODUCTION" : PRODUCTION_PROFILE,
+    "PRODUCTION": PRODUCTION_PROFILE,
     "LAPTOP_FAST": LAPTOP_FAST_PROFILE,
     "LAPTOP_DEMO": LAPTOP_DEMO_PROFILE,
 }
 
 
+def _auto_detect_profile() -> str:
+    """Auto-detect best profile based on available hardware."""
+    import os
+    import subprocess
+
+    for smi in (
+        "nvidia-smi",
+        "/usr/bin/nvidia-smi",
+        "/usr/local/bin/nvidia-smi",
+        "/opt/nvidia/bin/nvidia-smi",
+    ):
+        try:
+            result = subprocess.run(
+                [smi, "--query-gpu=name", "--format=csv,noheader"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                print(f"[PROFILE] GPU detected: {result.stdout.strip().splitlines()[0]} -> PRODUCTION")
+                return "PRODUCTION"
+        except Exception:
+            pass
+
+    if os.path.exists("/proc/driver/nvidia/gpus"):
+        print("[PROFILE] NVIDIA driver found -> PRODUCTION")
+        return "PRODUCTION"
+
+    print("[PROFILE] No GPU detected -> LAPTOP_FAST")
+    return "LAPTOP_FAST"
+
+
 def get_active_profile() -> RuntimeProfile:
-    name = os.environ.get("AION_PROFILE", "LAPTOP_FAST").upper()
-    if name not in PROFILE_REGISTRY:
-        raise ValueError(f"Unknown profile: {name}. Valid: {list(PROFILE_REGISTRY)}")
-    return PROFILE_REGISTRY[name]
+    """Return the active runtime profile."""
+    import os
+
+    env_name = (os.environ.get("AION_PROFILE") or "").strip().upper()
+    name = env_name if env_name else _auto_detect_profile()
+
+    profile = PROFILE_REGISTRY.get(name)
+    if profile is None:
+        print(f"[PROFILE] Unknown profile {name!r}; falling back to LAPTOP_FAST")
+        profile = LAPTOP_FAST_PROFILE
+    return profile
 
 
 __all__ = [
     "ProfileName",
-    "MemoryState",
-    "TimeoutBudget",
     "RuntimeProfile",
     "PRODUCTION_PROFILE",
     "LAPTOP_FAST_PROFILE",

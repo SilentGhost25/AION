@@ -6,6 +6,7 @@ and locked question slot contracts.
 """
 
 from __future__ import annotations
+from core.contracts.question_slot import QuestionSlot
 
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum

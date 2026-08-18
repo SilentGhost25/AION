@@ -1,4 +1,6 @@
 # core/validation/linter.py
+from __future__ import annotations          # ← ADD THIS AS LINE 2 (after the comment)
+
 
 import re
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING

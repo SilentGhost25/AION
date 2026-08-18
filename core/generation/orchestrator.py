@@ -13,7 +13,7 @@ from core.validation.linter import run_linter
 
 LOG = logging.getLogger(__name__)
 
-FAILURE_SIGNATURE_WINDOW = 2   # if last N failures share the same code -> escalate
+FAILURE_SIGNATURE_WINDOW = 3   # if last N failures share the same code -> escalate
 
 
 class SlotBudgetExceeded(Exception):

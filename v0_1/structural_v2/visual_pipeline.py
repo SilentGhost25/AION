@@ -6,6 +6,7 @@ to definitive VisualDecision outcomes (IMAGE_REQUIRED, IMAGE_OPTIONAL, IMAGE_NOT
 """
 
 from __future__ import annotations
+from core.contracts.question_slot import QuestionSlot
 
 from typing import Any, Dict, List, Optional
 from .contracts import BloomLevel, QuestionSlot, VisualDecision, VisualPrior

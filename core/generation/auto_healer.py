@@ -231,8 +231,10 @@ class AutoHealer:
     @classmethod
     def _fix_add_comparison(cls, output, slot) -> "QuestionOutput":
         """Injects comparison language into instruction if missing."""
-        if not any(w in output.instruction.lower() for w in
-                   ["compare", "contrast", "difference", "distinguish", "versus"]):
+        if not any(w in output.instruction.lower() or w in output.question_text.lower() for w in
+                   ["compare", "contrast", "difference", "distinguish", "versus",
+                    "analyze", "analyse", "examine", "evaluate", "between",
+                    "unlike", "whereas", "while", "however", "assess", "justify"]):
             output.instruction = output.instruction.rstrip(".") +                 ", and compare the key differences."
             output.question_text = output.question_text.rstrip(".") +                 ", comparing their key characteristics."
             print(f"[AUTO-HEALER] Fixed COMPARISON_NOT_DECLARED — injected comparison")

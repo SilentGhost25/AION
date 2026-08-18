@@ -1,0 +1,29 @@
+{
+  "Sat Com": {
+    "module_1": {
+      "times_covered": 4,
+      "topics": [],
+      "last_covered": "2026-08-18T11:20:08.204921"
+    },
+    "module_2": {
+      "times_covered": 4,
+      "topics": [],
+      "last_covered": "2026-08-18T11:20:08.204957"
+    },
+    "module_3": {
+      "times_covered": 4,
+      "topics": [],
+      "last_covered": "2026-08-18T11:20:08.204977"
+    },
+    "module_4": {
+      "times_covered": 4,
+      "topics": [],
+      "last_covered": "2026-08-18T11:20:08.204995"
+    },
+    "module_5": {
+      "times_covered": 4,
+      "topics": [],
+      "last_covered": "2026-08-18T11:20:08.205012"
+    }
+  }
+}

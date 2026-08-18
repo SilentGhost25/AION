@@ -7,6 +7,7 @@ and Equations & Language (C36-C38), enforcing the SLOT_REGEN recovery protocol.
 """
 
 from __future__ import annotations
+from core.contracts.question_slot import QuestionSlot
 
 import re
 from dataclasses import dataclass, field

@@ -1,0 +1,1602 @@
+[
+  {
+    "hash": "d196d09defb6",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Identify the characteristics of three-axis stabilized satellites and how they differ from spin-stabilized satellites in terms of their orientation control mechanisms.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614841"
+  },
+  {
+    "hash": "7747b8c95f69",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Evaluate how spin-stabilized satellites maintain stability and compare this with the mechanisms used by three-axis stabilized satellites to achieve similar control, considering the implications for antenna placement and solar panel orientation.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614844"
+  },
+  {
+    "hash": "a98099bba59b",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "State the conditions a satellite must fulfill to remain above the same point on Earth’s surface, and explain how these conditions are influenced by the semi-major axis and the distance from the center of the Earth.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614848"
+  },
+  {
+    "hash": "9e92be999427",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Justify how the propagation delay affects communication between satellites and Earth stations, and determine the necessary adjustments in satellite velocity to maintain a geostationary orbit above a specific point on Earth's surface.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614850"
+  },
+  {
+    "hash": "9b7c7bba7dc6",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Name how three-axis stabilized satellites provide more power generation capability and additional mounting area for complex antennae compared to spin-stabilized satellites, understanding their design complexity and cost implications.",
+    "bloom": 5,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614853"
+  },
+  {
+    "hash": "c2a4a74c18a9",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Construct how satellite orbits are calculated and justify the methods used to determine orbital distances between two satellites.",
+    "bloom": 5,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614858"
+  },
+  {
+    "hash": "936c6879076e",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Define how to determine the velocity of a satellite at a given point using the provided constants and angles, and apply this understanding to calculate the time required for the satellite to move from one specific point to another in its orbit.",
+    "bloom": 5,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614861"
+  },
+  {
+    "hash": "876f299e8a51",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Critique how the velocity of a satellite at different points along its orbit is influenced by gravitational forces and justify how changes in semi-major axis affect orbital period, and evaluate the implications for mission planning.",
+    "bloom": 5,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614863"
+  },
+  {
+    "hash": "c0dd9b3ac861",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "List the conditions required for a satellite to follow a circular orbit and explain why a geostationary satellite needs to be at a specific height above Earth’s surface.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614868"
+  },
+  {
+    "hash": "7a4b799d52c1",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Compare how the first cosmic velocity ensures a satellite follows a circular orbit and analyze why different injection velocities result in elliptical orbits, as well as justify the significance of the semi-major axis in determining the orbital period according to Kepler’s third law.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614870"
+  },
+  {
+    "hash": "d6b2c8e299ed",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "State the definition of true anomaly and how it is used to indicate the position of a satellite in its orbit.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614873"
+  },
+  {
+    "hash": "759b5968a855",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Justify how changes in injection velocity affect a satellite's orbit and compare these effects with those caused by altering the right ascension of the ascending node, as well as analyze the implications for satellite positioning accuracy.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614874"
+  },
+  {
+    "hash": "8bd1aa1253ae",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Define spin stabilization and three-axis or body stabilization in satellite systems, and explain how these methods can mitigate solar radiation interference during periods when a satellite passes between the Earth and the sun.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614877"
+  },
+  {
+    "hash": "653f1f5c67c5",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Critique how spin stabilization and three-axis body stabilization methods differ in their effectiveness during periods when a satellite passes between Earth and the sun, and justify which method might better maintain signal integrity by reducing solar radiation interference.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614879"
+  },
+  {
+    "hash": "90c4b6dd5508",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Describe how Landsat satellites adjust their tracking intervals and ensure continuous power supply during eclipses.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614881"
+  },
+  {
+    "hash": "73494a3b4c99",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Formulate how the tracking interval affects the positioning of Landsat satellites over consecutive revolutions and analyze how ground control stations ensure optimal battery performance during periods when solar radiation is obstructed, compare this with the thermal stress management strategies empl",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614883"
+  },
+  {
+    "hash": "a54151895993",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Identify the inclination angle of the parking orbit and explain why this specific angle is used for satellite launches.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614886"
+  },
+  {
+    "hash": "698b02354b76",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Compare how the simple spinner configuration operates and maintains stability compared to the dual spinner configuration in spin-stabilized satellites, justify why modern satellites prefer the latter for antenna pointing accuracy.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614888"
+  },
+  {
+    "hash": "62fbb6fc4247",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Recall the definition of a sun-synchronous orbit and its significance for remote sensing applications.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614890"
+  },
+  {
+    "hash": "0009c8c6bf87",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Evaluate how varying injection velocities at perigee affect apogee heights and compare this with the relationship for circular orbits, as well as analyze the significance of sun-synchronous orbits in remote sensing applications.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614892"
+  },
+  {
+    "hash": "c4e147923b49",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Describe how the line-of-sight distance between two satellites is computed and explain its significance in ensuring correct orbital conditions for satellite injection.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614894"
+  },
+  {
+    "hash": "907d91a910ca",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Analyse how the line-of-sight distance between two satellites affects communication reliability and evaluate the impact of varying orbital parameters such as apogee and perigee distances on this distance.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614895"
+  },
+  {
+    "hash": "c27678ccd186",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Recall how solstices affect satellite communication delays and understand the impact of Earth station locations on signal transmission times.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614897"
+  },
+  {
+    "hash": "d488fad0ce67",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Construct how the inclination angle affects satellite orbits and evaluate the impact of varying injection velocities on achieving geostationary orbit stability, justifying your analysis.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614899"
+  },
+  {
+    "hash": "5bbb58d87b9a",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Define the concept of orbit inclination and how it affects the ground track coverage of a satellite.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614902"
+  },
+  {
+    "hash": "4251e486fe6d",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Construct how the inclination of an orbit affects the ground track coverage and evaluate why a satellite launched from a site with latitude 5.2° would have an orbital inclination of approximately 7°.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614904"
+  },
+  {
+    "hash": "6bfeb6a57609",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "List the definition of eccentricity in orbital mechanics and how it is calculated from the given parameters of an elliptical orbit.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614906"
+  },
+  {
+    "hash": "3c9dcac78766",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Critique how the eccentricity affects the velocity of a satellite at different points in its orbit and justify why an elliptical orbit with varying apogee and perigee distances would require different maneuvering strategies compared to a circular orbit.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614908"
+  },
+  {
+    "hash": "99bffaac3b87",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "State how sun-synchronous orbits maintain a consistent orientation relative to the Sun and ensure that satellites pass over the same Earth location at the same local solar time.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614910"
+  },
+  {
+    "hash": "15f88ffa6738",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Analyse how sun-synchronous orbits maintain a consistent orientation relative to the Sun and evaluate their advantages over equatorial orbits in terms of coverage for high-latitude regions, justifying your answer with respect to orbital eccentricity and inclination.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614912"
+  },
+  {
+    "hash": "78dd95ecf9fc",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Identify how a perigee manoeuvre transforms a circular parking orbit into an eccentric elliptical transfer orbit with specific perigee and apogee altitudes, and how an apogee manoeuvre adjusts the orbit inclination from 28.5 degrees to 0 degrees.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614914"
+  },
+  {
+    "hash": "db726bfe461a",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Differentiate how a perigee manoeuvre transforms a circular parking orbit into an eccentric elliptical transfer orbit and justify why the thrust required for inclination correction at apogee is significantly larger than that needed in the Kourou launch scenario, considering the orbital mechanics inv",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614916"
+  },
+  {
+    "hash": "6747955bad3c",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Describe how the eccentricity of an orbit is calculated and explain its significance in determining the shape of the orbit.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614920"
+  },
+  {
+    "hash": "51c6b47b9114",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Analyse how satellite orbits are calculated and justify the factors influencing their stability, as well as evaluate the impact of varying orbital parameters on mission success.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614922"
+  },
+  {
+    "hash": "57dc13cd57b6",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Name how satellite orbits are calculated using geometric principles and justify their application in space mechanics.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614924"
+  },
+  {
+    "hash": "8e5fd3696bbe",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Formulate how satellite altitudes vary for optimal coverage and positioning, compare this to varying altitudes' impact on signal strength and transmission delays.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614926"
+  },
+  {
+    "hash": "8ea64788dd02",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "List the factors that influence the latitude coverage of a satellite orbit and explain why polar orbits are preferred for global coverage.",
+    "bloom": 5,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614928"
+  },
+  {
+    "hash": "51199fc9e6fc",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Design how the launch procedures for geostationary satellites differ between Cape Canaveral and Baikonur, and analyze why a highly inclined Molniya orbit is more suitable for high latitude regions compared to equatorial orbits.",
+    "bloom": 5,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614929"
+  },
+  {
+    "hash": "a147b4c13e0f",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Identify how the angle of inclination affects a satellite's orbit and its ability to cover specific regions on Earth.",
+    "bloom": 5,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614931"
+  },
+  {
+    "hash": "961168462476",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Design how a satellite transitions from an inclined orbit to a geostationary orbit and evaluate the impact of varying inclination angles on the required fuel consumption for this maneuver, considering both apogee and perigee distances in your analysis.",
+    "bloom": 5,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T09:29:08.614933"
+  },
+  {
+    "hash": "e884921d662a",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Describe the characteristics of three-axis stabilized satellites and how they maintain orientation relative to Earth.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.649983"
+  },
+  {
+    "hash": "2501e90ed1ab",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Differentiate how spin-stabilized satellites maintain stability using Earth's gravitational torque and how three-axis stabilized satellites use reaction wheels to achieve the same goal, compare their advantages in terms of antenna orientation and solar panel placement.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.649987"
+  },
+  {
+    "hash": "8258e39358c0",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Recall the conditions a satellite must fulfill to remain above the same point on Earth’s surface, and understand how these conditions relate to the satellite's velocity.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.649990"
+  },
+  {
+    "hash": "5d47d93e6681",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Construct how satellite attitude control techniques are employed and compare their effectiveness in maintaining a geostationary orbit, considering factors such as propagation delay and coverage area.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.649992"
+  },
+  {
+    "hash": "ae8e21994c95",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "List advantages of three-axis stabilized satellites and disadvantages during their initial deployment phase.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.649995"
+  },
+  {
+    "hash": "de74015a891f",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Analyse how three-axis stabilized satellites provide more power generation capability and additional mounting area for complex antennae structures compared to spin-stabilized satellites, and justify why these advantages are crucial in satellite design despite the higher cost and complexity involved.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650001"
+  },
+  {
+    "hash": "23a30595c410",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Define how to determine the velocity of a satellite at a given point using its distance from Earth and angle with respect to the local horizontal, and apply this understanding to calculate the time required for the satellite to move between two specified points.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650004"
+  },
+  {
+    "hash": "c95c3b5b6de6",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Evaluate how orbital inclination affects satellite communication and justify the impact on signal strength as well as evaluate the influence of Earth's rotation on satellite visibility.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650006"
+  },
+  {
+    "hash": "d6d30bbd8437",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Name the first cosmic velocity and its significance for geostationary satellites.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650011"
+  },
+  {
+    "hash": "b3f3d4c96737",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Formulate how the first cosmic velocity ensures a satellite follows a circular orbit and compare this with the conditions required for a geostationary orbit.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650013"
+  },
+  {
+    "hash": "01f22fa134ec",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Recall the definition of true anomaly and how it is used to indicate the position of a satellite in its orbit.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650015"
+  },
+  {
+    "hash": "76ae21d13de0",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Differentiate how the true anomaly defines a satellite's position and justify how the right ascension of the ascending node specifies the orientation of an orbit with respect to Earth’s rotation axis.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650017"
+  },
+  {
+    "hash": "1d8df37dfc59",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Name how spin stabilization or three-axis stabilization methods are used to maintain satellite orientation and prevent signal interference during solar radiation peaks.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650020"
+  },
+  {
+    "hash": "49fecf3cc89a",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Justify how spin stabilization and three-axis or body stabilization methods differ in their effectiveness during periods when a satellite passes between the Earth and the sun, causing solar radiation interference.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650022"
+  },
+  {
+    "hash": "05ae5aff74b1",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Identify how Landsat satellites adjust their tracking intervals and explain why ground control stations perform battery conditioning routines before eclipses.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650024"
+  },
+  {
+    "hash": "f356937bb588",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Design how Landsat satellites manage their orbital cycles and justify the methods used to ensure continuous power supply during eclipses.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650025"
+  },
+  {
+    "hash": "6e8d993b94d0",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "State the purpose of the parking orbit and explain why a satellite in a circular equatorial geostationary orbit is inclined at an angle of 28.5 degrees with respect to the Earth's equatorial plane.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650029"
+  },
+  {
+    "hash": "5d8768efc860",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Compare how the simple spinner configuration operates and maintains stability compared to the dual spinner configuration in spin-stabilized satellites, justifying why modern satellites prefer one over the other for specific applications.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650031"
+  },
+  {
+    "hash": "bdb6943f2ef7",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "List the characteristics of a sun-synchronous orbit and explain why it is particularly suited for remote sensing applications.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650033"
+  },
+  {
+    "hash": "e9b90bfbdabc",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Formulate how the relationship between injection velocity and apogee height affects satellite orbits for remote sensing applications, and justify why a sun-synchronous orbit is particularly suited to these missions by evaluating its orbital characteristics.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650035"
+  },
+  {
+    "hash": "2a77e7884d8e",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Define the conditions necessary for a satellite to achieve a desired orbit and explain how the line of nodes angle with respect to the vernal equinox affects orbital acquisition.",
+    "bloom": 5,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650037"
+  },
+  {
+    "hash": "95b16f077033",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Construct how the line-of-sight distance between two satellites is calculated and justify why correct conditions at the satellite injection point are crucial for achieving a desired orbit, including the specific angle required with respect to the vernal equinox.",
+    "bloom": 5,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650039"
+  },
+  {
+    "hash": "a49c8e81d728",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "State how the inclination angle affects satellite orbits and, in particular, identify the dates of the summer and winter solstices when this angle is at its maximum.",
+    "bloom": 5,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650041"
+  },
+  {
+    "hash": "d14e2551a3df",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Analyse how changes in Earth station longitudes and latitudes affect communication delays with a geostationary satellite, and justify why the orbital radius of the satellite is crucial for maintaining consistent signal strength and quality as well as evaluate the impact of varying transmission speed",
+    "bloom": 5,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650043"
+  },
+  {
+    "hash": "32bdb1106b21",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Recall the definition of eccentricity in orbital mechanics and how it relates to the shape of an elliptical orbit.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650046"
+  },
+  {
+    "hash": "78bc21c86d12",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Differentiate how the eccentricity affects the shape and coverage area of a satellite's orbit and analyze how varying apogee and perigee distances influence the velocity at specific points in an elliptical orbit.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650048"
+  },
+  {
+    "hash": "dafe78aa42c5",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "List the characteristics of an elliptical orbit and define how the eccentricity affects its shape.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650050"
+  },
+  {
+    "hash": "5c026f335b74",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Justify how the inclination of an orbit affects the ground track coverage and explain why a satellite launched with an initial perigee altitude of 200 km would achieve an apogee at approximately 36,000 km after injection into an eccentric elliptical orbit.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650051"
+  },
+  {
+    "hash": "ea2ad7eafd12",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Describe how sun-synchronous orbits maintain a consistent orientation relative to the Sun and explain why this property is crucial for Earth observation missions.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650053"
+  },
+  {
+    "hash": "e173e9b23375",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Analyse how sun-synchronous orbits maintain a consistent orientation relative to the Sun and evaluate their advantages over geostationary orbits in covering higher latitudes, justifying why highly eccentric, inclined orbits are necessary for such coverage.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650055"
+  },
+  {
+    "hash": "890842a04aad",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "State how a perigee manoeuvre transforms a circular parking orbit into an eccentric elliptical transfer orbit, and understand the purpose of subsequent apogee manoeuvres in adjusting the orbit inclination to zero degrees.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650057"
+  },
+  {
+    "hash": "761b4a4aaccf",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Compare how the perigee manoeuvre transforms a circular parking orbit into an elliptical transfer orbit and analyze how the apogee manoeuvre subsequently circularizes this orbit, justifying why the thrust required for inclination correction at apogee is significantly larger than that needed in the K",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650059"
+  },
+  {
+    "hash": "c69548bb330b",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "List the steps to calculate the eccentricity of an orbit and understand how it affects the shape of the orbit.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650062"
+  },
+  {
+    "hash": "0b4150262c1b",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Critique how eccentricity influences satellite orbits and analyze the impact of varying apogee and perigee distances on orbital stability, justifying your evaluation with theoretical concepts from celestial mechanics.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650064"
+  },
+  {
+    "hash": "ad2b05baf133",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Define the concept of geostationary orbit and its significance in satellite communication.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650066"
+  },
+  {
+    "hash": "0875f27e22f9",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Evaluate how satellite orbits are calculated and justify the significance of orbital parameters such as eccentricity and inclination.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650067"
+  },
+  {
+    "hash": "95fb2959df36",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Recall how polar orbits offer complete latitude coverage and explain why a high inclination orbit is more suitable for territories such as Russia, compared to equatorial orbits.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650069"
+  },
+  {
+    "hash": "b8764a803efe",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Construct how the inclination of a satellite orbit affects its latitude coverage and justify why polar orbits are essential for achieving global coverage, comparing this with the limitations of equatorial orbits in providing services to high-latitude regions.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650071"
+  },
+  {
+    "hash": "70c2f8709a3d",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Name how a satellite transitions from an inclined orbit to a geostationary orbit and explain the significance of achieving the equatorial plane during this process.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650074"
+  },
+  {
+    "hash": "f9355cc23618",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Compare how a geostationary satellite achieves its orbit by acquiring a circular path at approximately 36,000 km altitude with an inclination of 28.5° and analyze the differences when transitioning to an inclined orbit, considering the impact of Earth's rotation and gravitational forces.",
+    "bloom": 4,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:32:29.650076"
+  },
+  {
+    "hash": "0b3ffe6d440a",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "State how the angular separation between two satellites affects their line-of-sight communication and explain why a zero angle of elevation maximizes coverage.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919161"
+  },
+  {
+    "hash": "833c9ca24a88",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Design how satellite orbits are calculated and compare the methods used for determining orbital distances.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919164"
+  },
+  {
+    "hash": "93e0cf37712f",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Define the conditions required for a satellite to remain in a geostationary orbit and understand how these conditions are influenced by the Earth's radius and the satellite’s altitude.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919168"
+  },
+  {
+    "hash": "5d11033b1330",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Evaluate how changes in satellite velocity impact its orbit stability and justify the conditions necessary for maintaining a geostationary orbit, taking into account the Earth’s radius and gravitational influences.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919171"
+  },
+  {
+    "hash": "6f4a2ce39f05",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Describe how three-axis stabilized satellites provide more power generation capability and additional mounting area for complex antennae structures compared to spin-stabilized satellites, and justify why this makes them suitable for missions requiring advanced communication systems.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919174"
+  },
+  {
+    "hash": "11d89c5cd881",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Compare how three-axis stabilized satellites offer greater power generation capabilities and extra space for intricate antenna designs compared to spin-stabilized satellites, and evaluate the trade-offs of using spin-stabilized satellites due to their simplicity and lower cost.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919179"
+  },
+  {
+    "hash": "8b2aa34a6245",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "List how to determine the velocity of a satellite at a given point using the provided constants and angles, and apply this understanding to calculate the time it takes for the satellite to move from one point to another in its orbit.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919183"
+  },
+  {
+    "hash": "281780d506c0",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Compare how the velocity of a satellite changes at different points along its orbit and justify how these variations affect the time taken to travel between specific orbital positions, such as point X to point Y, considering the gravitational constant and semi-major axis values provided.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919185"
+  },
+  {
+    "hash": "a724c8e1ab84",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Name the condition for a satellite to follow a circular orbit and the velocity required at that orbit.",
+    "bloom": 1,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919190"
+  },
+  {
+    "hash": "f458712af540",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Classify how the first cosmic velocity ensures a satellite follows a circular orbit and justify why this velocity is critical for maintaining a geostationary orbit at an altitude of 35 786 km above Earth’s surface.",
+    "bloom": 1,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919192"
+  },
+  {
+    "hash": "8f7cb3a97b71",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Identify the true anomaly of a satellite and how it indicates the position of the satellite in its orbit.",
+    "bloom": 1,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919194"
+  },
+  {
+    "hash": "2ee8b35c0d1f",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Demonstrate how to determine the true anomaly of a satellite and justify its significance in defining the satellite's position within its orbit.",
+    "bloom": 1,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919196"
+  },
+  {
+    "hash": "891d8212da3b",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Name how Landsat satellites adjust their onboard batteries before an eclipse and ensure thermal stability during rapid shadow transitions.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919199"
+  },
+  {
+    "hash": "316097939e33",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Construct how Landsat satellites manage their orbital cycles and justify how ground control stations ensure optimal battery performance during eclipses.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919201"
+  },
+  {
+    "hash": "a08ab83d167e",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Define how variations in orbit inclination angle affect satellite orbital plane rotation and justify why careful timing of frames within TDMA bursts is necessary for user terminals to receive correct data.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919203"
+  },
+  {
+    "hash": "941994d67445",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Justify how satellite orbits are calculated and evaluate the impact of varying orbital parameters on communication latency.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919205"
+  },
+  {
+    "hash": "85c9740de48f",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Solve how the line-of-sight distance between two satellites is computed and explain why correct conditions at the satellite injection point are crucial for achieving a desired orbit with specific orbital elements such as apogee and perigee distances.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919209"
+  },
+  {
+    "hash": "fea7e0ac5f6b",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Analyse how satellite orbits are calculated and justify the methods used to determine orbital distances.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919210"
+  },
+  {
+    "hash": "4dd7c466a342",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Demonstrate how the inclination angle affects satellite orbits and explain why solstices occur at specific times of the year, and compare these phenomena with the concept of apogee in elliptical orbits.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919213"
+  },
+  {
+    "hash": "da32abe729c6",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Evaluate how changes in Earth station latitude and longitude affect communication delays with a geostationary satellite, and justify why these variations impact signal transmission times differently for stations X and Y.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919215"
+  },
+  {
+    "hash": "1b19db898a17",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Illustrate how to calculate the orbital period of a satellite in an elliptical orbit with a major axis of 50,000 km and apply Newton’s law of gravitation to determine the gravitational force between two particles, considering the relationship between their masses and distance.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919218"
+  },
+  {
+    "hash": "35ad94fdff9e",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Justify how the orbital period of a satellite changes with variations in its major axis length and compare this change to the given example where the orbital period is 1.54 times that of another satellite.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919219"
+  },
+  {
+    "hash": "130303717f01",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Apply the process of injecting a satellite into a circular parking orbit at an inclination angle of 28.5 degrees, and calculate the inter-satellite distance between two geostationary satellites located at 37 degrees West and 74 degrees East respectively.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919221"
+  },
+  {
+    "hash": "f3a24249cbb7",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Evaluate how the inclination angle affects the launch requirements for a satellite and justify why modern spin-stabilized satellites prefer the dual spinner configuration over the simple spinner configuration.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919223"
+  },
+  {
+    "hash": "2537f1d77b35",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Interpret how the orbit inclination affects the ground track coverage of a satellite and justify why the extreme latitudes covered are equal to the orbit's inclination.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919227"
+  },
+  {
+    "hash": "634ca18477dc",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Justify how the inclination of an orbit affects the ground track coverage and compare this with the impact of varying apogee altitudes on satellite visibility from Earth stations, as well as analyze the differences in orbital periods between elliptical and circular orbits.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919229"
+  },
+  {
+    "hash": "2101f94c528e",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Solve how the eccentricity of an elliptical orbit affects satellite velocity and compare this with the constant velocity in a circular orbit.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919231"
+  },
+  {
+    "hash": "3a360b1e9eb6",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Formulate how the eccentricity of an elliptical orbit affects satellite velocity and coverage area, and justify how changes in apogee and perigee distances impact these parameters for a satellite orbiting Earth.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919232"
+  },
+  {
+    "hash": "7a931015ea42",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Demonstrate how sun-synchronous orbits maintain a consistent orientation relative to the Sun and apply this concept to explain why they are used for Earth observation missions.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919234"
+  },
+  {
+    "hash": "c55781cfe6e7",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Critique how sun-synchronous orbits maintain a consistent orientation relative to the Sun and evaluate their advantages over equatorial orbits in terms of coverage for high-latitude regions, comparing their eccentricity and inclination requirements.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919236"
+  },
+  {
+    "hash": "c34c0ed57f0d",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Summarise how a perigee manoeuvre transforms a circular parking orbit into an eccentric elliptical transfer orbit and how an apogee manoeuvre is used to adjust the orbit inclination from 28.5 degrees to 0 degrees.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919239"
+  },
+  {
+    "hash": "91630d2945a2",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Critique how the perigee manoeuvre transforms the circular parking orbit into an elliptical transfer orbit and evaluate the impact of the apogee manoeuvre in adjusting the orbit inclination to achieve a geostationary position, justifying why the thrust required for this adjustment is significantly l",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919241"
+  },
+  {
+    "hash": "1b895f54cb57",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Illustrate how the eccentricity of an elliptical orbit is calculated and define its significance in determining the shape of a satellite's path around Earth, and compare this with the circular orbit scenario where eccentricity equals zero.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919244"
+  },
+  {
+    "hash": "e85865f45d64",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Differentiate how eccentricity affects the shape and stability of an orbit and analyze the impact of varying apogee and perigee distances on orbital mechanics, compare their effects on satellite operations.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919246"
+  },
+  {
+    "hash": "35d95921af0c",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Interpret how the Earth's radius and satellite altitude influence orbital distances and compare these effects with various inclination angles of satellites orbiting the Earth, as well as analyze how changes in these parameters impact the distance between two points on an elliptical orbit.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919248"
+  },
+  {
+    "hash": "c4f487222fdc",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Design the principles of satellite orbits and justify how they maintain specific distances from Earth.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919250"
+  },
+  {
+    "hash": "d7c96f0f88b0",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Apply how the inclination of a satellite orbit affects latitude coverage and explain why an equatorial orbit is less suitable for higher latitude regions, as well as justify the use of highly inclined orbits like Molniya for specific geographic areas.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919252"
+  },
+  {
+    "hash": "8384038b3ba2",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Evaluate how polar orbits ensure complete latitude coverage and contrast this advantage with the constraints faced by equatorial orbits at high latitudes, explaining why highly inclined Molniya orbits offer a better solution for regions like Russia and other republics of the former USSR.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919254"
+  },
+  {
+    "hash": "5be0bab2c8a4",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Illustrate how a satellite transitions from an inclined orbit to a geostationary orbit and define the role of apogee and perigee in this process, comparing the semi-major axis calculation with the given formula.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919256"
+  },
+  {
+    "hash": "92c5c98c998d",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Compare how a geostationary satellite achieves its drift orbit and then attains an equatorial plane orbit, and analyze the differences in orbital mechanics involved when transitioning from a polar orbit to an inclined orbit.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T10:47:11.919258"
+  },
+  {
+    "hash": "812bd74cf08b",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Interpret how the angular separation between two satellites affects their line-of-sight communication and compare this with the impact of a zero angle of elevation on signal quality.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204931"
+  },
+  {
+    "hash": "e97a661d301b",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Explain how spin-stabilized satellites maintain stability and compare this with the method used by three-axis stabilized satellites to justify their differences in design.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204935"
+  },
+  {
+    "hash": "689aa529db0f",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Explain how the velocity of a satellite affects its orbit and justify how changes in altitude impact the coverage area of the satellite.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204938"
+  },
+  {
+    "hash": "1eb6113bbc61",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Demonstrate how to calculate the propagation delay for inter-satellite communication and justify the conditions required for a satellite to remain stationary above a specific point on Earth's surface.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204940"
+  },
+  {
+    "hash": "eb57e3cad0bb",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Illustrate how three-axis stabilized satellites provide more power generation capability and additional mounting area for complex antennae structures compared to spin-stabilized satellites, and justify why extendible solar arrays in three-axis stabilized satellites cannot generate power during the t",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204943"
+  },
+  {
+    "hash": "411805155e4d",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Describe how three-axis stabilized satellites differ from spin-stabilized satellites and justify their advantages and disadvantages in terms of power generation capability and cost.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204949"
+  },
+  {
+    "hash": "ff143e5fa618",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "Solve determine the velocity of a satellite at point X and analyze how changes in the semi-major axis affect its orbital period, comparing the time taken to move between points A and B under different conditions.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204952"
+  },
+  {
+    "hash": "cee82f3f7f28",
+    "subject": "Sat Com",
+    "module": 1,
+    "text": "List how to determine the velocity of a satellite at a given point and justify the method used for calculating the time it takes to move between two points in its orbit.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204955"
+  },
+  {
+    "hash": "0161317bd74f",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Identify the conditions under which a satellite follows a circular orbit and the velocity required for this orbit.",
+    "bloom": 1,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204959"
+  },
+  {
+    "hash": "bedfe19da0d5",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Demonstrate how the first cosmic velocity ensures a satellite follows a circular orbit and compare this with the conditions required for a geostationary orbit at an altitude of 35,786 km above Earth’s surface, as well as analyze why different injection velocities result in various orbital shapes acc",
+    "bloom": 1,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204962"
+  },
+  {
+    "hash": "01f22fa134ec",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Recall the definition of true anomaly and how it is used to indicate the position of a satellite in its orbit.",
+    "bloom": 1,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204965"
+  },
+  {
+    "hash": "fe00e034f9d1",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Illustrate how the true anomaly parameter defines a satellite's position within its orbit and explain the significance of the right ascension of the ascending node in determining the orientation of an orbital plane with respect to Earth’s equatorial plane, justify how these parameters are crucial fo",
+    "bloom": 1,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204967"
+  },
+  {
+    "hash": "3af06dae1a49",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Describe how the tracking interval affects the positioning of Landsat satellites over consecutive revolutions and explain the battery conditioning routines performed by ground control stations to ensure optimal performance during eclipses.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204970"
+  },
+  {
+    "hash": "13f0dc98e1a5",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Explain how the tracking interval affects the positioning of Landsat satellites over time and compare this with the impact of nodal precession on their orbital path, while also explaining the measures taken to ensure continuous power supply during periods when solar radiation is obstructed by celest",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204971"
+  },
+  {
+    "hash": "768a792e6079",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "List how the orbit inclination angle affects the direction of satellite orbital plane rotation and explain why range variations are more significant in low and medium Earth orbits compared to geostationary orbits.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204973"
+  },
+  {
+    "hash": "dbd0c4ebde47",
+    "subject": "Sat Com",
+    "module": 2,
+    "text": "Illustrate how variations in orbit inclination angle affect satellite orbital plane rotation and compare this with the impact of range variations due to changes in orbital distance on TDMA timing accuracy for user terminals, ensuring careful consideration of low and medium Earth orbits versus geosta",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204975"
+  },
+  {
+    "hash": "805d073437ea",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Recall the importance of establishing correct conditions at the satellite injection point and how the line of nodes makes a specific angle with the direction of the vernal equinox.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204979"
+  },
+  {
+    "hash": "f3f184884338",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Solve how to determine the correct injection time for a satellite to achieve a desired orbital plane and justify why this timing is crucial for establishing the required angle between the line of nodes and the direction of the vernal equinox as well as explain the difference between an orbit and a t",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204981"
+  },
+  {
+    "hash": "ed2c847f8b0b",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Describe the significance of solstices in determining seasonal changes and how apogee affects satellite orbit eccentricity.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204983"
+  },
+  {
+    "hash": "540f93f11040",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Interpret how changes in Earth station latitude and longitude affect communication delays with a geostationary satellite, and justify how varying these parameters impacts the total transmission delay for sending data at different times of the year during solstices or equinoxes.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204985"
+  },
+  {
+    "hash": "c50ed787d293",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Illustrate how to calculate the orbital period of a satellite in an elliptical orbit and define the relationship between the major axis length and the gravitational parameter, and justify why the orbital period of one satellite is 1.54 times that of another.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204988"
+  },
+  {
+    "hash": "a518dc16cd89",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Identify how the orbital period of a satellite changes as its major axis length varies and justify why the orbital period of one satellite is 1.54 times that of another, considering their respective distances from the center of mass.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204989"
+  },
+  {
+    "hash": "3a7cd2bb3b70",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Summarise how a satellite is injected into a circular parking orbit and explain why an inclination angle of 28.5 degrees is used, as well as compare the simple spinner configuration with the dual spinner configuration in spin-stabilized satellites.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204992"
+  },
+  {
+    "hash": "5b5c2551640a",
+    "subject": "Sat Com",
+    "module": 3,
+    "text": "Define the process by which a satellite is injected into a circular parking orbit and justify why an inclination angle of 28.5 degrees is commonly used for this purpose.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204993"
+  },
+  {
+    "hash": "636c6dd2da27",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Describe the characteristics of an elliptical orbit and how the inclination of the orbit affects the latitudes covered by a satellite's ground track.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204997"
+  },
+  {
+    "hash": "b4d4798a7a5c",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Demonstrate how to determine the orbit eccentricity and apogee distance for a satellite given its perigee distance and major axis length, and compare this with the orbital characteristics of a geostationary satellite.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.204999"
+  },
+  {
+    "hash": "e8803a68aeff",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Name the definition of orbit eccentricity and how it is calculated from the given expressions.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.205001"
+  },
+  {
+    "hash": "88bbb4f7fc0f",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Solve for the eccentricity and velocity of Satellite B at its perigee and apogee, and justify how these values compare to those of a satellite in a circular orbit with an average radius equal to the semi-major axis of Satellite B’s elliptical orbit.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.205003"
+  },
+  {
+    "hash": "7a931015ea42",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Demonstrate how sun-synchronous orbits maintain a consistent orientation relative to the Sun and apply this concept to explain why they are used for Earth observation missions.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.205005"
+  },
+  {
+    "hash": "38a0dc527bcd",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Explain how sun-synchronous orbits maintain a consistent orientation relative to the Sun and justify why highly eccentric, inclined elliptical orbits are necessary for covering higher latitudes not accessible by geostationary orbits.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.205007"
+  },
+  {
+    "hash": "2736082e5fe6",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Illustrate how a perigee manoeuvre transforms a circular parking orbit into an eccentric elliptical transfer orbit and define how subsequent apogee manoeuvres adjust the orbit inclination to achieve a geostationary orbit.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.205009"
+  },
+  {
+    "hash": "b8345f191235",
+    "subject": "Sat Com",
+    "module": 4,
+    "text": "Solve how the perigee and apogee manoeuvres transform the orbit and justify the significant increase in thrust required to correct the orbit inclination from 28.5 degrees to 0 degrees.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.205011"
+  },
+  {
+    "hash": "037a1af8d72d",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Describe the relationship between apogee and perigee in an elliptical orbit and how it affects the eccentricity of the orbit.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.205014"
+  },
+  {
+    "hash": "9dbe676413ee",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Interpret how eccentricity affects satellite orbits and justify how changes in apogee and perigee distances impact the orbit's shape and stability, evaluating the role of gravitational forces in maintaining these orbital parameters.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.205016"
+  },
+  {
+    "hash": "ca84b4b9932a",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "List the primary components of a satellite orbit and their roles in determining the satellite's position.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.205018"
+  },
+  {
+    "hash": "d3d17008467c",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Illustrate how satellite orbits are calculated using geometric principles and justify the impact of different orbital parameters on communication efficiency, as well as evaluate the role of Earth's gravitational field in stabilizing these orbits.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.205019"
+  },
+  {
+    "hash": "290d9e124d56",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Demonstrate how polar orbits provide global latitude coverage and analyze why highly inclined orbits are more suitable for high-latitude regions such as Russia.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.205021"
+  },
+  {
+    "hash": "12049311efe4",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Explain how the inclination of a satellite orbit affects its coverage over different latitudes and justify why a highly inclined Molniya orbit is more suitable for high-latitude regions compared to equatorial orbits.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.205023"
+  },
+  {
+    "hash": "1e4e2bc15389",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Classify how different satellite orbits are used for communication and justify their selection based on coverage requirements, comparing equatorial orbits with polar and inclined orbits in terms of their advantages and disadvantages.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.205025"
+  },
+  {
+    "hash": "4f86e0ba55d6",
+    "subject": "Sat Com",
+    "module": 5,
+    "text": "Interpret how the angle of inclination affects a satellite's orbit and compare this with the impact of different orbital planes on Earth coverage patterns.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 5,
+    "generated_at": "2026-08-18T11:20:08.205026"
+  }
+]

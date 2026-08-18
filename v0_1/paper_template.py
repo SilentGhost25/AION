@@ -4,6 +4,7 @@ AION Paper Template Builder
 Builds question paper templates for IA and SEE exam modes.
 """
 
+from core.contracts.question_slot import QuestionSlot
 from dataclasses import dataclass, field
 from typing import List
 

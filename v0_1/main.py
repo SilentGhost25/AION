@@ -191,6 +191,37 @@ ASSESSMENT_PROFILES = {
     5: {"conceptual": 0.50, "application": 0.50, "numerical": 0.00},
 }
 
+
+def resolve_co_bl_from_marks(
+    module_idx: int,
+    marks: int,
+    total_parts: int,
+    planned_type: str = "CONCEPTUAL",
+) -> tuple[str, int]:
+    """
+    Marks-first CO/BL policy:
+      4M  -> CO1 / L1-L2
+      6M  -> CO2 / L3  (mods 1-4), CO3 / L4 (mod 5+)
+      8M+ -> CO3 / L4
+      10M single design/application -> CO3 / L4
+    Lower marks = lower CO/Bloom.
+    """
+    ptype = (planned_type or "CONCEPTUAL").upper()
+
+    # 4 marks -> foundational only
+    if marks <= 4:
+        return "CO1", (1 if ptype == "CONCEPTUAL" else 2)
+
+    # 6 marks -> application / analysis
+    if marks <= 6:
+        if module_idx <= 4:
+            return "CO2", 3
+        return "CO3", 4
+
+    # 8 or 10 -> higher complexity, but keep within your current policy
+    return "CO3", 4
+
+
 def plan_slot_types(module_idx: int, num_slots: int) -> list[str]:
     profile = ASSESSMENT_PROFILES.get(module_idx, {"conceptual": 0.5, "application": 0.5, "numerical": 0.0})
     conceptual_cnt = max(1, round(profile.get("conceptual", 0.4) * num_slots))
@@ -457,6 +488,8 @@ def run_pipeline(
     orchestrator = SlotOrchestrator(artifact=artifact)
 
     output_paper = []
+    # Reset global chunk tracker for each fresh pipeline run
+    run_pipeline._global_used_chunks = set()
     _workers = _profile.concurrency if _profile else 1
     executor = ThreadPoolExecutor(max_workers=_workers)
 
@@ -491,9 +524,44 @@ def run_pipeline(
             print(f"[VALIDATOR] Warning: All chunks rejected in module '{mod.title}'. Using sanitized text.")
             module_chunks_text = [validate_content(c).clean_text or c for c in module_chunks_text if c.strip()]
 
-        pair1_bloom = random.choice([2, 3])
-        pair2_bloom = random.choice([4, 5])
-        bloom_levels = [pair1_bloom, pair1_bloom, pair2_bloom, pair2_bloom]
+        # ── STRUCTURED CO/BLOOM BLUEPRINT ─────────────────────────────
+        # Maps each module's OR-pair to CO and Bloom level targets.
+        # Blueprint: Q1/Q2 = lower cognitive, Q3/Q4 = higher cognitive
+        # CO rotates across modules to ensure coverage:
+        #   mod 1,2 -> CO1 (fundamentals)
+        #   mod 3,4 -> CO2 (application/analysis)
+        #   mod 5   -> CO3 (implementation/design)
+        _CO_BLUEPRINT = {
+            1: ('CO1', 'CO1'),   # mod1: pair1=CO1, pair2=CO1
+            2: ('CO1', 'CO1'),   # mod2: pair1=CO1, pair2=CO1
+            3: ('CO2', 'CO2'),   # mod3: pair1=CO2, pair2=CO2
+            4: ('CO2', 'CO2'),   # mod4: pair1=CO2, pair2=CO2
+            5: ('CO3', 'CO3'),   # mod5: pair1=CO3, pair2=CO3
+        }
+        # Bloom blueprint: (pair1_a_slot, pair1_b_slot, pair2_a_slot, pair2_b_slot)
+        # a-slot (6M): L1 or L2 for lower pairs, L2 or L3 for higher pairs
+        # b-slot (4M): L3 or L4 for lower pairs, L4 or L5 for higher pairs
+        _BLOOM_BLUEPRINT = {
+            1: (2, 4, 2, 4),   # mod1: Q1a=L2, Q1b=L4, Q2a=L2, Q2b=L4
+            2: (1, 3, 2, 4),   # mod2: Q3a=L1, Q3b=L3, Q4a=L2, Q4b=L4
+            3: (3, 4, 3, 5),   # mod3: Q5a=L3, Q5b=L4, Q6a=L3, Q6b=L5
+            4: (3, 4, 3, 5),   # mod4: Q7a=L3, Q7b=L4, Q8a=L3, Q8b=L5
+            5: (3, 4, 3, 6),   # mod5: Q9a=L3, Q9b=L4, Q10a=L3, Q10b=L6
+        }
+        _bb = _BLOOM_BLUEPRINT.get(mod_idx, (2, 4, 2, 4))
+        # bloom_levels[i] = target bloom for Q(i+1) as a whole
+        # These drive verb selection; remapper clamps a/b slots correctly
+        bloom_levels = [_bb[0], _bb[0], _bb[2], _bb[2]]
+        # Store per-slot bloom targets for slot construction below
+        _slot_bloom_targets = {
+            1: _bb[0], 2: _bb[1],   # Q1: a=bb[0], b=bb[1]
+            3: _bb[0], 4: _bb[1],   # Q2 (OR of Q1): same targets
+            5: _bb[2], 6: _bb[3],   # Q3: a=bb[2], b=bb[3]
+            7: _bb[2], 8: _bb[3],   # Q4 (OR of Q3): same targets
+        }
+        _pair1_co, _pair2_co = _CO_BLUEPRINT.get(mod_idx, ('CO1', 'CO2'))
+        pair1_bloom = _bb[0]
+        pair2_bloom = _bb[2]
 
         # Lock mark partitions per OR pair (Pair 1: Q1/Q2, Pair 2: Q3/Q4)
         if isinstance(sub_question_count, list) and len(sub_question_count) >= (mod_idx * 2):
@@ -525,7 +593,13 @@ def run_pipeline(
             planned_types_by_question.append(planned_types[offset:offset+n_sub])
             offset += n_sub
 
+        # used_chunk_ids persists across questions within module
+        # (already declared outside loop — cleared per module is correct,
+        #  but we also track globally to prevent cross-module repetition)
         used_chunk_ids: set[str] = set()
+        if not hasattr(run_pipeline, '_global_used_chunks'):
+            run_pipeline._global_used_chunks = set()
+        used_chunk_ids = used_chunk_ids | run_pipeline._global_used_chunks
         module_questions         = []
         futures = []
 
@@ -558,7 +632,9 @@ def run_pipeline(
                     _generate_main_question,
                     mq_idx, partition, bloom, selected_chunks, target_marks,
                     diff_manager, best_chunk_obj, selector, module_id, orchestrator,
-                    planned_sub_types
+                    planned_sub_types,
+                    _pair1_co if mq_idx in (1, 2) else _pair2_co,
+                    _slot_bloom_targets,
                 )
             )
 
@@ -599,6 +675,10 @@ def run_pipeline(
                 module_questions[2], module_questions[3], orchestrator
             )
 
+        # Update global chunk tracking to prevent cross-module repetition
+        run_pipeline._global_used_chunks = (
+            getattr(run_pipeline, '_global_used_chunks', set()) | used_chunk_ids
+        )
         output_paper.append({
             "module_index": mod_idx,
             "module_title": mod.title,
@@ -692,6 +772,8 @@ def _generate_main_question(
     module_id:      str  = "",
     orchestrator:   Any  = None,
     planned_types:  List[str] = None,
+    blueprint_co:   str  = "CO1",
+    slot_bloom_targets: dict = None,
 ) -> dict:
     """Worker function to build a main question with max 3 subquestions using Slot-Contract Architecture."""
     from core.contracts.budgets import AnswerBudget, QuestionBudget
@@ -761,6 +843,19 @@ def _generate_main_question(
 
             # Use canonical module identity helpers (F6b)
             _mod_num = parse_module_number(module_id)
+            # Marks-first authoritative CO/BL resolution
+            _policy_co, _policy_bloom = resolve_co_bl_from_marks(
+                module_idx=_mod_num,
+                marks=marks,
+                total_parts=len(partition),
+                planned_type=q_type,
+            )
+            _blueprint_co = _policy_co
+            sub_bloom     = _policy_bloom
+            verb = dm.get_verb(
+                'easy' if sub_bloom <= 2 else 'medium' if sub_bloom <= 4 else 'hard',
+                sub_bloom
+            )
             slot = QuestionSlot(
                 slot_id=slot_id,
                 question_no=mq_idx,
@@ -772,7 +867,7 @@ def _generate_main_question(
                 bloom_level=f"L{sub_bloom}",
                 bloom_verb=verb,
                 bloom_operation=get_bloom_level_name(sub_bloom),
-                co=make_co(_mod_num),
+                co=_blueprint_co,
                 difficulty=difficulty.upper(),
                 question_type=q_type,
                 topic=f"{slot_id} ({chunk_obj.depth})" if chunk_obj else slot_id,
@@ -839,6 +934,7 @@ def _generate_main_question(
             "marks":      marks,
             "difficulty": difficulty,
             "bloom":      sub_bloom,
+            "co":         _blueprint_co,
             "image":      image_data,
         })
         generated_questions.append(gq)
@@ -889,6 +985,7 @@ def run_or_pair_check(mq_a: dict, mq_b: dict, orchestrator: Any) -> Tuple[dict, 
                 "marks": gq.marks,
                 "difficulty": gq.difficulty,
                 "bloom": int(gq.bloom_level[1]) if gq.bloom_level.startswith("L") else 2,
+                "co": gq.co,
                 "image": getattr(gq, "visual_asset", None),
             })
         mq_b["sub_questions"] = sub_questions

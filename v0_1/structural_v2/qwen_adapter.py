@@ -7,6 +7,7 @@ CO mappings, and solver answers are non-negotiably locked by the pipeline.
 """
 
 from __future__ import annotations
+from core.contracts.question_slot import QuestionSlot
 
 from typing import Any, Dict, Optional
 from .contracts import BloomLevel, QuestionSlot, SlotStatus, VisualDecision

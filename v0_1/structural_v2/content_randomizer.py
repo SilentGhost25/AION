@@ -6,6 +6,7 @@ and strict structural locking invariants.
 """
 
 from __future__ import annotations
+from core.contracts.question_slot import QuestionSlot
 
 import random
 from typing import Any, Dict, List, Optional, Set

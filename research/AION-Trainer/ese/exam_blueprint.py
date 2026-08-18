@@ -10,6 +10,7 @@ This is the "Paper Blueprint" step — the paper is filled into this
 plan, not generated freely.
 """
 
+from core.contracts.question_slot import QuestionSlot
 from __future__ import annotations
 
 import json
