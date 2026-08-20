@@ -1,4 +1,4 @@
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { PaperConfig, SectionInput, GeneratedPaper, useGeneratePaper } from "@workspace/api-client-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -84,6 +84,7 @@ const ERROR_MESSAGES: Record<string, { title: string; hint: string }> = {
 }
 
 interface Step1ConfigAndUploadProps {
+  registerRegenerate?: (fn: (varIdx: number) => Promise<GeneratedPaper | null>) => void
   config: PaperConfig
   setConfig: (c: PaperConfig) => void
   sections: SectionInput[]
@@ -91,9 +92,180 @@ interface Step1ConfigAndUploadProps {
   onSuccess: (paper: GeneratedPaper) => void
 }
 
-export function Step1ConfigAndUpload({ config, setConfig, sections, setSections, onSuccess }: Step1ConfigAndUploadProps) {
+const SPLIT_VARIATIONS: Record<number, number[][]> = {
+  1: [[10]],
+  2: [[6, 4], [5, 5], [7, 3], [8, 2]],
+  3: [[4, 3, 3], [5, 3, 2], [6, 2, 2], [4, 4, 2]]
+};
+
+export function Step1ConfigAndUpload({ config, setConfig, sections, setSections, onSuccess, registerRegenerate }: Step1ConfigAndUploadProps) {
   const [fileNames, setFileNames] = useState<(string | null)[]>(Array(10).fill(null))
   const [rawFiles, setRawFiles] = useState<(File | null)[]>(Array(10).fill(null))
+  const [markSplits, setMarkSplits] = useState<number[][]>(() => Array(10).fill(null).map(() => SPLIT_VARIATIONS[2][0]))
+
+  useEffect(() => {
+    if (registerRegenerate) {
+      registerRegenerate(generateSinglePaper)
+    }
+  }, [registerRegenerate, sections, markSplits, config, rawFiles])
+
+  const handleModuleFileUpload = (moduleIdx: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const q1 = moduleIdx * 2, q2 = q1 + 1
+    setFileNames(prev => { const n = [...prev]; n[q1] = file.name; n[q2] = file.name; return n })
+    setRawFiles(prev => { const n = [...prev]; n[q1] = file; n[q2] = file; return n })
+    const newSections = [...sections]
+    newSections[q1] = { ...newSections[q1], notesText: `[File: ${file.name}]` }
+    newSections[q2] = { ...newSections[q2], notesText: `[File: ${file.name}]` }
+    setSections(newSections)
+    toast.info(`${file.name} attached to Module ${moduleIdx + 1}`)
+  }
+
+  const updateSubCount = (qIdx: number, count: number) => {
+    const newSections = [...sections]
+    newSections[qIdx] = { ...newSections[qIdx], subQuestionsPerQ: count }
+    setSections(newSections)
+    const newSplits = [...markSplits]
+    newSplits[qIdx] = SPLIT_VARIATIONS[count]?.[0] || [10]
+    setMarkSplits(newSplits)
+  }
+
+  const updateMarkSplit = (qIdx: number, splitStr: string) => {
+    const newSplits = [...markSplits]
+    newSplits[qIdx] = splitStr.split(",").map(Number)
+    setMarkSplits(newSplits)
+  }
+
+  const generateSinglePaper = async (varIdx: number = 1): Promise<GeneratedPaper | null> => {
+    if (!canGenerate) return null
+    setIsGenerating(true)
+    setPipelineError(null)
+    setCurrentStage("connecting")
+    try {
+      const combinedNotes = sections
+        .map((s, i) => `=== Module ${Math.floor(i / 2) + 1} Question ${i + 1} ===\n${s.notesText}`)
+        .join("\n\n")
+
+      const uploadedFile = rawFiles.find(f => f !== null)
+      let uploadRes: any
+      if (uploadedFile) {
+        uploadRes = await aionAPI.upload(uploadedFile, config.subjectName || "Subject", "notes")
+      } else {
+        const blob = new Blob([combinedNotes], { type: "text/plain" })
+        const file = new File([blob], `${config.subjectCode || 'syllabus'}_notes.txt`, { type: "text/plain" })
+        uploadRes = await aionAPI.upload(file, config.subjectName || "Subject", "notes")
+      }
+      const fileId = uploadRes.id || uploadRes.document_id
+
+      const response = await aionAPI.generateStream({
+        file_id: fileId,
+        fileId: fileId,
+        subject: config.subjectName || "Subject",
+        department: (config as any).department || "Computer Science & Engineering",
+        semester: (config as any).semester || 5,
+        exam_type: config.examType || "IA",
+        examType: config.examType || "IA",
+        difficulty: "mixed",
+        notes_text: combinedNotes,
+        model: "qwen2.5:14b",
+        sub_question_counts: sections.map(s => s?.subQuestionsPerQ ?? 2),
+        subQuestionCounts: sections.map(s => s?.subQuestionsPerQ ?? 2),
+        mark_splits: markSplits,
+        markSplits: markSplits,
+        sub_question_count: sections[0]?.subQuestionsPerQ ?? 2,
+        subQuestionCount: sections[0]?.subQuestionsPerQ ?? 2,
+        variation_index: varIdx,
+      } as any)
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+      const reader = response.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+      let formattedResult: any = null
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split("\n")
+        buffer = lines.pop() ?? ""
+
+        let currentEvent = ""
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (trimmed.startsWith("event:")) {
+            currentEvent = trimmed.slice(6).trim()
+            continue
+          }
+          if (!trimmed.startsWith("data:")) continue
+          let data: any
+          try { data = JSON.parse(trimmed.slice(5).trim()) } catch { continue }
+
+          if (currentEvent === "stage_update") {
+            setCurrentStage(data.stage)
+            setStageMessage(data.message || STAGE_LABELS[data.stage] || data.stage)
+          } else if (currentEvent === "paper_ready" || currentEvent === "result") {
+            formattedResult = data.paper || data
+          }
+        }
+      }
+
+      if (formattedResult && formattedResult.modules && formattedResult.modules.length > 0) {
+        const markPerQuestion = Math.floor(config.maxMarks / 5)
+        const questions: any[] = []
+        let globalQNo = 1
+        for (let mIdx = 0; mIdx < formattedResult.modules.length; mIdx++) {
+          const mod = formattedResult.modules[mIdx]
+          const modQuestions = mod.questions || []
+          for (let qIdx = 0; qIdx < modQuestions.length; qIdx++) {
+            const q = modQuestions[qIdx]
+            const isOr = q.isOr ?? q.is_or ?? (qIdx % 2 === 1)
+            const co = `CO${mIdx + 1}`
+            const rawSubs = q.subQuestions || q.sub_questions || []
+            const subs = rawSubs.map((sq: any) => ({
+              label: sq.letter || sq.label || "a",
+              text: sq.text || "",
+              marks: sq.marks,
+              co: sq.co || co,
+              rbt: `L${sq.bloom || q.bloom_level || q.bloomLevel || 2}`,
+            }))
+            questions.push({
+              qNo: globalQNo,
+              text: "",
+              marks: q.totalMarks || q.total_marks || markPerQuestion,
+              co,
+              rbt: `L${q.bloom_level || q.bloomLevel || 2}`,
+              sectionNumber: globalQNo,
+              isOrQuestion: isOr,
+              subQuestions: subs,
+            })
+            globalQNo++
+          }
+        }
+        return {
+          config,
+          questions,
+          courseOutcomes: [
+            "Understand fundamental concepts and theoretical foundations",
+            "Apply analytical methods and problem-solving techniques",
+            "Implement algorithms and system architectures",
+            "Analyze performance tradeoffs and design alternatives",
+            "Evaluate solution quality and system specifications",
+          ],
+          coCoverage: formattedResult.coCoverage || { co1: 40, co2: 40, co3: 20, co4: 0, co5: 0 },
+          syllabusCoverage: formattedResult.syllabusCoverage || { s1: 20, s2: 20, s3: 20, s4: 20, s5: 20 },
+        } as GeneratedPaper
+      }
+    } catch (e: any) {
+      console.error("[AION] Generation error:", e)
+      setPipelineError({ code: "GENERATION_ERROR", stage: "generation", message: e.message || "Failed to generate paper.", recoverable: true })
+    } finally {
+      setIsGenerating(false)
+    }
+    return null
+  }
   const [isGenerating, setIsGenerating] = useState(false)
   const [currentStage, setCurrentStage] = useState<string | null>(null)
   const [stageMessage, setStageMessage] = useState<string | null>(null)
@@ -103,7 +275,7 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
 
   const generateMutation = useGeneratePaper({
     mutation: {
-      onSuccess: (data) => {
+      onSuccess: (data: any) => {
         toast.success("Question paper generated successfully")
         onSuccess(data)
       },
@@ -150,8 +322,11 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
   }
 
   const handleGenerate = async () => {
-    if (!canGenerate) return
-    setIsGenerating(true)
+    const paper = await generateSinglePaper(1)
+    if (paper) {
+      toast.success("Question paper generated successfully!")
+      onSuccess(paper)
+    }
     setPipelineError(null)
     setShowDebug(false)
     setCurrentStage("connecting")
@@ -525,89 +700,111 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
         </p>
 
         <div className="space-y-4">
-          {sections.map((section, idx) => {
-            const isOrQuestion = idx % 2 === 1
-            const hasContent = section.notesText && section.notesText.trim() !== ""
+          {[0, 1, 2, 3, 4].map((mIdx) => {
+            const q1 = mIdx * 2
+            const q2 = q1 + 1
+            const hasC = !!sections[q1]?.notesText && sections[q1].notesText.trim() !== ""
+            const fileName = fileNames[q1]
+
             return (
-              <div key={idx}>
-                {isOrQuestion && (
-                  <div className="flex items-center gap-3 my-1 px-1">
-                    <div className="h-px flex-1 bg-slate-200" />
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">OR</span>
-                    <div className="h-px flex-1 bg-slate-200" />
-                  </div>
-                )}
-                <Card className="shadow-sm border-slate-200">
-                  <div className="bg-slate-50 border-b px-5 py-3 flex items-center justify-between">
-                    <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-                      Question {idx + 1}
-                      {isOrQuestion && (
-                        <Badge variant="outline" className="text-[10px] border-slate-300 text-slate-500 font-normal">
-                          OR alternative
-                        </Badge>
+              <Card key={mIdx} className="shadow-sm border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 border-b px-5 py-3 flex items-center justify-between">
+                  <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+                    Module {mIdx + 1} Reference Material
+                  </h3>
+                  {hasC && (
+                    <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                      <CheckCircle2 className="w-3 h-3 mr-1" />
+                      Uploaded
+                    </Badge>
+                  )}
+                </div>
+                <CardContent className="pt-4 space-y-4">
+                  <div className="flex items-center gap-4">
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      className="flex-1 h-20 border-dashed border-2 hover:border-primary hover:bg-primary/5"
+                      onClick={() => fileInputRefs.current[q1]?.click()}
+                    >
+                      {hasC ? (
+                        <>
+                          <FileText className="mr-2 h-5 w-5 text-emerald-600" />
+                          <div className="text-left flex-1">
+                            <div className="font-medium text-slate-800">{fileName || "Content uploaded"}</div>
+                            <div className="text-xs text-slate-500">Shared between Question {q1 + 1} & Question {q2 + 1} (OR alternative) · Click to replace</div>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <UploadCloud className="mr-2 h-5 w-5" />
+                          Upload PDF, TXT, or DOCX for Module {mIdx + 1}
+                        </>
                       )}
-                    </h3>
-                    <div className="flex items-center gap-3">
-                      <label className="flex items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">Sub-questions</span>
-                        <select
-                          className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring font-medium"
-                          value={sections[idx]?.subQuestionsPerQ ?? 2}
-                          onChange={e => {
-                            const val = parseInt(e.target.value) || 2
-                            const newSections = [...sections]
-                            newSections[idx] = { ...newSections[idx], subQuestionsPerQ: val }
-                            setSections(newSections)
-                          }}
-                        >
-                          <option value={1}>1 (10M)</option>
-                          <option value={2}>2 (6+4M)</option>
-                          <option value={3}>3 (4+3+3M)</option>
-                        </select>
-                      </label>
-                      {hasContent && (
-                        <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">
-                          <CheckCircle2 className="w-3 h-3 mr-1" />
-                          Uploaded
-                        </Badge>
-                      )}
-                    </div>
+                    </Button>
+                    <input
+                      ref={el => { if (el) fileInputRefs.current[q1] = el }}
+                      type="file"
+                      className="hidden"
+                      accept=".pdf,.txt,.docx"
+                      onChange={(e) => handleModuleFileUpload(mIdx, e)}
+                    />
                   </div>
-                  <CardContent className="pt-6">
-                    <div className="flex items-center gap-4">
-                      <Button
-                        variant="outline"
-                        size="lg"
-                        className="flex-1 h-20 border-dashed border-2 hover:border-primary hover:bg-primary/5"
-                        onClick={() => fileInputRefs.current[idx]?.click()}
-                      >
-                        {hasContent ? (
-                          <>
-                            <FileText className="mr-2 h-5 w-5 text-emerald-600" />
-                            <div className="text-left flex-1">
-                              <div className="font-medium text-slate-800">{fileNames[idx] || "Content uploaded"}</div>
-                              <div className="text-xs text-slate-500">Click to replace</div>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <UploadCloud className="mr-2 h-5 w-5" />
-                            Upload PDF, TXT, or DOCX
-                          </>
-                        )}
-                      </Button>
-                      <input
-                        ref={el => { if (el) fileInputRefs.current[idx] = el }}
-                        type="file"
-                        className="hidden"
-                        accept=".pdf,.txt,.docx"
-                        onChange={(e) => handleFileUpload(idx, e)}
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-                {isOrQuestion && idx < 9 && <div className="h-4" />}
-              </div>
+
+                  {/* Settings for Q1 and Q2 */}
+                  {[q1, q2].map((qIdx) => {
+                    const isAlt = qIdx % 2 === 1
+                    const count = sections[qIdx]?.subQuestionsPerQ ?? 2
+                    const curSplit = markSplits[qIdx] || SPLIT_VARIATIONS[count][0]
+                    const curSplitStr = curSplit.join(",")
+
+                    return (
+                      <div key={qIdx} className={`pt-3 ${isAlt ? "border-t border-slate-200/80" : ""}`}>
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-slate-800 text-sm">
+                              Question {qIdx + 1}
+                            </span>
+                            {isAlt && (
+                              <Badge variant="outline" className="text-[10px] border-slate-300 text-slate-500 font-normal">
+                                OR alternative
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <label className="flex items-center gap-1.5">
+                              <span className="text-xs text-muted-foreground whitespace-nowrap">Sub-questions</span>
+                              <select
+                                className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring font-medium"
+                                value={count}
+                                onChange={(e) => updateSubCount(qIdx, parseInt(e.target.value) || 2)}
+                              >
+                                <option value={1}>1</option>
+                                <option value={2}>2</option>
+                                <option value={3}>3</option>
+                              </select>
+                            </label>
+                            <label className="flex items-center gap-1.5">
+                              <span className="text-xs text-muted-foreground whitespace-nowrap">Mark split</span>
+                              <select
+                                className="h-7 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring font-medium"
+                                value={curSplitStr}
+                                onChange={(e) => updateMarkSplit(qIdx, e.target.value)}
+                              >
+                                {SPLIT_VARIATIONS[count].map((sp) => (
+                                  <option key={sp.join(",")} value={sp.join(",")}>
+                                    {sp.join("+")}M
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </CardContent>
+              </Card>
             )
           })}
         </div>

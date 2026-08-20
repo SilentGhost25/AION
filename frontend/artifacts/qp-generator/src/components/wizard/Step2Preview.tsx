@@ -1,7 +1,8 @@
-import { useLayoutEffect, useRef } from "react"
+import { useState, useLayoutEffect, useRef } from "react"
 import { GeneratedPaper, GeneratedQuestion } from "@workspace/api-client-react"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Printer } from "lucide-react"
+import { ArrowLeft, Printer, RefreshCw, LayoutGrid } from "lucide-react"
+import { Spinner } from "@/components/ui/spinner"
 
 // ---------------------------------------------------------------------------
 // Types — the backend returns questions that may carry structured sub-questions.
@@ -28,12 +29,37 @@ export type QuestionWithSubs = GeneratedQuestion & {
 export function Step2Preview({
   paper,
   setPaper,
-  onBack
+  allPapers = [],
+  setAllPapers,
+  onBack,
+  onRegenerate,
 }: {
   paper: GeneratedPaper,
   setPaper: (p: GeneratedPaper) => void,
-  onBack: () => void
+  allPapers?: GeneratedPaper[],
+  setAllPapers?: (papers: GeneratedPaper[]) => void,
+  onBack: () => void,
+  onRegenerate?: () => Promise<GeneratedPaper | null>,
 }) {
+  const [selectedPaperIdx, setSelectedPaperIdx] = useState(0)
+  const [viewMode, setViewMode] = useState<"single" | "compare">("single")
+  const [isRegenerating, setIsRegenerating] = useState(false)
+
+  const handleRegenerate = async () => {
+    if (!onRegenerate) return
+    setIsRegenerating(true)
+    try {
+      const newPaper = await onRegenerate()
+      if (newPaper && setAllPapers) {
+        const updated = [...allPapers, newPaper]
+        setAllPapers(updated)
+        setSelectedPaperIdx(updated.length - 1)
+        setPaper(newPaper)
+      }
+    } finally {
+      setIsRegenerating(false)
+    }
+  }
   const { config, questions, courseOutcomes, coCoverage, syllabusCoverage } = paper
   const isSEE = config.examType === 'SEE'
 

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { PaperConfig, SectionInput, GeneratedPaper } from "@workspace/api-client-react"
 import { Step1ConfigAndUpload } from "@/components/wizard/Step1ConfigAndUpload"
 import { Step2Preview } from "@/components/wizard/Step2Preview"
@@ -33,6 +33,8 @@ export default function Wizard() {
   )
 
   const [generatedPaper, setGeneratedPaper] = useState<GeneratedPaper | null>(null)
+  const [allPapers, setAllPapers] = useState<GeneratedPaper[]>([])
+  const regenerateRef = useRef<(varIdx: number) => Promise<GeneratedPaper | null>>(undefined)
 
   return (
     <div className="min-h-screen bg-slate-50 print:bg-white text-slate-900">
@@ -62,8 +64,10 @@ export default function Wizard() {
             setConfig={setConfig}
             sections={sections}
             setSections={setSections}
+            registerRegenerate={(fn) => { regenerateRef.current = fn }}
             onSuccess={(paper) => {
               setGeneratedPaper(paper)
+              setAllPapers([paper])
               setStep(2)
             }}
           />
@@ -72,7 +76,13 @@ export default function Wizard() {
           <Step2Preview
             paper={generatedPaper}
             setPaper={setGeneratedPaper}
+            allPapers={allPapers}
+            setAllPapers={setAllPapers}
             onBack={() => setStep(1)}
+            onRegenerate={async () => {
+              if (!regenerateRef.current) return null
+              return await regenerateRef.current(allPapers.length + 1)
+            }}
           />
         )}
       </main>
