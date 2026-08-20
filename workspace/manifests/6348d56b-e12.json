@@ -1,0 +1,17 @@
+{
+  "document_id": "6348d56b-e12",
+  "created_at": "2026-08-20T09:38:08.259015+00:00",
+  "source": {
+    "path": "/home/AIML1/AIQ/AION/workspace/uploads/6348d56b-e12/original.pdf",
+    "filename": "SAT-COm Module-1.pdf",
+    "mime_type": "application/pdf",
+    "size_bytes": 2166892,
+    "sha256": "68c9fe0be752695b0700e398199cdd0701b10a993b7b5f19ee0a11a5302fb0ed",
+    "authoritative": true
+  },
+  "derived": {},
+  "extraction_status": "PENDING",
+  "extraction_report": null,
+  "status": "READY",
+  "status_changed_at": "2026-08-20T09:38:08.865099+00:00"
+}

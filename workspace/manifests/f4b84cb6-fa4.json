@@ -1,0 +1,17 @@
+{
+  "document_id": "f4b84cb6-fa4",
+  "created_at": "2026-08-18T12:15:28.191888+00:00",
+  "source": {
+    "path": "/home/AIML1/AIQ/AION/workspace/uploads/f4b84cb6-fa4/original.txt",
+    "filename": "BAI403_notes.txt",
+    "mime_type": "text/plain",
+    "size_bytes": 579,
+    "sha256": "854c561b125feeb6d2b71d3bb071f9ac360228db539f721121229d3c561ed75e",
+    "authoritative": true
+  },
+  "derived": {},
+  "extraction_status": "PENDING",
+  "extraction_report": null,
+  "status": "READY",
+  "status_changed_at": "2026-08-18T12:15:28.192686+00:00"
+}

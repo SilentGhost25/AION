@@ -1619,6 +1619,44 @@ def document_diagnostics(document_id):
 # Entry point
 # -------------------------------------------------------------
 
+
+
+# ===========================================================================
+# DYNAMIC USER MARKS PARTITION HOOK (Module Level - Zero Indentation Risk)
+# ===========================================================================
+try:
+    from core.generation.marks_partitioner import parse_user_split, set_global_user_split
+
+    @app.before_request
+    def _aion_capture_user_marks_split_hook():
+        from flask import request
+        if request.is_json:
+            try:
+                body = request.get_json(silent=True) or {}
+                raw_dist = (
+                    body.get("marks_distribution") or
+                    body.get("marksDistribution") or
+                    body.get("marks_split") or
+                    body.get("sub_question_marks") or
+                    body.get("distribution") or
+                    body.get("partition")
+                )
+                exam_type = str(body.get("exam_type") or body.get("exam") or "IAT1").upper()
+                tot_marks = 20 if "SEE" in exam_type else 10
+                
+                if raw_dist:
+                    split = parse_user_split(raw_dist, tot_marks)
+                    if split:
+                        set_global_user_split(split)
+                        print(f"[API-HOOK] Locked user marks split: {split} across all modules")
+                else:
+                    set_global_user_split([10, 10] if tot_marks == 20 else [5, 5])
+            except Exception:
+                pass
+except Exception as _hook_err:
+    print(f"[API-HOOK-WARNING] Could not register before_request marks hook: {_hook_err}")
+# ===========================================================================
+
 if __name__ == "__main__":
     port = int(os.environ.get("AION_PORT", 8100))
 

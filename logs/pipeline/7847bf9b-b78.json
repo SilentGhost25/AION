@@ -1,0 +1,28 @@
+{
+  "request_id": "7847bf9b-b78",
+  "subject": "Sat Com",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-20T11:16:45.907590",
+  "finished_at": "2026-08-20T11:16:47.515484",
+  "fail_reason": "split_module_into_chunks() got an unexpected keyword argument 'marks'",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-20T11:16:45.910746",
+      "metrics": {
+        "subject": "Sat Com",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-20T11:16:47.514586",
+      "message": "split_module_into_chunks() got an unexpected keyword argument 'marks'",
+      "duration_ms": 1301.1
+    }
+  ]
+}

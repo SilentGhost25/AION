@@ -1,0 +1,30 @@
+{
+  "request_id": "d234f67d-8ee",
+  "subject": "Sat Com",
+  "model": "qwen2.5:14b",
+  "status": "complete",
+  "started_at": "2026-08-20T09:36:23.321406",
+  "finished_at": "2026-08-20T09:38:08.043163",
+  "fail_reason": null,
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-20T09:36:23.325550",
+      "metrics": {
+        "subject": "Sat Com",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "PASS",
+      "time": "2026-08-20T09:38:08.043149",
+      "metrics": {
+        "questions": 5
+      },
+      "duration_ms": 104414.7
+    }
+  ]
+}

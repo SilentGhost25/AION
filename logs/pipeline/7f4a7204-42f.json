@@ -1,0 +1,28 @@
+{
+  "request_id": "7f4a7204-42f",
+  "subject": "Database Management System",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-18T12:15:28.208028",
+  "finished_at": "2026-08-18T12:15:28.511425",
+  "fail_reason": "Extraction Hard Stop: [TXT_AS_SOURCE_REJECTED] TXT is a derived representation. Upload the original PDF, DOCX, or image.",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-18T12:15:28.208498",
+      "metrics": {
+        "subject": "Database Management System",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-18T12:15:28.510285",
+      "message": "Extraction Hard Stop: [TXT_AS_SOURCE_REJECTED] TXT is a derived representation. Upload the original PDF, DOCX, or image.",
+      "duration_ms": 0.4
+    }
+  ]
+}

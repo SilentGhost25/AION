@@ -70,5 +70,9 @@
     "vite": "catalog:",
     "wouter": "^3.3.5",
     "zod": "catalog:"
+  },
+  "dependencies": {
+    "@types/katex": "^0.16.8",
+    "katex": "^0.18.4"
   }
 }

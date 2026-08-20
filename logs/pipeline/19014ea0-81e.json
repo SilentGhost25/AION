@@ -1,0 +1,28 @@
+{
+  "request_id": "19014ea0-81e",
+  "subject": "Sat Com",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-20T08:35:53.226974",
+  "finished_at": "2026-08-20T08:35:53.601071",
+  "fail_reason": "Extraction Hard Stop: [TXT_AS_SOURCE_REJECTED] TXT is a derived representation. Upload the original PDF, DOCX, or image.",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-20T08:35:53.228763",
+      "metrics": {
+        "subject": "Sat Com",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-20T08:35:53.599991",
+      "message": "Extraction Hard Stop: [TXT_AS_SOURCE_REJECTED] TXT is a derived representation. Upload the original PDF, DOCX, or image.",
+      "duration_ms": 69.3
+    }
+  ]
+}

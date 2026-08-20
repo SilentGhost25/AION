@@ -1,0 +1,28 @@
+{
+  "request_id": "7778d879-ede",
+  "subject": "Database Management System",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-18T12:19:31.975751",
+  "finished_at": "2026-08-18T12:20:14.036479",
+  "fail_reason": "Slot module_3_Q2 failed with INSUFFICIENT_DECLARED_DIMENSIONS 3 consecutive times. Recovery not converging \u2014 blocking slot.",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-18T12:19:31.978517",
+      "metrics": {
+        "subject": "Database Management System",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-18T12:20:14.035688",
+      "message": "Slot module_3_Q2 failed with INSUFFICIENT_DECLARED_DIMENSIONS 3 consecutive times. Recovery not converging \u2014 blocking slot.",
+      "duration_ms": 41754.7
+    }
+  ]
+}

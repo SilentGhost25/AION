@@ -1,0 +1,28 @@
+{
+  "request_id": "b6ab890a-d36",
+  "subject": "Sat Com",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-20T08:28:36.214276",
+  "finished_at": "2026-08-20T08:28:36.520519",
+  "fail_reason": "cannot access local variable '_variation_idx' where it is not associated with a value",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-20T08:28:36.217536",
+      "metrics": {
+        "subject": "Sat Com",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-20T08:28:36.520286",
+      "message": "cannot access local variable '_variation_idx' where it is not associated with a value",
+      "duration_ms": 0.0
+    }
+  ]
+}

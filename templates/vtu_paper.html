@@ -84,6 +84,21 @@
     background: #eee; padding: 1px 5px;
     border-radius: 3px; margin-left: 6px;
   }
+
+  .ascii-diagram {
+    font-family: "Courier New", monospace;
+    font-size: 8.5pt;
+    line-height: 1.15;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 6px;
+    margin: 6px 0;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .svg-container { margin: 6px 0; text-align: center; }
+
 </style>
 </head>
 <body>
@@ -114,10 +129,16 @@
       <span class="q-text">{{ mq.subQuestions[0].text }}</span>
       <span class="marks">({{ mq.subQuestions[0].marks }} Marks)</span>
       {% if mq.subQuestions[0].image %}
-        <figure class="q-image">
-          <img src="{{ mq.subQuestions[0].image.url }}" alt="Figure">
-          <figcaption>{{ mq.subQuestions[0].image.caption }}</figcaption>
-        </figure>
+        {% if mq.subQuestions[0].image.ascii %}
+          <pre class="ascii-diagram">{{ mq.subQuestions[0].image.ascii }}</pre>
+        {% elif mq.subQuestions[0].image.svg %}
+          <div class="svg-container">{{ mq.subQuestions[0].image.svg | safe }}</div>
+        {% elif mq.subQuestions[0].image.url %}
+          <figure class="q-image">
+            <img src="{{ mq.subQuestions[0].image.url }}" alt="Figure">
+            <figcaption>{{ mq.subQuestions[0].image.caption }}</figcaption>
+          </figure>
+        {% endif %}
       {% endif %}
     {% else %}
       <span class="q-text">Answer the following:</span>
@@ -128,10 +149,16 @@
         <span>{{ sq.text }}</span>
         <span class="marks">({{ sq.marks }})</span>
         {% if sq.image %}
-          <figure class="q-image">
-            <img src="{{ sq.image.url }}" alt="Figure">
-            <figcaption>{{ sq.image.caption }}</figcaption>
-          </figure>
+          {% if sq.image.ascii %}
+            <pre class="ascii-diagram">{{ sq.image.ascii }}</pre>
+          {% elif sq.image.svg %}
+            <div class="svg-container">{{ sq.image.svg | safe }}</div>
+          {% elif sq.image.url %}
+            <figure class="q-image">
+              <img src="{{ sq.image.url }}" alt="Figure">
+              <figcaption>{{ sq.image.caption }}</figcaption>
+            </figure>
+          {% endif %}
         {% endif %}
       </div>
       {% endfor %}
