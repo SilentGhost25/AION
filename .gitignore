@@ -30,3 +30,4 @@ extracted_output/
 Thumbs.db
 .vscode/
 .idea/
+.venv/
