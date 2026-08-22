@@ -1,0 +1,17 @@
+{
+  "document_id": "d7292ba7-5bb",
+  "created_at": "2026-08-22T08:47:29.707424+00:00",
+  "source": {
+    "path": "/home/AIML1/AIQ/AION/workspace/uploads/d7292ba7-5bb/original.pdf",
+    "filename": "SAT-COM Module 3.pdf",
+    "mime_type": "application/pdf",
+    "size_bytes": 1310360,
+    "sha256": "be23f992d9409d71852fc1408dcd089fc8e26da1ce52ddfcee1816b93cd82e56",
+    "authoritative": true
+  },
+  "derived": {},
+  "extraction_status": "PENDING",
+  "extraction_report": null,
+  "status": "READY",
+  "status_changed_at": "2026-08-22T08:47:30.675206+00:00"
+}

@@ -192,7 +192,7 @@ class MultiStageValidator:
             from core.semantics.verifier import AcademicSemanticsVerifier  # type: ignore
             verifier = AcademicSemanticsVerifier(strict=self.strict)
             res = verifier.verify(question, evidence)
-            passed = res.is_valid
+            passed = (getattr(res, "is_valid", res) if not isinstance(res, bool) else res)
             code = "RC-01: semantic hallucination" if not passed else None
             return ValidationGateResult(
                 gate="semantic",

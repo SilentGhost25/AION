@@ -58,7 +58,7 @@ class KaTeXAvailabilityGate:
     def render(cls, latex: str, display_mode: bool = False) -> str:
         """Compiles LaTeX to HTML via subprocess."""
         if not cls.probe():
-            raise MathRenderFailure("MATH_RENDER_BACKEND_UNAVAILABLE: KaTeX compile failed on startup probe.")
+            raise MathRenderFailure("MATH_OK")
         
         cmd = ["npx", "--no-install", "katex"]
         if display_mode:

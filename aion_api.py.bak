@@ -45,6 +45,75 @@ except ImportError:
 # -- App setup -------------------------------------------------
 app = Flask(__name__)
 
+# =====================================================================
+# AION PRODUCTION GUARDS (HTTP Body & Query String Marks Extractor)
+# =====================================================================
+from core.safety.resilience import install_all_safety_layers
+install_all_safety_layers()
+
+from core.generation.marks_partitioner import parse_marks, set_user_split
+
+@app.before_request
+def _aion_production_guard():
+    from flask import request
+    try:
+        if request.path in ("/api/generate", "/api/generate/stream", "/api/generate/vllm"):
+            body = (request.get_json(silent=True) if request.is_json else None) or request.form.to_dict() or {}
+            args = request.args.to_dict() if request.args else {}
+            
+            raw_marks = (
+                body.get("marks_distribution") or body.get("marksDistribution") or
+                body.get("marks_split") or body.get("marksSplit") or
+                body.get("sub_question_marks") or body.get("subQuestionMarks") or
+                body.get("partition") or body.get("distribution") or
+                args.get("marks_distribution") or args.get("marks_split") or
+                args.get("sub_question_marks") or args.get("partition")
+            )
+            
+            sq_count = (
+                body.get("sub_question_count") or body.get("subQuestionCount") or
+                body.get("sub_question_counts") or body.get("subQuestionCounts") or
+                body.get("parts") or args.get("sub_question_count") or args.get("parts")
+            )
+
+            exam = str(body.get("exam_type") or body.get("exam") or args.get("exam_type") or "IAT1").upper()
+            split = parse_marks(raw_marks, exam, sub_question_count=sq_count)
+            if split:
+                set_user_split(split, exam)
+                print(f"[HTTP-GUARD] Locked user marks split: {split} (raw='{raw_marks}', count={sq_count}) for {exam}", flush=True)
+    except Exception:
+        pass
+# =====================================================================
+
+
+
+@app.before_request
+def _aion_production_guard():
+    from flask import request
+    try:
+        if request.path in ("/api/generate", "/api/generate/stream", "/api/generate/vllm") and request.is_json:
+            body = request.get_json(silent=True) or {}
+            raw_marks = (
+                body.get("marks_distribution") or body.get("marksDistribution") or
+                body.get("marks_split") or body.get("marksSplit") or
+                body.get("sub_question_marks") or body.get("subQuestionMarks") or
+                body.get("partition") or body.get("distribution")
+            )
+            sq_count = (
+                body.get("sub_question_count") or body.get("subQuestionCount") or
+                body.get("sub_question_counts") or body.get("subQuestionCounts") or
+                body.get("parts")
+            )
+            exam = str(body.get("exam_type") or body.get("exam") or "IAT1").upper()
+            split = parse_marks(raw_marks, exam, sub_question_count=sq_count)
+            if split:
+                set_user_split(split, exam)
+                print(f"[USER-CHOICE] Locked marks split to: {split} (raw='{raw_marks}') for {exam}", flush=True)
+    except Exception:
+        pass
+
+
+
 # ✅ PERMANENT FIX 1: Allow ALL origins, ALL methods, ALL headers
 CORS(app, resources={
     r"/api/*": {
@@ -777,11 +846,25 @@ def generate_stream():
                 t0 = time.time()
                 try:
                     from v0_1.main import run_pipeline as _run_pipe
-                    _sub_q = body.get("sub_question_counts") or body.get("subQuestionCounts") or body.get("sub_question_count") or body.get("subQuestionCount")
-                    if isinstance(_sub_q, str) and _sub_q.isdigit():
-                        _sub_q = int(_sub_q)
-                    elif isinstance(_sub_q, list):
-                        _sub_q = [int(x) for x in _sub_q if str(x).isdigit()]
+                    from core.generation.marks_partitioner import parse_marks, set_user_split, get_user_split
+                    
+                    try:
+                        from flask import has_request_context
+                        _b = ((request.get_json(silent=True) if getattr(request, "is_json", False) else None) or request.form.to_dict() or {}) if has_request_context() else {}
+                    except Exception:
+                        _b = {}
+                    _a = request.args.to_dict() if request.args else {}
+                    _raw_m = (_b.get("marks_distribution") or _b.get("marksDistribution") or _b.get("marks_split") or _b.get("sub_question_marks") or _a.get("marks_distribution") or _a.get("marks_split"))
+                    _sq_c = _b.get("sub_question_count") or _b.get("subQuestionCount") or _a.get("sub_question_count")
+                    _ex = str(gen_req.exam_type or _b.get("exam_type") or "IAT1").upper()
+                    
+                    _sp = parse_marks(_raw_m, _ex, sub_question_count=_sq_c)
+                    if _sp:
+                        set_user_split(_sp, _ex)
+                        print(f"[WORKER-THREAD] Locked marks partition to: {_sp} for {_ex}", flush=True)
+                    
+                    _active_now = get_user_split() or _sp
+                    _sub_q_arg = len(_active_now) if _active_now else 2
                     _paper, _qa = _run_pipe(
                         file_path          = file_path,
                         exam_type          = gen_req.exam_type,
@@ -1111,59 +1194,45 @@ def normalize_or_pair_structure(pair: list, is_ia: bool) -> list:
     return canonical
 
 
-def _enforce_marks(modules: list, exam_type: str) -> list:
-    """
-    Force correct marks and identical sub-question partition on every OR pair per module.
-    IA:  10 marks per question. OR choice alternatives must use IDENTICAL sub-question partition.
-    SEE: 20 marks per question. OR choice alternatives must use IDENTICAL sub-question partition.
-    """
-    exam_upper = str(exam_type).upper() if exam_type else "IA"
-    is_ia      = exam_upper in ("IA", "IAT1", "IAT2", "IAT3", "MID")
-    q_marks    = 10 if is_ia else 20
-    letters    = "abcdefghij"
+def _enforce_marks(paper, *args, **kwargs):
+    if not paper or not isinstance(paper, dict):
+        return paper
+    from core.generation.marks_partitioner import get_user_split
+    _usr_split = get_user_split()
+    modules = paper.get("modules", [])
+    if not modules and "paper" in paper and isinstance(paper["paper"], dict):
+        modules = paper["paper"].get("modules", [])
 
     for mod in modules:
+        if not isinstance(mod, dict): continue
         questions = mod.get("questions", [])
-        pairs = {}
-        for idx, q in enumerate(questions):
-            m_idx = q.get("mqIndex") or q.get("mq_index") or (idx + 1)
-            p_key = (m_idx - 1) // 2
-            pairs.setdefault(p_key, []).append(q)
+        for q in questions:
+            if not isinstance(q, dict): continue
+            subs = q.get("sub_questions", [])
+            target_marks = q.get("marks", q.get("total_marks", 10))
+            if _usr_split and sum(_usr_split) == target_marks:
+                active_split = list(_usr_split)
+            else:
+                if len(subs) == 2:
+                    active_split = [5, 5] if target_marks == 10 else [10, 10]
+                elif len(subs) == 3:
+                    active_split = [4, 3, 3] if target_marks == 10 else [8, 6, 6]
+                else:
+                    active_split = [target_marks]
 
-        for pair_qs in pairs.values():
-            canonical_partition = normalize_or_pair_structure(pair_qs, is_ia)
-
-            for q in pair_qs:
-                subs = q.get("subQuestions") or q.get("sub_questions") or []
-                
-                # If question text exists on main question but subs is empty
-                if not subs:
-                    main_text = q.get("text") or q.get("question_text") or "Explain the principles and concepts."
-                    subs = [{"letter": "a", "text": main_text, "marks": q_marks}]
-
-                # Trim or extend subs to match canonical_partition length
-                new_subs = []
-                for j, mark in enumerate(canonical_partition):
-                    if j < len(subs):
-                        sq = dict(subs[j])
+            if len(subs) > 0:
+                for idx, sq in enumerate(subs):
+                    if idx < len(active_split):
+                        sq["marks"] = active_split[idx]
                     else:
-                        sq = {"text": "Explain the related principles and applications."}
-                    
-                    sq["letter"] = letters[j]
-                    sq["marks"]  = mark
-                    sq["co"]     = sq.get("co") or q.get("co") or f"CO{mod.get('module_index', 1)}"
-                    # AFTER — preserve bloom if already set by remapper, only default if missing
-                    existing_bloom = sq.get("bloom")
-                    if existing_bloom and int(existing_bloom) in range(1, 7):
-                    	sq["bloom"] = int(existing_bloom)   # keep remapper value
-                    else:
-                    	sq["bloom"] = q.get("bloom_level") or q.get("bloomLevel") or 2
-                    new_subs.append(sq)
+                        sq["marks"] = 0
+                q["marks"] = sum(active_split)
+                q["total_marks"] = sum(active_split)
+            else:
+                q["marks"] = target_marks
+                q["total_marks"] = target_marks
+    return paper
 
-                q["subQuestions"] = new_subs
-                q["totalMarks"]   = sum(canonical_partition)
-
-    return modules
 
 
 def validate_final_paper_contract(paper_dict: dict, exam_type: str = "IA") -> bool:
@@ -1400,16 +1469,28 @@ def _format_paper(paper, subject, exam_type, mode, qa_report=None):
                     candidate_bloom = verb_bloom if verb_bloom != raw_bloom else raw_bloom
                     final_bloom = _clamp_bloom_for_slot(candidate_bloom, sq_idx)
 
-                    # ── CO: infer from question text ──
-                    default_co = sq.get("co") or f"CO{min(5, mod_idx + 1)}"
-                    final_co   = _infer_co_from_text(str(text), default_co)
+                    # ── CO: use slot value directly (authoritative from blueprint)
+                    _slot_co   = sq.get("co")  # set by _blueprint_co in main.py
+                    _CO_BY_MOD = {1:"CO1",2:"CO1",3:"CO2",4:"CO2",5:"CO3"}
+                    _pos_co    = _CO_BY_MOD.get(mod_idx + 1)
+                    if _slot_co and _slot_co.startswith("CO"):
+                        # Trust the slot — it was set by the blueprint
+                        final_co = _slot_co
+                    elif _pos_co:
+                        # Fall back to position-based blueprint
+                        final_co = _pos_co
+                    else:
+                        # Last resort: keyword inference
+                        default_co = f"CO{min(5, mod_idx + 1)}"
+                        final_co   = _infer_co_from_text(str(text), default_co)
 
                 else:
                     # Padding slot — no raw sub-question exists
                     text        = "Explain the concepts and principles in detail."
                     image       = None
                     final_bloom = _clamp_bloom_for_slot(2, sq_idx)
-                    final_co    = f"CO{min(5, mod_idx + 1)}"
+                    _CO_BY_MOD  = {1:"CO1",2:"CO1",3:"CO2",4:"CO2",5:"CO3"}
+                    final_co    = _CO_BY_MOD.get(mod_idx + 1, f"CO{min(5, mod_idx + 1)}")
 
                 subs.append(SubQuestion(
                     letter = letters[sq_idx],
@@ -1606,6 +1687,44 @@ def document_diagnostics(document_id):
 # -------------------------------------------------------------
 # Entry point
 # -------------------------------------------------------------
+
+
+
+# ===========================================================================
+# DYNAMIC USER MARKS PARTITION HOOK (Module Level - Zero Indentation Risk)
+# ===========================================================================
+try:
+    from core.generation.marks_partitioner import parse_user_split, set_global_user_split
+
+    @app.before_request
+    def _aion_capture_user_marks_split_hook():
+        from flask import request
+        if request.is_json:
+            try:
+                body = request.get_json(silent=True) or {}
+                raw_dist = (
+                    body.get("marks_distribution") or
+                    body.get("marksDistribution") or
+                    body.get("marks_split") or
+                    body.get("sub_question_marks") or
+                    body.get("distribution") or
+                    body.get("partition")
+                )
+                exam_type = str(body.get("exam_type") or body.get("exam") or "IAT1").upper()
+                tot_marks = 20 if "SEE" in exam_type else 10
+                
+                if raw_dist:
+                    split = parse_user_split(raw_dist, tot_marks)
+                    if split:
+                        set_global_user_split(split)
+                        print(f"[API-HOOK] Locked user marks split: {split} across all modules")
+                else:
+                    set_global_user_split([10, 10] if tot_marks == 20 else [5, 5])
+            except Exception:
+                pass
+except Exception as _hook_err:
+    print(f"[API-HOOK-WARNING] Could not register before_request marks hook: {_hook_err}")
+# ===========================================================================
 
 if __name__ == "__main__":
     port = int(os.environ.get("AION_PORT", 8100))

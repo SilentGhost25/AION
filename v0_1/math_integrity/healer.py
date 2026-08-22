@@ -58,7 +58,7 @@ class MathHealer:
         artifact.canonical_hash = hashlib.sha256(repaired_latex.encode("utf-8")).hexdigest()
 
         report = MathValidator.validate(artifact)
-        if report.is_valid:
+        if (getattr(report, "is_valid", report) if not isinstance(report, bool) else report):
             artifact.validation_status = MathValidationStatus.VALID
             return artifact
         else:

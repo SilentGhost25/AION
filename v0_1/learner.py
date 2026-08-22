@@ -62,10 +62,10 @@ class Learner:
             p_str = clean_chunk(chunk_text)
             quality = validate_chunk(p_str)
 
-            if quality.is_valid and len(p_str.split()) >= MIN_CONCEPT_WORDS:
+            if (getattr(quality, "is_valid", quality) if not isinstance(quality, bool) else quality) and len(p_str.split()) >= MIN_CONCEPT_WORDS:
                 raw_concept = Concept(
                     content=p_str,
-                    confidence=quality.score,
+                    confidence=getattr(quality, "score", 0.0),
                     source_dna=document.doc_id,
                     definition_dna=(
                         p_str if "defined as" in p_str.lower()

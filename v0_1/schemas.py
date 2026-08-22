@@ -31,11 +31,27 @@ class Document:
 
 @dataclass
 class CleanedDocument:
-    """Output of cleaner"""
-    doc_id: str
-    clean_text: str
-    removed_line_count: int          # quality metric
-    original_line_count: int
+    raw_text: str = ""
+    cleaned_text: str = ""
+    removed_line_count: int = 0
+    original_line_count: int = 0
+    doc_id: Optional[str] = None
+    subject: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def __init__(self, raw_text: str = "", cleaned_text: str = "", 
+                 removed_line_count: int = 0, original_line_count: int = 0, 
+                 doc_id: Optional[str] = None, subject: Optional[str] = None, 
+                 *args, **kwargs):
+        self.raw_text = raw_text
+        self.cleaned_text = cleaned_text or raw_text
+        self.removed_line_count = removed_line_count
+        self.original_line_count = original_line_count
+        self.doc_id = doc_id
+        self.subject = subject
+        self.metadata = kwargs.get("metadata", {})
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
 
 @dataclass

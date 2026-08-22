@@ -1,3 +1,4 @@
+from core.generation.marks_partitioner import get_user_split
 """
 AION Module: Turbo Mode Direct Question Generator
 Maximum Speed Mode: Bypasses answer-first generation & LLM self-critic.

@@ -1,0 +1,17 @@
+{
+  "document_id": "ee804e83-769",
+  "created_at": "2026-08-20T12:29:53.663323+00:00",
+  "source": {
+    "path": "/home/AIML1/AIQ/AION/workspace/uploads/ee804e83-769/original.pdf",
+    "filename": "DBMS MODULE 1 notes.pdf",
+    "mime_type": "application/pdf",
+    "size_bytes": 1779349,
+    "sha256": "8ed54d4c3933f06a6f5b739f6d9132102efbc577220872096f6300c302d8ed96",
+    "authoritative": true
+  },
+  "derived": {},
+  "extraction_status": "PENDING",
+  "extraction_report": null,
+  "status": "READY",
+  "status_changed_at": "2026-08-20T12:29:54.295523+00:00"
+}

@@ -6,6 +6,7 @@ Max 3 sub-questions per main question.
 """
 
 from __future__ import annotations
+from core.generation.marks_partitioner import get_user_split
 
 import os
 import re
@@ -414,5 +415,4 @@ def generate(concept: Concept, mode: str = "balanced") -> GeneratedQuestion:
         marks=10,
         bloom_level=3
     )
-
 

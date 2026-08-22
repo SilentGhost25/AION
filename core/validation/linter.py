@@ -89,11 +89,11 @@ class LintReport:
 
     @property
     def passed(self) -> bool:
-        return all(r.passed for r in self.checks.values())
+        return all((getattr(r, "passed", r[0] if isinstance(r, (tuple, list)) else bool(r))) for r in self.checks.values())
 
     def get_failure(self) -> Optional[CheckResult]:
         for r in self.checks.values():
-            if not r.passed:
+            if not (getattr(r, "passed", r[0] if isinstance(r, (tuple, list)) else bool(r))):
                 return r
         return None
 

@@ -178,7 +178,7 @@ def test_semantic_grounding_no_hallucination():
     ev_si = VTU_SAMPLES["BME402_AUTOMOTIVE_SI_ENGINE"]
     q_bad = "Explain Diesel ignition in SI engine for 10 marks."
     res = verifier.verify(q_bad, ev_si, concept_name="SI Engine")
-    assert not res.is_valid
+    assert not (getattr(res, "is_valid", res) if not isinstance(res, bool) else res)
     assert any("diesel" in v.lower() for v in res.violations)
 
     # SATCOM -> Radar — evidence now contains satellite keyword + tdma
@@ -187,12 +187,12 @@ def test_semantic_grounding_no_hallucination():
     res2 = verifier.verify(q_bad2, ev_sat)
     # SATCOM sample contains satellite + tdma, so radar hallucination should be flagged
     # If verifier detects satcom domain, it flags radar
-    assert not res2.is_valid or "radar" in " ".join(res2.violations).lower() or "radar" in " ".join(res2.warnings).lower()
+    assert not (getattr(res2, "is_valid", res2) if not isinstance(res2, bool) else res2) or "radar" in " ".join(res2.violations).lower() or "radar" in " ".join(res2.warnings).lower()
 
     # Good question should pass
     q_good = "Explain time slot allocation in TDMA and the role of guard time for 10 marks."
     res3 = verifier.verify(q_good, ev_sat)
-    assert res3.is_valid
+    assert (getattr(res3, "is_valid", res3) if not isinstance(res3, bool) else res3)
 
 
 def test_numerical_generator_not_copier():

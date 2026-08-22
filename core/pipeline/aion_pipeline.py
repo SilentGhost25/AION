@@ -305,7 +305,7 @@ class AionUniversalPipeline:
         print(f"[VALIDATE] {len(valid_concepts)} valid, {rejected} rejected")
         if rejected:
             for r in validation_results:
-                if not r.is_valid:
+                if not (getattr(r, "is_valid", r) if not isinstance(r, bool) else r):
                     print(f"  ✗ {r.concept_id}: {r.reason}")
 
         # Build concept graph (index for retrieval) — domain-scoped

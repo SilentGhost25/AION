@@ -132,7 +132,7 @@ def test_symbol_registry_translations():
 def test_math_validator_v01_v07():
     art_valid = MathArtifact(math_id="eq_val_1", latex="E = m c^2", normalized_latex="E = m c^2")
     rep_valid = MathValidator.validate(art_valid)
-    assert rep_valid.is_valid is True
+    assert (getattr(rep_valid, "is_valid", rep_valid) if not isinstance(rep_valid, bool) else rep_valid) is True
 
     # Empty string check (V06)
     art_empty = MathArtifact(math_id="eq_val_2", latex="", normalized_latex="")

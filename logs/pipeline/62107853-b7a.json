@@ -1,0 +1,30 @@
+{
+  "request_id": "62107853-b7a",
+  "subject": "Database Management System",
+  "model": "qwen2.5:14b",
+  "status": "complete",
+  "started_at": "2026-08-20T12:28:38.105630",
+  "finished_at": "2026-08-20T12:29:53.460481",
+  "fail_reason": null,
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-20T12:28:38.108316",
+      "metrics": {
+        "subject": "Database Management System",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "PASS",
+      "time": "2026-08-20T12:29:53.460467",
+      "metrics": {
+        "questions": 5
+      },
+      "duration_ms": 75049.7
+    }
+  ]
+}

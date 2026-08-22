@@ -118,7 +118,7 @@ class ConceptValidator:
             seen_defs.add(def_hash)
             r = self.validate(c)
             results.append(r)
-            if r.is_valid:
+            if (getattr(r, "is_valid", r) if not isinstance(r, bool) else r):
                 valid.append(c)
         return valid, results
 

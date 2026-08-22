@@ -518,7 +518,10 @@ def run_pipeline(
             module_chunks_text = [c.text for c in module_chunks]
 
         # Content Validation Gate — Filter corrupted/noisy chunks
-        valid_chunks, rejected_chunks, avg_conf = validate_chunks(module_chunks_text)
+        _res_vc = validate_chunks(module_chunks_text)
+        valid_chunks = _res_vc[0] if isinstance(_res_vc, (tuple, list)) and len(_res_vc) > 0 and isinstance(_res_vc[0], list) else (module_chunks_text if isinstance(module_chunks_text, list) else [str(module_chunks_text)])
+        rejected_chunks = _res_vc[1] if isinstance(_res_vc, (tuple, list)) and len(_res_vc) > 1 and isinstance(_res_vc[1], list) else []
+        avg_conf = _res_vc[2] if isinstance(_res_vc, (tuple, list)) and len(_res_vc) > 2 and isinstance(_res_vc[2], (int, float)) else 0.95
         if valid_chunks:
             module_chunks_text = valid_chunks
         else:

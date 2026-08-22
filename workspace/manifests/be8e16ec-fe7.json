@@ -1,0 +1,17 @@
+{
+  "document_id": "be8e16ec-fe7",
+  "created_at": "2026-08-22T08:28:35.119471+00:00",
+  "source": {
+    "path": "/home/AIML1/AIQ/AION/workspace/uploads/be8e16ec-fe7/original.txt",
+    "filename": "21AI52_notes.txt",
+    "mime_type": "text/plain",
+    "size_bytes": 579,
+    "sha256": "1fd912f129c075eecc37c6f2e05e4b7251c6b52c4f1565b84aab752a7e55c4fa",
+    "authoritative": true
+  },
+  "derived": {},
+  "extraction_status": "PENDING",
+  "extraction_report": null,
+  "status": "READY",
+  "status_changed_at": "2026-08-22T08:28:36.286863+00:00"
+}

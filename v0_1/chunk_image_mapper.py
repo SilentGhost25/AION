@@ -243,34 +243,22 @@ def split_module_into_chunks(
 # Page estimator
 # -------------------------------------------------------------
 
-def estimate_page_range(
-    chunk:          TextChunk,
-    module_idx:     int,
-    total_modules:  int,
-    total_pages:    int,
-) -> tuple[int, int]:
-    """
-    Estimate which pages a chunk falls on using linear interpolation.
-    """
-    pages_per_module = max(1, total_pages // total_modules)
-    mod_start        = (module_idx - 1) * pages_per_module + 1
-    mod_end          = mod_start + pages_per_module - 1
+def estimate_page_range(chunk=None, module_idx=1, total_pages=None, total_modules=5, *args, **kwargs) -> tuple[int, int]:
+    if args:
+        if len(args) == 1 and total_pages is None: total_pages = args[0]
+        elif len(args) >= 2: total_pages, total_modules = args[0], args[1]
+    if "total_pages" in kwargs and kwargs["total_pages"] is not None: total_pages = kwargs["total_pages"]
+    if "total_modules" in kwargs and kwargs["total_modules"] is not None: total_modules = kwargs["total_modules"]
 
-    mod_pages = mod_end - mod_start + 1
-    progress  = (chunk.chunk_idx - 1) / max(chunk.total_chunks - 1, 1)
+    t_mods = total_modules if (isinstance(total_modules, int) and total_modules > 0) else 5
+    t_pages = total_pages if (isinstance(total_pages, int) and total_pages > 0) else t_mods
+    m_idx = getattr(chunk, "module_index", None) or (chunk if isinstance(chunk, int) else module_idx) or 1
 
-    chunk_start = mod_start + int(progress * mod_pages)
-    chunk_end   = chunk_start + max(
-        1,
-        int(mod_pages / max(chunk.total_chunks, 1))
-    )
+    pages_per_mod = max(1, t_pages // t_mods)
+    start_p = max(1, (m_idx - 1) * pages_per_mod + 1)
+    end_p = min(t_pages, m_idx * pages_per_mod)
+    return (start_p, max(start_p, end_p))
 
-    return max(1, chunk_start), min(total_pages, chunk_end)
-
-
-# -------------------------------------------------------------
-# Keyword scorer
-# -------------------------------------------------------------
 
 def _keyword_overlap(text_a: str, text_b: str) -> float:
     """

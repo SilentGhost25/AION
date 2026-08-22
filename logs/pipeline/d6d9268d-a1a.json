@@ -1,0 +1,28 @@
+{
+  "request_id": "d6d9268d-a1a",
+  "subject": "Sat Com",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-22T11:40:23.135974",
+  "finished_at": "2026-08-22T11:40:46.668161",
+  "fail_reason": "'QuestionOutput' object has no attribute 'slot_id'",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-22T11:40:23.139132",
+      "metrics": {
+        "subject": "Sat Com",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-22T11:40:46.667515",
+      "message": "'QuestionOutput' object has no attribute 'slot_id'",
+      "duration_ms": 23225.6
+    }
+  ]
+}

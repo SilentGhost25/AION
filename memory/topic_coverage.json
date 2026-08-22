@@ -1,83 +1,83 @@
 {
   "Sat Com": {
     "module_1": {
-      "times_covered": 43,
+      "times_covered": 76,
       "topics": [],
-      "last_covered": "2026-08-20T11:39:04.467699"
+      "last_covered": "2026-08-22T11:54:18.841891"
     },
     "module_2": {
-      "times_covered": 43,
+      "times_covered": 73,
       "topics": [],
-      "last_covered": "2026-08-20T11:39:04.467721"
+      "last_covered": "2026-08-22T11:54:18.841932"
     },
     "module_3": {
-      "times_covered": 43,
+      "times_covered": 73,
       "topics": [],
-      "last_covered": "2026-08-20T11:39:04.467733"
+      "last_covered": "2026-08-22T11:54:18.841953"
     },
     "module_4": {
-      "times_covered": 43,
+      "times_covered": 73,
       "topics": [],
-      "last_covered": "2026-08-20T11:39:04.467744"
+      "last_covered": "2026-08-22T11:54:18.841971"
     },
     "module_5": {
-      "times_covered": 43,
+      "times_covered": 73,
       "topics": [],
-      "last_covered": "2026-08-20T11:39:04.467754"
+      "last_covered": "2026-08-22T11:54:18.841989"
     }
   },
   "Database Management System": {
     "module_1": {
-      "times_covered": 2,
+      "times_covered": 8,
       "topics": [],
-      "last_covered": "2026-08-18T12:23:03.180296"
+      "last_covered": "2026-08-22T10:46:31.731397"
     },
     "module_2": {
-      "times_covered": 2,
+      "times_covered": 8,
       "topics": [],
-      "last_covered": "2026-08-18T12:23:03.180323"
+      "last_covered": "2026-08-22T10:46:31.731420"
     },
     "module_3": {
-      "times_covered": 2,
+      "times_covered": 8,
       "topics": [],
-      "last_covered": "2026-08-18T12:23:03.180342"
+      "last_covered": "2026-08-22T10:46:31.731438"
     },
     "module_4": {
-      "times_covered": 2,
+      "times_covered": 8,
       "topics": [],
-      "last_covered": "2026-08-18T12:23:03.180369"
+      "last_covered": "2026-08-22T10:46:31.731449"
     },
     "module_5": {
-      "times_covered": 2,
+      "times_covered": 8,
       "topics": [],
-      "last_covered": "2026-08-18T12:23:03.180387"
+      "last_covered": "2026-08-22T10:46:31.731476"
     }
   },
   "IAI": {
     "module_1": {
-      "times_covered": 2,
+      "times_covered": 7,
       "topics": [],
-      "last_covered": "2026-08-20T08:58:58.060192"
+      "last_covered": "2026-08-22T12:11:27.759338"
     },
     "module_2": {
-      "times_covered": 2,
+      "times_covered": 7,
       "topics": [],
-      "last_covered": "2026-08-20T08:58:58.060211"
+      "last_covered": "2026-08-22T12:11:27.759374"
     },
     "module_3": {
-      "times_covered": 2,
+      "times_covered": 7,
       "topics": [],
-      "last_covered": "2026-08-20T08:58:58.060221"
+      "last_covered": "2026-08-22T12:11:27.759394"
     },
     "module_4": {
-      "times_covered": 2,
+      "times_covered": 7,
       "topics": [],
-      "last_covered": "2026-08-20T08:58:58.060230"
+      "last_covered": "2026-08-22T12:11:27.759414"
     },
     "module_5": {
-      "times_covered": 2,
+      "times_covered": 7,
       "topics": [],
-      "last_covered": "2026-08-20T08:58:58.060240"
+      "last_covered": "2026-08-22T12:11:27.759433"
     }
   }
 }

@@ -1,0 +1,28 @@
+{
+  "request_id": "4ec5f999-843",
+  "subject": "IAI",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-22T11:56:22.082258",
+  "finished_at": "2026-08-22T11:57:07.063799",
+  "fail_reason": "object of type 'bool' has no len()",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-22T11:56:22.084574",
+      "metrics": {
+        "subject": "IAI",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-22T11:57:07.060077",
+      "message": "object of type 'bool' has no len()",
+      "duration_ms": 44673.2
+    }
+  ]
+}

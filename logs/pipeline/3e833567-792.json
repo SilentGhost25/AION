@@ -1,0 +1,28 @@
+{
+  "request_id": "3e833567-792",
+  "subject": "IAI",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-22T12:03:59.054394",
+  "finished_at": "2026-08-22T12:03:59.379556",
+  "fail_reason": "module 'builtins' has no attribute 'get_user_split'",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-22T12:03:59.057673",
+      "metrics": {
+        "subject": "IAI",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-22T12:03:59.379320",
+      "message": "module 'builtins' has no attribute 'get_user_split'",
+      "duration_ms": 19.3
+    }
+  ]
+}

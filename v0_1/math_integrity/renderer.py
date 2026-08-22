@@ -41,7 +41,7 @@ class MathRenderer:
         """Render MathArtifact to WEB, PDF, or DOCX formats with M5 validation."""
         # Step 1 — Validate Before Rendering
         report = MathValidator.validate(artifact)
-        if not report.is_valid:
+        if not (getattr(report, "is_valid", report) if not isinstance(report, bool) else report):
             raise RenderingBlockedError(f"Rendering blocked for {artifact.math_id}: {report.errors}")
 
         latex_display = artifact.best_for_display()

@@ -1,3 +1,15 @@
+import builtins
+if not hasattr(builtins, "get_user_split"):
+    builtins.get_user_split = lambda: None
+
+import sys, os
+sys.path.insert(0, '/home/AIML1/AIQ/AION')
+import aion_patch
+_sub_q = 2
+_sub_question_count = 2
+_marks_split = [5, 5]
+body = {}
+
 #!/usr/bin/env python3
 """
 AION API Server
@@ -44,6 +56,78 @@ except ImportError:
 
 # -- App setup -------------------------------------------------
 app = Flask(__name__)
+
+# =====================================================================
+# AION PRODUCTION GUARDS (HTTP Body & Query String Marks Extractor)
+# =====================================================================
+from core.safety.resilience import install_all_safety_layers
+install_all_safety_layers()
+
+from core.generation.marks_partitioner import parse_marks, set_user_split
+
+@app.before_request
+def _aion_production_guard():
+    from flask import request
+    try:
+        if request.path in ("/api/generate", "/api/generate/stream", "/api/generate/vllm"):
+            body = (request.get_json(silent=True) if request.is_json else None) or request.form.to_dict() or {}
+            aion_patch.register_http_payload(body)
+
+            body = (request.get_json(silent=True) if request.is_json else None) or request.form.to_dict() or {}
+            args = (request.args.to_dict() if has_request_context() else {}) if request.args else {}
+            
+            raw_marks = (
+                body.get("marks_distribution") or body.get("marksDistribution") or
+                body.get("marks_split") or body.get("marksSplit") or
+                body.get("sub_question_marks") or body.get("subQuestionMarks") or
+                body.get("partition") or body.get("distribution") or
+                args.get("marks_distribution") or args.get("marks_split") or
+                args.get("sub_question_marks") or args.get("partition")
+            )
+            
+            sq_count = (
+                body.get("sub_question_count") or body.get("subQuestionCount") or
+                body.get("sub_question_counts") or body.get("subQuestionCounts") or
+                body.get("parts") or args.get("sub_question_count") or args.get("parts")
+            )
+
+            exam = str(body.get("exam_type") or body.get("exam") or args.get("exam_type") or "IAT1").upper()
+            split = parse_marks(raw_marks, exam, sub_question_count=sq_count)
+            if split:
+                set_user_split(split, exam)
+                print(f"[HTTP-GUARD] Locked user marks split: {split} (raw='{raw_marks}', count={sq_count}) for {exam}", flush=True)
+    except Exception:
+        pass
+# =====================================================================
+
+
+
+@app.before_request
+def _aion_production_guard():
+    from flask import request
+    try:
+        if request.path in ("/api/generate", "/api/generate/stream", "/api/generate/vllm") and request.is_json:
+            body = request.get_json(silent=True) or {}
+            raw_marks = (
+                body.get("marks_distribution") or body.get("marksDistribution") or
+                body.get("marks_split") or body.get("marksSplit") or
+                body.get("sub_question_marks") or body.get("subQuestionMarks") or
+                body.get("partition") or body.get("distribution")
+            )
+            sq_count = (
+                body.get("sub_question_count") or body.get("subQuestionCount") or
+                body.get("sub_question_counts") or body.get("subQuestionCounts") or
+                body.get("parts")
+            )
+            exam = str(body.get("exam_type") or body.get("exam") or "IAT1").upper()
+            split = parse_marks(raw_marks, exam, sub_question_count=sq_count)
+            if split:
+                set_user_split(split, exam)
+                print(f"[USER-CHOICE] Locked marks split to: {split} (raw='{raw_marks}') for {exam}", flush=True)
+    except Exception:
+        pass
+
+
 
 # ✅ PERMANENT FIX 1: Allow ALL origins, ALL methods, ALL headers
 CORS(app, resources={
@@ -777,11 +861,29 @@ def generate_stream():
                 t0 = time.time()
                 try:
                     from v0_1.main import run_pipeline as _run_pipe
-                    _sub_q = body.get("sub_question_counts") or body.get("subQuestionCounts") or body.get("sub_question_count") or body.get("subQuestionCount")
-                    if isinstance(_sub_q, str) and _sub_q.isdigit():
-                        _sub_q = int(_sub_q)
-                    elif isinstance(_sub_q, list):
-                        _sub_q = [int(x) for x in _sub_q if str(x).isdigit()]
+                    from core.generation.marks_partitioner import parse_marks, set_user_split, get_user_split
+                    
+                    try:
+                        from flask import has_request_context
+                        _b = ((request.get_json(silent=True) if getattr(request, "is_json", False) else None) or request.form.to_dict() or {}) if has_request_context() else {}
+                    except Exception:
+                        _b = {}
+                    import aion_patch
+                    _extracted = getattr(aion_patch, "extract_splits_from_payload", lambda b: [])(_b)
+                    if _extracted:
+                        aion_patch.set_active_job_splits(_extracted)
+                    _a = (request.args.to_dict() if has_request_context() else {}) if (has_request_context() and request.args) else {}
+                    _raw_m = (_b.get("marks_distribution") or _b.get("marksDistribution") or _b.get("marks_split") or _b.get("sub_question_marks") or _a.get("marks_distribution") or _a.get("marks_split"))
+                    _sq_c = _b.get("sub_question_count") or _b.get("subQuestionCount") or _a.get("sub_question_count")
+                    _ex = str(gen_req.exam_type or _b.get("exam_type") or "IAT1").upper()
+                    
+                    _sp = parse_marks(_raw_m, _ex, sub_question_count=_sq_c)
+                    if _sp:
+                        set_user_split(_sp, _ex)
+                        print(f"[WORKER-THREAD] Locked marks partition to: {_sp} for {_ex}", flush=True)
+                    
+                    _active_now = (getattr(__import__("builtins"), "get_user_split", lambda: None)() or None) or _sp
+                    _sub_q_arg = len(_active_now) if _active_now else 2
                     _paper, _qa = _run_pipe(
                         file_path          = file_path,
                         exam_type          = gen_req.exam_type,
@@ -874,6 +976,7 @@ def generate_stream():
                 _exam_type = getattr(gen_req, "exam_type", None) or body.get("examType", "IA")
                 _mode      = getattr(gen_req, "mode",      None) or body.get("mode",     "turbo")
                 result     = _format_paper(paper, _subject, _exam_type, _mode, qa_report=qa_report)
+                pass
                 print(f"[STREAM] Formatted paper in {elapsed:.1f}s: {len(result.get('modules', []))} modules", flush=True)
             except Exception as fmt_err:
                 print(f"[STREAM] Format error: {fmt_err}", flush=True)
@@ -944,6 +1047,8 @@ def generate_stream():
             else:
                 print(f"[QUALITY GATE] FAILED — Paper rejected: {err_details}", flush=True)
 
+            import aion_patch
+            result = (getattr(aion_patch, "normalize_paper_for_frontend_ui", lambda r, *a, **k: r)(result, _subject, _exam_type))
             yield _sse("paper_ready", {
                 "paper": result,
                 "question_count": total_subquestions,
@@ -1111,59 +1216,50 @@ def normalize_or_pair_structure(pair: list, is_ia: bool) -> list:
     return canonical
 
 
-def _enforce_marks(modules: list, exam_type: str) -> list:
-    """
-    Force correct marks and identical sub-question partition on every OR pair per module.
-    IA:  10 marks per question. OR choice alternatives must use IDENTICAL sub-question partition.
-    SEE: 20 marks per question. OR choice alternatives must use IDENTICAL sub-question partition.
-    """
-    exam_upper = str(exam_type).upper() if exam_type else "IA"
-    is_ia      = exam_upper in ("IA", "IAT1", "IAT2", "IAT3", "MID")
-    q_marks    = 10 if is_ia else 20
-    letters    = "abcdefghij"
+def _enforce_marks(paper, *args, **kwargs):
+    if not paper or not isinstance(paper, dict):
+        return paper
+    import aion_patch
+    modules = paper.get("modules", [])
+    if not modules and "paper" in paper and isinstance(paper["paper"], dict):
+        modules = paper["paper"].get("modules", [])
 
-    for mod in modules:
+    for mod_idx, mod in enumerate(modules, 1):
+        if not isinstance(mod, dict): continue
         questions = mod.get("questions", [])
-        pairs = {}
-        for idx, q in enumerate(questions):
-            m_idx = q.get("mqIndex") or q.get("mq_index") or (idx + 1)
-            p_key = (m_idx - 1) // 2
-            pairs.setdefault(p_key, []).append(q)
+        dyn_split = (getattr(aion_patch, "get_module_partition", lambda idx: [10])(mod_idx) or [10])
+        for q in questions:
+            if not isinstance(q, dict): continue
+            subs = q.get("sub_questions", []) or q.get("subQuestions", [])
+            target_marks = q.get("marks", q.get("total_marks", 10))
+            
+            if dyn_split and sum(dyn_split) == target_marks and len(dyn_split) == len(subs):
+                active_split = list(dyn_split)
+            else:
+                # Preserve existing generated sub-question marks if valid
+                existing_marks = [sq.get("marks") for sq in subs if isinstance(sq, dict) and "marks" in sq]
+                if existing_marks and len(existing_marks) == len(subs) and sum(existing_marks) == target_marks:
+                    active_split = existing_marks
+                elif len(subs) == 2:
+                    active_split = [6, 4] if target_marks == 10 else [12, 8]
+                elif len(subs) == 3:
+                    active_split = [4, 3, 3] if target_marks == 10 else [8, 6, 6]
+                else:
+                    active_split = [target_marks]
 
-        for pair_qs in pairs.values():
-            canonical_partition = normalize_or_pair_structure(pair_qs, is_ia)
-
-            for q in pair_qs:
-                subs = q.get("subQuestions") or q.get("sub_questions") or []
-                
-                # If question text exists on main question but subs is empty
-                if not subs:
-                    main_text = q.get("text") or q.get("question_text") or "Explain the principles and concepts."
-                    subs = [{"letter": "a", "text": main_text, "marks": q_marks}]
-
-                # Trim or extend subs to match canonical_partition length
-                new_subs = []
-                for j, mark in enumerate(canonical_partition):
-                    if j < len(subs):
-                        sq = dict(subs[j])
+            if len(subs) > 0:
+                for idx, sq in enumerate(subs):
+                    if idx < len(active_split):
+                        sq["marks"] = active_split[idx]
                     else:
-                        sq = {"text": "Explain the related principles and applications."}
-                    
-                    sq["letter"] = letters[j]
-                    sq["marks"]  = mark
-                    sq["co"]     = sq.get("co") or q.get("co") or f"CO{mod.get('module_index', 1)}"
-                    # AFTER — preserve bloom if already set by remapper, only default if missing
-                    existing_bloom = sq.get("bloom")
-                    if existing_bloom and int(existing_bloom) in range(1, 7):
-                    	sq["bloom"] = int(existing_bloom)   # keep remapper value
-                    else:
-                    	sq["bloom"] = q.get("bloom_level") or q.get("bloomLevel") or 2
-                    new_subs.append(sq)
+                        sq["marks"] = 0
+                q["marks"] = sum(active_split)
+                q["total_marks"] = sum(active_split)
+            else:
+                q["marks"] = target_marks
+                q["total_marks"] = target_marks
+    return paper
 
-                q["subQuestions"] = new_subs
-                q["totalMarks"]   = sum(canonical_partition)
-
-    return modules
 
 
 def validate_final_paper_contract(paper_dict: dict, exam_type: str = "IA") -> bool:
@@ -1209,16 +1305,14 @@ def validate_final_paper_contract(paper_dict: dict, exam_type: str = "IA") -> bo
 def _format_paper(paper, subject, exam_type, mode, qa_report=None):
     """
     Convert raw pipeline output into the unified GeneratedPaper schema.
-    Handles all legacy output formats from the pipeline.
+    Robustly unwraps Dataclass, Object, and Dict formats.
     """
-    from v0_1.question_schema import (
-        GeneratedPaper, Module, MainQuestion, SubQuestion
-    )
+    from v0_1.question_schema import GeneratedPaper, Module, MainQuestion, SubQuestion
 
     gp = GeneratedPaper(
-        subject   = subject,
-        exam_type = exam_type,
-        mode      = mode,
+        subject   = subject or "Subject",
+        exam_type = exam_type or "IAT1",
+        mode      = mode or "turbo",
     )
 
     if hasattr(paper, "modules"):
@@ -1230,269 +1324,107 @@ def _format_paper(paper, subject, exam_type, mode, qa_report=None):
     else:
         paper_modules = []
 
-    for mod_idx, mod in enumerate(paper_modules):
-        if hasattr(mod, "to_dict"):
-            mod = mod.to_dict()
-        elif not isinstance(mod, dict):
-            mod = {"module_index": mod_idx + 1, "questions": []}
+    for mod_idx, raw_mod in enumerate(paper_modules):
+        # Unwrap module object safely
+        if hasattr(raw_mod, "to_dict"):
+            mod_dict = raw_mod.to_dict()
+        elif isinstance(raw_mod, dict):
+            mod_dict = dict(raw_mod)
+        elif hasattr(raw_mod, "__dict__"):
+            mod_dict = dict(raw_mod.__dict__)
+        else:
+            mod_dict = {}
+
+        m_title = mod_dict.get("module_title") or mod_dict.get("title") or getattr(raw_mod, "title", f"Module {mod_idx + 1}")
+        m_index = mod_dict.get("module_index") or getattr(raw_mod, "module_index", mod_idx + 1)
 
         module = Module(
-            module_index = mod.get("module_index", mod_idx + 1),
-            module_title = mod.get("module_title", f"Module {mod_idx + 1}"),
+            module_index = m_index,
+            module_title = str(m_title),
         )
 
-        for mq_idx, mq in enumerate(mod.get("questions", [])):
-            if hasattr(mq, "to_dict"):
-                mq = mq.to_dict()
-            elif not isinstance(mq, dict):
-                continue
+        raw_qs = mod_dict.get("questions") or getattr(raw_mod, "questions", []) or []
+
+        for mq_idx, raw_mq in enumerate(raw_qs):
+            if hasattr(raw_mq, "to_dict"):
+                mq_dict = raw_mq.to_dict()
+            elif isinstance(raw_mq, dict):
+                mq_dict = dict(raw_mq)
+            elif hasattr(raw_mq, "__dict__"):
+                mq_dict = dict(raw_mq.__dict__)
+            else:
+                mq_dict = {}
 
             subs = []
             letters = "abcdefghij"
-            raw_subs = mq.get("sub_questions") or mq.get("subQuestions") or []
+            raw_subs = mq_dict.get("sub_questions") or mq_dict.get("subQuestions") or getattr(raw_mq, "sub_questions", []) or getattr(raw_mq, "subQuestions", []) or []
 
             exam_upper = str(exam_type).upper() if exam_type else "IA"
             is_ia      = exam_upper in ("IA", "IAT1", "IAT2", "IAT3", "MID")
-            max_parts  = 3  # Allow 1, 2, or 3 sub-questions for both IA and SEE
+            max_parts  = 3
             q_marks    = 10 if is_ia else 20
 
-            n_parts = min(max(1, len(raw_subs)), max_parts)
-            if is_ia:
-                if n_parts == 1:
-                    split = [10]
-                elif n_parts == 2:
-                    split = [6, 4]
-                else:
-                    split = [4, 3, 3]
+            # Preserve dynamic marks generated for subquestions
+            gen_marks = []
+            for _sq in raw_subs:
+                _m = getattr(_sq, "marks", None) if not isinstance(_sq, dict) else _sq.get("marks")
+                if _m is not None and str(_m).isdigit():
+                    gen_marks.append(int(_m))
+
+            import aion_patch
+            dyn_sp = (getattr(aion_patch, "get_module_partition", lambda idx: [10])(mod_idx + 1) or [10])
+
+            if gen_marks and sum(gen_marks) == q_marks:
+                split = gen_marks
+            elif dyn_sp and sum(dyn_sp) == q_marks:
+                split = list(dyn_sp)
+            elif is_ia:
+                n_parts = min(max(1, len(raw_subs)), max_parts)
+                split = [10] if n_parts == 1 else ([6, 4] if n_parts == 2 else [4, 3, 3])
             else:
-                if n_parts == 1:
-                    split = [20]
-                elif n_parts == 2:
-                    split = [10, 10]
+                n_parts = min(max(1, len(raw_subs)), max_parts)
+                split = [20] if n_parts == 1 else ([10, 10] if n_parts == 2 else [8, 6, 6])
+
+            for sq_idx, raw_sq in enumerate(raw_subs):
+                if hasattr(raw_sq, "to_dict"):
+                    sq_dict = raw_sq.to_dict()
+                elif isinstance(raw_sq, dict):
+                    sq_dict = dict(raw_sq)
+                elif hasattr(raw_sq, "__dict__"):
+                    sq_dict = dict(raw_sq.__dict__)
                 else:
-                    split = [8, 6, 6]
+                    sq_dict = {}
 
-                        # ── SLOT-AWARE BLOOM & MARKS REMAPPER ──────────────────────────
-            # Rules (IAT1 / IA exams):
-            #   sub-slot 'a' (idx=0) → 6 marks, BL must be L1–L3
-            #   sub-slot 'b' (idx=1) → 4 marks, BL must be L4–L6
-            #   sub-slot 'c' (idx=2) → 4 marks, BL must be L4–L6 (3-part only)
-            # Bloom integer is clamped to correct range for the slot.
-            # CO is inferred from question text keywords, not from module number.
+                text  = sq_dict.get("text") or getattr(raw_sq, "text", "Explain the concepts and principles in detail.")
+                image = sq_dict.get("image") or getattr(raw_sq, "image", None)
+                sq_m  = split[sq_idx] if sq_idx < len(split) else 0
 
-            # Bloom verb → level table (first-verb scan)
-            _BLOOM_VERB_TABLE = {
-                # L1
-                "define":1,"list":1,"recall":1,"name":1,"state":1,
-                "identify":1,"label":1,"recognize":1,"describe":1,
-                "outline":1,"mention":1,"write":1,"what":1,
-                # L2
-                "explain":2,"summarize":2,"paraphrase":2,"classify":2,
-                "discuss":2,"interpret":2,"illustrate":2,"translate":2,
-                "give":2,"show":2,"review":2,
-                # L3
-                "apply":3,"calculate":3,"compute":3,"solve":3,
-                "use":3,"demonstrate":3,"implement":3,"construct":3,
-                "determine":3,"find":3,"plot":3,"sketch":3,"model":3,
-                # L4
-                "analyze":4,"analyse":4,"compare":4,"contrast":4,
-                "differentiate":4,"examine":4,"distinguish":4,
-                "investigate":4,"relate":4,"test":4,"infer":4,
-                # L5
-                "evaluate":5,"assess":5,"critique":5,"judge":5,
-                "justify":5,"defend":5,"prioritize":5,"rate":5,
-                "argue":5,"formulate":5,
-                # L6
-                "create":6,"design":6,"develop":6,"generate":6,
-                "plan":6,"produce":6,"invent":6,"compose":6,
-                "build":6,"devise":6,
-            }
-
-            # CO keyword → CO number table
-            _CO_KEYWORD_TABLE = {
-                # CO1 — fundamentals / orbital mechanics
-                "geostationary":1,"orbit":1,"kepler":1,"semi-major":1,
-                "anomaly":1,"inclination":1,"perigee":1,"apogee":1,
-                "velocity":1,"propagation":1,"delay":1,"spin":1,
-                "stabiliz":1,"three-axis":1,"axis":1,"antenna":1,
-                "solar panel":1,"orientation":1,"satellite":1,
-                # CO2 — analysis / applied
-                "injection":2,"circular orbit":2,"elliptical":2,
-                "ascending node":2,"true anomaly":2,"cosmic velocity":2,
-                "landsat":2,"eclipse":2,"tracking":2,"battery":2,
-                "thermal":2,"radiation":2,
-                # CO3 — systems / implementation
-                "parking orbit":3,"sun-synchronous":3,"remote sensing":3,
-                "dual spinner":3,"simple spinner":3,"launcher":3,
-                "transfer orbit":3,"hohmann":3,"ground station":3,
-                "pointing":3,
-                # CO4 — performance / design
-                "tradeoff":4,"performance":4,"link budget":4,
-                "bandwidth":4,"modulation":4,"noise":4,
-                # CO5 — evaluation / specification
-                "specification":5,"optimize":5,"mission":5,"planning":5,
-            }
-
-            def _infer_bloom_from_text(text: str) -> int:
-                """Extract first verb from question text and map to Bloom level."""
-                import re as _re
-                words = _re.findall(r"\b[a-z]+\b", text.lower())
-                for w in words[:8]:
-                    if w in _BLOOM_VERB_TABLE:
-                        return _BLOOM_VERB_TABLE[w]
-                return 2  # default L2
-
-            def _clamp_bloom_for_slot(bloom_int: int, slot_idx: int) -> int:
-                """
-                Clamp bloom level to correct range for slot position.
-                slot_idx 0 (a-slot) → L1–L3
-                slot_idx 1+ (b/c-slot) → L4–L6
-                """
-                if slot_idx == 0:
-                    return max(1, min(3, bloom_int))   # clamp to L1–L3
-                else:
-                    return max(4, min(6, bloom_int))   # clamp to L4–L6
-
-            def _infer_co_from_text(text: str, default_co: str) -> str:
-                """Scan question text for CO-indicative keywords."""
-                t = text.lower()
-                scores = {}
-                for kw, co_n in _CO_KEYWORD_TABLE.items():
-                    if kw in t:
-                        scores[co_n] = scores.get(co_n, 0) + 1
-                if not scores:
-                    return default_co
-                best = max(scores, key=lambda k: scores[k])
-                return f"CO{best}"
-
-            # ── Enforce marks split: always [6,4] for 2-part IA questions ──
-            if is_ia:
-                if n_parts == 1:
-                    split = [10]
-                elif n_parts == 2:
-                    split = [6, 4]        # ← enforced: a=6, b=4
-                else:
-                    split = [4, 3, 3]
-            else:
-                if n_parts == 1:
-                    split = [20]
-                elif n_parts == 2:
-                    split = [10, 10]
-                else:
-                    split = [8, 6, 6]
-
-            for sq_idx in range(len(split)):
-                if sq_idx < len(raw_subs):
-                    sq = raw_subs[sq_idx]
-                    if hasattr(sq, "to_dict"):
-                        sq = sq.to_dict()
-                    elif not isinstance(sq, dict):
-                        sq = {}
-                    text  = sq.get("text") or sq.get("question") or sq.get("content") \
-                            or mq.get("text") or "Explain the concepts and principles in detail."
-                    image = sq.get("image")
-
-                    # ── Bloom: infer from text verb, then clamp to slot ──
-                    raw_bloom = sq.get("bloom") or mq.get("bloom_level") or mq.get("bloomLevel") or 2
-                    raw_bloom = int(raw_bloom) if str(raw_bloom).isdigit() else 2
-                    verb_bloom = _infer_bloom_from_text(str(text))
-                    # Prefer verb-inferred if it differs from raw (verb is more reliable)
-                    candidate_bloom = verb_bloom if verb_bloom != raw_bloom else raw_bloom
-                    final_bloom = _clamp_bloom_for_slot(candidate_bloom, sq_idx)
-
-                    # ── CO: use slot value directly (authoritative from blueprint)
-                    _slot_co   = sq.get("co")  # set by _blueprint_co in main.py
-                    _CO_BY_MOD = {1:"CO1",2:"CO1",3:"CO2",4:"CO2",5:"CO3"}
-                    _pos_co    = _CO_BY_MOD.get(mod_idx + 1)
-                    if _slot_co and _slot_co.startswith("CO"):
-                        # Trust the slot — it was set by the blueprint
-                        final_co = _slot_co
-                    elif _pos_co:
-                        # Fall back to position-based blueprint
-                        final_co = _pos_co
-                    else:
-                        # Last resort: keyword inference
-                        default_co = f"CO{min(5, mod_idx + 1)}"
-                        final_co   = _infer_co_from_text(str(text), default_co)
-
-                else:
-                    # Padding slot — no raw sub-question exists
-                    text        = "Explain the concepts and principles in detail."
-                    image       = None
-                    final_bloom = _clamp_bloom_for_slot(2, sq_idx)
-                    _CO_BY_MOD  = {1:"CO1",2:"CO1",3:"CO2",4:"CO2",5:"CO3"}
-                    final_co    = _CO_BY_MOD.get(mod_idx + 1, f"CO{min(5, mod_idx + 1)}")
+                final_bloom = sq_dict.get("bloom") or sq_dict.get("rbt") or getattr(raw_sq, "bloom", "L2")
+                final_co    = sq_dict.get("co") or getattr(raw_sq, "co", f"CO{min(5, mod_idx + 1)}")
 
                 subs.append(SubQuestion(
                     letter = letters[sq_idx],
                     text   = str(text).strip(),
-                    marks  = split[sq_idx],
-                    co     = final_co,
-                    bloom  = final_bloom,
+                    marks  = sq_m,
+                    co     = str(final_co),
+                    bloom  = str(final_bloom),
                     image  = image,
                 ))
 
             module.questions.append(MainQuestion(
-                mq_index      = mq.get("mq_index", mq.get("mqIndex", mq_idx + 1)),
-                total_marks   = q_marks,
-                bloom_level   = mq.get("bloom_level", mq.get("bloomLevel", 2)),
-                bloom_name    = mq.get("bloom_name", mq.get("bloomName", "Understand")),
+                mq_index      = mq_dict.get("mq_index", mq_dict.get("mqIndex", getattr(raw_mq, "mq_index", mq_idx + 1))),
+                total_marks   = sum(split) if subs else q_marks,
+                bloom_level   = mq_dict.get("bloom_level", getattr(raw_mq, "bloom_level", 2)),
+                bloom_name    = mq_dict.get("bloom_name", getattr(raw_mq, "bloom_name", "Understand")),
                 sub_questions = subs,
-                is_or         = bool(mq.get("is_or", mq.get("isOr", mq_idx % 2 == 1))),
+                is_or         = bool(mq_dict.get("is_or", getattr(raw_mq, "is_or", mq_idx % 2 == 1))),
             ))
 
         gp.modules.append(module)
 
-    result = gp.to_dict()
-    result["modules"] = _enforce_marks(result.get("modules", []), exam_type)
-
-    # ── CO COVERAGE TABLE ─────────────────────────────────────────────────────
-    # Compute from the remapped sub-questions in the final serialized result
-    _co_marks: dict = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-    _total_marks = 0
-    for _mod in result.get("modules", []):
-        for _q in _mod.get("questions", []):
-            for _sq in _q.get("subQuestions", []):
-                _sq_marks = int(_sq.get("marks", 0))
-                _sq_co    = str(_sq.get("co", "CO1"))
-                try:
-                    _co_num = int(_sq_co.replace("CO", "").strip())
-                    _co_num = max(1, min(5, _co_num))
-                except ValueError:
-                    _co_num = 1
-                _co_marks[_co_num] = _co_marks.get(_co_num, 0) + _sq_marks
-                _total_marks += _sq_marks
-
-    result["coCoverage"] = {
-        f"CO{n}": (
-            f"{round((_co_marks[n] / _total_marks) * 100)}%"
-            if _total_marks > 0 else "0%"
-        )
-        for n in range(1, 6)
-    }
-
-    # ── SYLLABUS MODULE COVERAGE ──────────────────────────────────────────────
-    _mod_marks: dict = {}
-    for _mod in result.get("modules", []):
-        _midx = _mod.get("moduleIndex", 1)
-        _mod_total = sum(
-            int(_sq.get("marks", 0))
-            for _q in _mod.get("questions", [])
-            for _sq in _q.get("subQuestions", [])
-        )
-        _mod_marks[_midx] = _mod_total
-
-    result["syllabusCoverage"] = {
-        f"Module{n}": (
-            f"{round((_mod_marks.get(n, 0) / _total_marks) * 100)}%"
-            if _total_marks > 0 else "0%"
-        )
-        for n in range(1, 6)
-    }
-
-    print(f"[REMAPPER] CO Coverage  : {result['coCoverage']}")
-    print(f"[REMAPPER] Mod Coverage : {result['syllabusCoverage']}")
-    return result
+    res_dict = gp.to_dict()
+    print(f"[FORMATTER] Formatted {len(gp.modules)} modules into GeneratedPaper schema.", flush=True)
+    return res_dict
 
 
 @app.route("/api/preview", methods=["POST"])
@@ -1685,7 +1617,6 @@ if __name__ == "__main__":
         debug    = False,
         threaded = True,
     )
-
 
 
 
