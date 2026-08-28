@@ -266,6 +266,11 @@ def run_pipeline(
     from core.validators.academic_validator import validate_academic_quality
 
     t_start = time.time()
+    try:
+        import aion_patch
+        aion_patch.ACTIVE_FILE_PATH = file_path
+    except Exception:
+        pass
     if pipeline_trace:
         pipeline_trace.stage("PipelineStart", status="PASS", metrics={"file": Path(file_path).name, "exam": exam_type})
 
@@ -568,20 +573,32 @@ def run_pipeline(
         pair2_bloom = _bb[2]
 
         # Lock mark partitions per OR pair (Pair 1: Q1/Q2, Pair 2: Q3/Q4)
-        if isinstance(sub_question_count, list) and len(sub_question_count) >= (mod_idx * 2):
-            q1_c = sub_question_count[(mod_idx - 1) * 2]
-            q2_c = sub_question_count[(mod_idx - 1) * 2 + 1]
-            p1_filtered = [p for p in base_partitions if len(p) == q1_c] or base_partitions
-            p2_filtered = [p for p in base_partitions if len(p) == q2_c] or base_partitions
-            pair1_partition = random.choice(p1_filtered)
-            pair2_partition = random.choice(p2_filtered)
-        elif sub_question_count and isinstance(sub_question_count, int):
-            filtered = [p for p in base_partitions if len(p) == sub_question_count] or base_partitions
-            pair1_partition = random.choice(filtered)
-            pair2_partition = random.choice(filtered)
-        else:
-            pair1_partition = random.choice(base_partitions)
-            pair2_partition = random.choice(base_partitions)
+        has_override = False
+        try:
+            import aion_patch
+            active_partition = aion_patch.get_module_partition(mod_idx)
+            if active_partition and sum(active_partition) == target_marks:
+                pair1_partition = list(active_partition)
+                pair2_partition = list(active_partition)
+                has_override = True
+        except Exception:
+            pass
+
+        if not has_override:
+            if isinstance(sub_question_count, list) and len(sub_question_count) >= (mod_idx * 2):
+                q1_c = sub_question_count[(mod_idx - 1) * 2]
+                q2_c = sub_question_count[(mod_idx - 1) * 2 + 1]
+                p1_filtered = [p for p in base_partitions if len(p) == q1_c] or base_partitions
+                p2_filtered = [p for p in base_partitions if len(p) == q2_c] or base_partitions
+                pair1_partition = random.choice(p1_filtered)
+                pair2_partition = random.choice(p2_filtered)
+            elif sub_question_count and isinstance(sub_question_count, int):
+                filtered = [p for p in base_partitions if len(p) == sub_question_count] or base_partitions
+                pair1_partition = random.choice(filtered)
+                pair2_partition = random.choice(filtered)
+            else:
+                pair1_partition = random.choice(base_partitions)
+                pair2_partition = random.choice(base_partitions)
 
         partitions_for_questions = [pair1_partition, pair1_partition, pair2_partition, pair2_partition]
 

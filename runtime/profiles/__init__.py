@@ -94,6 +94,10 @@ class RuntimeProfile:
 
 def _resolve_active_model(backend: str) -> str:
     """Query the actual backend for the currently loaded model."""
+    import os
+    env_model = os.environ.get("AION_MODEL")
+    if env_model:
+        return env_model
     if backend == "ollama":
         try:
             import requests
