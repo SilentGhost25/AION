@@ -1,6 +1,8 @@
+import React from "react"
 import { GeneratedPaper } from "@workspace/api-client-react"
 import { QuestionWithSubs, SubQuestion } from "./Step2Rules"
 import { Button } from "@/components/ui/button"
+import { MathText } from "@/components/MathText"
 import { ArrowLeft, Printer, AlertCircle } from "lucide-react"
 
 export function Step3Preview({ 
@@ -359,10 +361,9 @@ function renderQuestionRows(
         <div className="flex gap-1.5">
           {multi && <span className="font-medium shrink-0">{sub.label})</span>}
           <div className="flex-1">
-            <textarea
+            <EditableMathText
               value={sub.text}
-              onChange={e => updateSubText(q.qNo, i, e.target.value)}
-              className="w-full bg-transparent resize-none focus:outline-none min-h-[40px] hover:bg-slate-50 print:hover:bg-transparent print:resize-none transition-colors"
+              onChange={(v: string) => updateSubText(q.qNo, i, v)}
             />
             {sub.parts && sub.parts.length > 0 && (
               <div className="mt-1 space-y-0.5">
@@ -431,4 +432,42 @@ function renderQuestions(
   }
 
   return rows
+}
+
+
+// ── EditableMathText: shows rendered math, switches to textarea on focus ──────
+function EditableMathText({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [editing, setEditing] = React.useState(false)
+  const taRef = React.useRef<HTMLTextAreaElement>(null)
+
+  React.useEffect(() => {
+    if (editing && taRef.current) {
+      taRef.current.focus()
+      taRef.current.setSelectionRange(taRef.current.value.length, taRef.current.value.length)
+    }
+  }, [editing])
+
+  if (editing) {
+    return (
+      <textarea
+        ref={taRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={() => setEditing(false)}
+        onKeyDown={(e) => { if (e.key === "Escape") setEditing(false) }}
+        className="w-full bg-slate-50 border border-slate-300 rounded resize-none focus:outline-none focus:ring-1 focus:ring-blue-400 min-h-[40px] p-1 text-sm font-mono"
+        rows={Math.max(1, Math.ceil(value.length / 80))}
+      />
+    )
+  }
+
+  return (
+    <div
+      onClick={() => setEditing(true)}
+      className="w-full min-h-[40px] cursor-text hover:bg-slate-50 rounded p-1 transition-colors print:cursor-default print:hover:bg-transparent"
+      title="Click to edit"
+    >
+      <MathText text={value} />
+    </div>
+  )
 }

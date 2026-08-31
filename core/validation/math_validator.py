@@ -81,12 +81,13 @@ class KaTeXAvailabilityGate:
 
         try:
             cmd = list(cls._cmd)
+            cmd.extend(["--strict", "warn"])
             if display_mode:
                 cmd.append("--display-mode")
 
             res = subprocess.run(
                 cmd,
-                input=latex,
+                input=latex.replace("\\t{","\\text{").replace("\\owtie","\\bowtie").replace("\\ext","\\text").replace("\\newline",""),
                 text=True,
                 capture_output=True,
                 timeout=20,
@@ -98,7 +99,7 @@ class KaTeXAvailabilityGate:
             ) from exc
 
         if res.returncode != 0:
-            message = (res.stderr or res.stdout or "unknown KaTeX error").strip()
+            message = (res.stderr or res.stdout or "unknown KaTeX error").strip().split("\n")[0][:200]
             raise MathRenderFailure(
                 f"KaTeX render failed: {message}"
             )

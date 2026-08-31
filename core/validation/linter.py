@@ -8,6 +8,21 @@ from core.validation.common import CheckResult, RetryAction
 from core.validation.demand_validator import DemandValidator
 from core.validation.math_validator import validate_math_consistency, validate_math_block_with_render
 
+# AION hotfix: katex binary guard for containers
+def _katex_available() -> bool:
+    try:
+        import shutil, os
+        for name in ('katex', 'node', 'npx'):
+            if shutil.which(name) or any(
+                os.path.isfile(os.path.join(p, name))
+                for p in (os.getenv('PATH', '').split(':'), ['/usr/bin', '/usr/local/bin'])
+            ):
+                return True
+    except Exception:
+        pass
+    return False
+
+
 if TYPE_CHECKING:
     from core.contracts.question_slot import QuestionSlot, QuestionContract
     from core.generation.output_schema import QuestionOutput
@@ -156,7 +171,21 @@ def check_no_answer_leakage(text: str) -> CheckResult:
         "model answer", "expected answer", "therefore, the correct",
         "hence, the result", "thus, we find", "the correct answer is",
         "thus, the required result", "hence the output will be",
-        "therefore, the output is"
+        "therefore, the output is",
+        # Column-specification leaks (gives away CREATE TABLE answer)
+        "should include the following columns",
+        "the table should include",
+        "columns: ",
+        "with the following attributes:",
+        "each column must be",
+        "define the following attributes",
+        "the schema should contain",
+        "attributes and their types:",
+        "column definitions:",
+        "field definitions:",
+        "should have the following fields",
+        "the following columns with types",
+        "each attribute with its data type",
     ]
     text_lower = text.lower()
     for p in PATTERNS:
