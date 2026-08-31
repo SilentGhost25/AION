@@ -15,81 +15,101 @@ class MathRenderFailure(Exception):
 
 
 class KaTeXAvailabilityGate:
-    _initialized = False
-    _ready = False
+    """KaTeX availability and rendering gate."""
+
+    _verified = False
+    _cmd = None
 
     @classmethod
-    def probe(cls) -> bool:
-        """Executes a startup probe. Verifies Node, NPX and KaTeX compile capabilities."""
-        if cls._initialized:
-            return cls._ready
-        cls._initialized = True
-        try:
-            # Probe using npx --no-install katex first
-            res = subprocess.run(
-                ["npx", "--no-install", "katex"],
-                input="x = y",
-                capture_output=True,
-                text=True,
-                shell=True
-            )
-            if res.returncode == 0 and "katex" in res.stdout.lower():
-                cls._ready = True
-                LOG.info("KaTeXAvailabilityGate verified: npx --no-install katex is ready.")
-            else:
-                LOG.warning(f"KaTeX --no-install probe failed (code {res.returncode}): {res.stderr or res.stdout}. Trying fallback standard npx...")
-                res_fallback = subprocess.run(
-                    ["npx", "katex"],
-                    input="x = y",
-                    capture_output=True,
+    def verify(cls) -> bool:
+        """Verify KaTeX by actually rendering a tiny expression."""
+        if cls._verified and cls._cmd:
+            return True
+
+        import subprocess
+
+        candidates = [
+            ["npx", "--no-install", "katex"],
+            ["npx", "--yes", "katex"],
+        ]
+
+        errors = []
+
+        for cmd in candidates:
+            try:
+                res = subprocess.run(
+                    cmd,
+                    input="x",
                     text=True,
-                    shell=True
+                    capture_output=True,
+                    timeout=20,
+                    shell=False,
                 )
-                if res_fallback.returncode == 0 and "katex" in res_fallback.stdout.lower():
-                    cls._ready = True
-                    LOG.info("KaTeXAvailabilityGate verified (fallback): npx katex is ready.")
-                else:
-                    LOG.error(f"KaTeX probe failed completely: exit {res_fallback.returncode}. {res_fallback.stderr}")
-        except Exception as e:
-            LOG.error(f"KaTeX probe exception: {e}")
-        return cls._ready
+
+                if res.returncode == 0 and "katex" in res.stdout.lower():
+                    cls._verified = True
+                    cls._cmd = cmd
+                    LOG.info(
+                        "KaTeXAvailabilityGate verified with: %s",
+                        " ".join(cmd),
+                    )
+                    return True
+
+                errors.append(
+                    f"{' '.join(cmd)} -> exit={res.returncode}, "
+                    f"stderr={res.stderr.strip()}"
+                )
+
+            except Exception as exc:
+                errors.append(f"{' '.join(cmd)} -> {exc}")
+
+        cls._verified = False
+        cls._cmd = None
+        LOG.error("KaTeX probe failed: %s", " | ".join(errors))
+        return False
 
     @classmethod
     def render(cls, latex: str, display_mode: bool = False) -> str:
-        """Compiles LaTeX to HTML via subprocess."""
-        if not cls.probe():
-            raise MathRenderFailure("MATH_OK")
-        
-        cmd = ["npx", "--no-install", "katex"]
-        if display_mode:
-            cmd.append("--display-mode")
-            
+        """Render one LaTeX expression using KaTeX."""
+        import subprocess
+
+        if not isinstance(latex, str) or not latex.strip():
+            raise MathRenderFailure("LaTeX expression is empty")
+
+        if not cls.verify():
+            raise MathRenderFailure("KaTeX executable unavailable")
+
         try:
+            cmd = list(cls._cmd)
+            if display_mode:
+                cmd.append("--display-mode")
+
             res = subprocess.run(
                 cmd,
                 input=latex,
-                capture_output=True,
                 text=True,
-                shell=True
+                capture_output=True,
+                timeout=20,
+                shell=False,
             )
-            if res.returncode != 0:
-                # Fall back to standard npx in case --no-install failed to find local copy
-                fallback_cmd = ["npx", "katex"]
-                if display_mode:
-                    fallback_cmd.append("--display-mode")
-                res_fallback = subprocess.run(
-                    fallback_cmd,
-                    input=latex,
-                    capture_output=True,
-                    text=True,
-                    shell=True
-                )
-                if res_fallback.returncode != 0:
-                    raise MathRenderFailure(res_fallback.stderr or res_fallback.stdout)
-                return res_fallback.stdout
-            return res.stdout
-        except Exception as e:
-            raise MathRenderFailure(f"KaTeX subprocess failed: {str(e)}")
+        except Exception as exc:
+            raise MathRenderFailure(
+                f"KaTeX subprocess failed: {exc}"
+            ) from exc
+
+        if res.returncode != 0:
+            message = (res.stderr or res.stdout or "unknown KaTeX error").strip()
+            raise MathRenderFailure(
+                f"KaTeX render failed: {message}"
+            )
+
+        rendered = res.stdout.strip()
+
+        if not rendered:
+            raise MathRenderFailure("KaTeX returned empty output")
+
+        return rendered
+
 
 
 def validate_math_consistency(output: QuestionOutput) -> CheckResult:

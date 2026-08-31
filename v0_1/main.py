@@ -491,6 +491,8 @@ def run_pipeline(
         figures = list(getattr(artifact, "figures", [])) if artifact else []
 
         def _has_img(f):
+            # AION hotfix: manifest writer expects file_path
+            file_path = f
             if isinstance(f, dict):
                 return bool(str(f.get("image_path") or f.get("path") or "").strip())
             return bool(str(getattr(f, "image_path", "") or getattr(f, "path", "") or "").strip())
@@ -1139,7 +1141,51 @@ def _generate_main_question(
             question_budget = QuestionBudget.from_bloom(f"L{sub_bloom}", marks)
             task_signature = TaskSignature.from_bloom_marks_type(f"L{sub_bloom}", marks, "descriptive")
 
-            math_required = (chunk_obj is not None and getattr(chunk_obj, "has_formula", False)) or ("\\frac" in chunk or "$" in chunk)
+            # Evidence-aware MathBlock requirement.
+            # Do not let generic extractor has_formula flags classify SQL/procedural
+            # syntax as mathematics. MathBlocks are reserved for genuine mathematical
+            # or relational-algebra notation.
+            _math_chunk = str(chunk)
+            _math_lower = _math_chunk.lower()
+
+            _strong_code_signals = (
+                "select ", "insert ", "update ", "delete ", "create table",
+                "alter table", "drop table", "join ", "where ", "group by",
+                "having ", "trigger", "cursor", "stored procedure",
+                "declare ", "begin ", "end;", "while ", "loop",
+                "fetch ", "open ", "close ", "procedure ", "function "
+            )
+
+            _strong_math_signals = (
+                "\\frac", "\\sum", "\\prod", "\\sqrt", "\\int",
+                "\\sigma", "\\pi_", "\\rho", "\\bowtie",
+                "\\cup", "\\cap", "\\times", "\\rightarrow",
+                "σ", "π", "⋈", "∪", "∩", "→",
+                "$$", "\\[", "\\("
+            )
+
+            _looks_like_code = any(
+                _sig in _math_lower for _sig in _strong_code_signals
+            )
+
+            _looks_like_real_math = any(
+                _sig in _math_chunk for _sig in _strong_math_signals
+            )
+
+            # Dollar-delimited formulas are retained only when they actually look
+            # mathematical rather than currency/code text.
+            if "$" in _math_chunk and _math_chunk.count("$") >= 2:
+                _looks_like_real_math = True
+
+            _extractor_formula = bool(
+                chunk_obj is not None
+                and getattr(chunk_obj, "has_formula", False)
+            )
+
+            # Only strong mathematical/relational-algebra evidence requires a
+            # MathBlock. The extractor has_formula flag is diagnostic only because
+            # it can also be triggered by SQL/procedural notation.
+            math_required = bool(_looks_like_real_math)
             visual_required = (image_data is not None)
 
             # Resolve pedagogy-aware question type (strict source-grounded mode)
@@ -1147,15 +1193,91 @@ def _generate_main_question(
             if planned_types and idx < len(planned_types):
                 planned_type = planned_types[idx]
 
-            has_numbers = any(char.isdigit() for char in chunk)
-            numerical_allowed = math_required and has_numbers
+            # Evidence-aware applied question classifier.
+            # Keep numerical and programming eligibility independent.
+            _chunk_lower = str(chunk).lower()
 
-            if numerical_allowed:
-                q_type = planned_type
-            elif planned_type == "NUMERICAL":
-                q_type = "APPLICATION"  # Fallback: keep it practical but non-numerical if inputs missing
+            _code_signals = (
+                "syntax", "program", "programming", "algorithm", "pseudocode",
+                "function", "procedure", "method", "class ", "return ",
+                "query", "statement", "command", "script",
+                "select ", "insert ", "update ", "delete ", "create table",
+                "alter table", "drop table", "join ", "where ", "group by",
+                "having ", "trigger", "cursor", "stored procedure",
+                "for ", "while ", "if ", "else "
+            )
+
+            _numeric_context_signals = (
+                "calculate", "compute", "derive", "determine",
+                "formula", "equation", "probability", "utility", "cost",
+                "rate", "ratio", "percentage", "average", "mean", "variance",
+                "throughput", "delay", "latency", "bandwidth",
+                "complexity", "cardinality", "frequency", "distance", "speed",
+                "memory", "size", "score", "time step", "page size",
+                "block size", "response time", "waiting time",
+                "turnaround time", "hit ratio", "miss ratio"
+            )
+
+            # Standalone numeric values only; do not count tokens such as 1NF/2NF/3NF.
+            import re as _re
+            _numeric_values = _re.findall(
+                r'(?<![A-Za-z])[-+]?\d+(?:\.\d+)?(?:\s*%)?(?![A-Za-z])',
+                _chunk_lower
+            )
+            _has_digit = bool(_numeric_values)
+            _has_numeric_context = any(
+                sig in _chunk_lower for sig in _numeric_context_signals
+            )
+
+            # Explicit code extraction or textual code/syntax signals make the
+            # evidence suitable for a programming/query/application question.
+            _chunk_code_blocks = getattr(chunk_obj, "code_blocks", None) if chunk_obj is not None else None
+            programming_allowed = bool(
+                _chunk_code_blocks
+                or any(sig in _chunk_lower for sig in _code_signals)
+            )
+
+            # Do NOT treat programming evidence as numerical evidence.
+            # For numerical eligibility require computational context with numbers,
+            # or a genuine extracted formula.
+            # NUMERICAL requires actual numeric inputs plus computational context.
+            # Prefer two or more values; one value is accepted only with an
+            # explicit calculation verb in the source evidence.
+            _explicit_calc = any(
+                sig in _chunk_lower
+                for sig in ("calculate", "compute", "solve", "determine", "evaluate")
+            )
+            numerical_allowed = bool(
+                (not programming_allowed)
+                and _has_numeric_context
+                and (
+                    len(_numeric_values) >= 2
+                    or (len(_numeric_values) >= 1 and _explicit_calc)
+                )
+            )
+
+            # Preserve the planner's locked type whenever support exists.
+            # If it requested NUMERICAL without suitable numerical evidence,
+            # downgrade only that type to APPLICATION. Programming evidence remains
+            # available to the evidence-driven prompt as an applied construction task.
+            if planned_type == "NUMERICAL" and not numerical_allowed:
+                q_type = "APPLICATION"
             else:
                 q_type = planned_type
+
+            print(
+                f"[APPLIED-CLASSIFIER] {slot_id}: "
+                f"planned={planned_type} final={q_type} "
+                f"programming={programming_allowed} "
+                f"numerical={numerical_allowed} "
+                f"numeric_values={_numeric_values[:8]} "
+                f"numeric_context={_has_numeric_context} "
+                f"math_required={math_required} "
+                f"looks_code={_looks_like_code} "
+                f"looks_math={_looks_like_real_math} "
+                f"extractor_formula={_extractor_formula}",
+                flush=True,
+            )
 
             # Use canonical module identity helpers (F6b)
             _mod_num = parse_module_number(module_id)
@@ -1208,6 +1330,73 @@ def _generate_main_question(
                 evidence_pack=evidence_pack,
                 excluded_concepts=set()
             )
+
+            # AION image binder: attach extracted image path to generated question when available
+            try:
+                def _aion_find_img(_obj, _seen=None):
+                    if _seen is None:
+                        _seen = set()
+                    try:
+                        if _obj in (None, '', False, True):
+                            return None
+                    except Exception:
+                        pass
+                    try:
+                        _oid = id(_obj)
+                        if _oid in _seen:
+                            return None
+                        _seen.add(_oid)
+                    except Exception:
+                        pass
+                    if isinstance(_obj, str):
+                        _s = _obj.strip()
+                        if _s.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp')):
+                            return _s
+                        return None
+                    if isinstance(_obj, dict):
+                        for _k in ('image', 'image_path', 'image_url', 'diagram_image', 'diagram_path', 'figure_path', 'figure', 'visual', 'asset_path', 'path', 'file_path', 'src', 'url'):
+                            _v = _obj.get(_k)
+                            _r = _aion_find_img(_v, _seen)
+                            if _r:
+                                return _r
+                        for _v in _obj.values():
+                            _r = _aion_find_img(_v, _seen)
+                            if _r:
+                                return _r
+                    elif isinstance(_obj, (list, tuple, set)):
+                        for _v in _obj:
+                            _r = _aion_find_img(_v, _seen)
+                            if _r:
+                                return _r
+                    else:
+                        for _k in ('image', 'image_path', 'image_url', 'diagram_image', 'diagram_path', 'figure_path', 'figure', 'visual', 'asset_path', 'path', 'file_path', 'src', 'url'):
+                            try:
+                                _v = getattr(_obj, _k, None)
+                            except Exception:
+                                _v = None
+                            _r = _aion_find_img(_v, _seen)
+                            if _r:
+                                return _r
+                    return None
+                _existing_img = getattr(gq, 'image', None) if not isinstance(gq, dict) else gq.get('image')
+                if _existing_img in (None, '', False, True):
+                    _candidate_img = None
+                    for _src_name in ('selected_chunks', 'evidence_pack', 'module_visuals', 'figures', 'chunk_image_map', 'image_map', 'visuals'):
+                        _src = locals().get(_src_name)
+                        _candidate_img = _aion_find_img(_src)
+                        if _candidate_img:
+                            break
+                    if _candidate_img:
+                        if isinstance(gq, dict):
+                            gq['image'] = str(_candidate_img)
+                        else:
+                            setattr(gq, 'image', str(_candidate_img))
+            except Exception as _img_bind_err:
+                try:
+                    print(f'[VISUAL] image bind skipped: {_img_bind_err}', flush=True)
+                except Exception:
+                    pass
+
             q_text = gq.question_text
         else:
             # Fallback legacy mode if orchestrator is not provided (e.g. legacy tests calling this directly)

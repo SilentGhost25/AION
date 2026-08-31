@@ -1457,7 +1457,36 @@ def _format_paper(paper, subject, exam_type, mode, qa_report=None):
                     sq_dict = {}
 
                 text  = sq_dict.get("text") or getattr(raw_sq, "text", "Explain the concepts and principles in detail.")
+                # --- AION SAFETY CLEANUP: strip orphan placeholders and reference headers ---
+                import re as _re
+                if isinstance(text, str):
+                    text = _re.sub(r'\s*\[MATH:[^\]]+\]\s*', ' ', text)
+                    text = _re.sub(r'\s*Reference\s+(?:Equation|Formula)[:\s]*', ' ', text, flags=_re.IGNORECASE)
+                    text = _re.sub(r'\s+', ' ', text).strip()
+                # AION safety net: strip any unresolved [MATH:...] placeholders
+                # and cross-question references like "Query 3", "Question 2" etc.
+                import re as _re
+                if isinstance(text, str):
+                    text = _re.sub(r'\s*\[MATH:[^\]]+\]\s*', ' ', text).strip()
+                    text = _re.sub(r'\s*Reference\s+Equation[:\s]*', ' ', text, flags=_re.IGNORECASE).strip()
+                    text = _re.sub(r'\s*Reference\s+Formula[:\s]*', ' ', text, flags=_re.IGNORECASE).strip()
                 image = sq_dict.get("image") or getattr(raw_sq, "image", None)
+                # AION fix: preserve/infer extracted image path instead of losing it as bool/null
+                if image in (None, "", False, True):
+                    for _candidate in (
+                        sq_dict,
+                        mq_dict,
+                        locals().get("mod_dict"),
+                        locals().get("module_dict"),
+                        locals().get("raw_mod"),
+                        raw_sq,
+                        raw_mq,
+                    ):
+                        _found_img = _aion_first_image_value(_candidate)
+                        if _found_img:
+                            image = _found_img
+                            break
+                image = _aion_public_image_url(image)
                 sq_m  = split[sq_idx] if sq_idx < len(split) else 0
 
                 final_bloom = sq_dict.get("bloom") or sq_dict.get("rbt") or getattr(raw_sq, "bloom", "L2")
@@ -1484,8 +1513,189 @@ def _format_paper(paper, subject, exam_type, mode, qa_report=None):
         gp.modules.append(module)
 
     res_dict = gp.to_dict()
+
+    # Remove internal generation transport tokens from student-facing paper.
+    res_dict = _aion_sanitize_paper_questions(res_dict)
+
     print(f"[FORMATTER] Formatted {len(gp.modules)} modules into GeneratedPaper schema.", flush=True)
     return res_dict
+
+
+
+
+# --- AION HOTFIX: serve extracted/generated image assets safely ---
+def _aion_first_image_value(obj, _seen=None):
+    """
+    Recursively find first plausible image path/url from dict/list/object payloads.
+    """
+    try:
+        if _seen is None:
+            _seen = set()
+
+        oid = id(obj)
+        if oid in _seen:
+            return None
+        _seen.add(oid)
+
+        if obj in (None, "", False, True):
+            return None
+
+        if isinstance(obj, str):
+            lower = obj.lower()
+            if lower.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")) or "/api/asset" in lower:
+                return obj
+            return None
+
+        if isinstance(obj, dict):
+            for k in ("image", "image_path", "image_url", "diagram_image", "diagram_path",
+                      "figure_path", "figure", "visual", "asset_path", "path", "file_path", "src", "url"):
+                v = obj.get(k)
+                found = _aion_first_image_value(v, _seen)
+                if found:
+                    return found
+
+            for v in obj.values():
+                found = _aion_first_image_value(v, _seen)
+                if found:
+                    return found
+            return None
+
+        if isinstance(obj, (list, tuple, set)):
+            for item in obj:
+                found = _aion_first_image_value(item, _seen)
+                if found:
+                    return found
+            return None
+
+        for k in ("image", "image_path", "image_url", "diagram_image", "diagram_path",
+                  "figure_path", "figure", "visual", "asset_path", "path", "file_path", "src", "url"):
+            try:
+                v = getattr(obj, k, None)
+            except Exception:
+                v = None
+            found = _aion_first_image_value(v, _seen)
+            if found:
+                return found
+
+    except Exception:
+        return None
+
+    return None
+
+
+def _aion_public_image_url(value):
+    """
+    Convert local extracted image paths into browser-loadable API URLs.
+    Keeps existing HTTP/API URLs unchanged.
+    """
+    try:
+        value = _aion_first_image_value(value) or value
+
+        if not value or value is True:
+            return None
+
+        if isinstance(value, dict):
+            value = _aion_first_image_value(value)
+
+        if not value or value is True:
+            return None
+
+        s = str(value).strip()
+        if not s:
+            return None
+
+        if s.startswith(("http://", "https://", "/api/")):
+            return s
+
+        from pathlib import Path as _Path
+        from urllib.parse import quote as _quote
+
+        p = _Path(s)
+        if p.exists():
+            return "/api/asset?path=" + _quote(str(p.resolve()))
+
+        return s
+    except Exception:
+        return None
+
+
+@app.route("/api/asset", methods=["GET"])
+def serve_aion_asset():
+    """
+    Serves extracted figures/images from workspace/extracted_output.
+    Prevents frontend from receiving unusable local filesystem paths.
+    """
+    from flask import abort, send_file, request
+    from pathlib import Path as _Path
+
+    raw = request.args.get("path", "")
+    if not raw:
+        abort(404)
+
+    try:
+        p = _Path(raw).resolve()
+    except Exception:
+        abort(400)
+
+    allowed_roots = [
+        _Path("/home/AIML1/AIQ/AION/workspace").resolve(),
+        _Path("/home/AIML1/AIQ/AION/extracted_output").resolve(),
+    ]
+
+    ps = str(p)
+    ok = any(ps == str(root) or ps.startswith(str(root) + "/") for root in allowed_roots)
+
+    if not ok or not p.exists() or not p.is_file():
+        abort(404)
+
+    return send_file(str(p))
+# --- END AION HOTFIX ---
+
+
+
+def _aion_clean_internal_question_tokens(text):
+    """Remove internal generation/transport labels from student-facing text."""
+    if not isinstance(text, str):
+        return text
+
+    import re
+
+    # Remove labels whose only purpose is exposing an internal MathBlock reference.
+    text = re.sub(
+        r'(?i)\s*(?:reference\s+equation|reference\s+formula|equation\s+reference)\s*:\s*\[MATH:[^\]]+\]\s*',
+        ' ',
+        text,
+    )
+
+    # Remove any remaining unresolved internal MathBlock transport token.
+    text = re.sub(
+        r'\s*\[MATH:[^\]]+\]\s*',
+        ' ',
+        text,
+    )
+
+    # Clean whitespace/punctuation artifacts.
+    text = re.sub(r'[ \t]{2,}', ' ', text)
+    text = re.sub(r'\s+([,.;:])', r'\1', text)
+
+    return text.strip()
+
+
+def _aion_sanitize_paper_questions(obj):
+    """Recursively sanitize student-facing question text in paper payload."""
+    if isinstance(obj, dict):
+        for key, value in list(obj.items()):
+            if key in ("text", "question_text", "instruction") and isinstance(value, str):
+                obj[key] = _aion_clean_internal_question_tokens(value)
+            else:
+                _aion_sanitize_paper_questions(value)
+
+    elif isinstance(obj, list):
+        for item in obj:
+            _aion_sanitize_paper_questions(item)
+
+    return obj
+
 
 
 @app.route("/api/preview", methods=["POST"])

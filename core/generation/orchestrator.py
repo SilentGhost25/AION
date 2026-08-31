@@ -13,6 +13,64 @@ from core.validation.linter import run_linter
 
 LOG = logging.getLogger(__name__)
 
+def _repair_invalid_json_backslashes(raw: str) -> str:
+    """
+    Repair model-produced JSON containing LaTeX/regex backslashes that are not
+    valid JSON escapes.
+
+    Example:
+        \sigma   -> \\sigma
+        \frac    -> \\frac
+
+    Valid JSON escapes such as \\n, \\t, \\\\, \\", and \\uXXXX are preserved.
+    """
+    if not isinstance(raw, str):
+        return raw
+
+    out = []
+    i = 0
+    n = len(raw)
+
+    while i < n:
+        ch = raw[i]
+
+        if ch != "\\":
+            out.append(ch)
+            i += 1
+            continue
+
+        # Trailing backslash must be escaped.
+        if i + 1 >= n:
+            out.append("\\\\")
+            i += 1
+            continue
+
+        nxt = raw[i + 1]
+
+        # Valid one-character JSON escapes.
+        if nxt in '"\\/bfnrt':
+            out.append("\\")
+            out.append(nxt)
+            i += 2
+            continue
+
+        # Valid unicode escape only if exactly four hex digits follow.
+        if nxt == "u" and i + 5 < n:
+            hexpart = raw[i + 2:i + 6]
+            if len(hexpart) == 4 and all(c in "0123456789abcdefABCDEF" for c in hexpart):
+                out.append(raw[i:i + 6])
+                i += 6
+                continue
+
+        # Everything else is invalid JSON escaping, usually LaTeX.
+        out.append("\\\\")
+        out.append(nxt)
+        i += 2
+
+    return "".join(out)
+
+
+
 FAILURE_SIGNATURE_WINDOW = 3   # if last N failures share the same code -> escalate
 
 
@@ -85,9 +143,41 @@ def _build_recovery_hint(failure_history: List[str]) -> str:
             "Your demand declaration did not contain enough dimensions.\n"
             "The question must explicitly request the required number of analytical components."
         ),
+        "TEACHER_SUITABILITY_FAILURE": (
+            "\n\n[RECOVERY REQUIRED: QUESTION SOLVABILITY]\n"
+            "The previous question was not suitable as a solvable examination task. "
+            "For a NUMERICAL slot, use ONLY numeric values explicitly present in "
+            "the evidence and include enough given parameters to obtain a definite "
+            "result. Never invent numeric values. "
+            "For programming/query/syntax evidence, formulate a construction, "
+            "implementation, tracing, modification, or analysis task instead of "
+            "inventing a numerical scenario. "
+            "Preserve the required Bloom verb and source grounding."
+        ),
+        "SELF_CONTAINMENT_FAILURE": (
+            "\n\n[RECOVERY REQUIRED: SELF-CONTAINED QUESTION]\n"
+            "Rewrite the question so a student can answer it without access to "
+            "notes, evidence, previous queries, numbered examples, or external context. "
+            "Replace references such as 'Query 3', 'the above query', 'provided in "
+            "the evidence', or 'the given expression' with the complete required "
+            "schema/query/expression, or remove the dependency entirely."
+        ),
         "LLM_TIMEOUT": (
             "\n\n[RECOVERY NOTE]\n"
             "Previous attempt timed out. Generate a more concise response."
+        ),
+        "MATH_POLICY_VIOLATION": (
+            "\n\n[RECOVERY REQUIRED: MATH/FORMULA]\n"
+            "Your previous answer had math/formula errors or missing math_blocks.\n"
+            "Each math_blocks entry MUST be a dict with block_id and latex fields.\n"
+            "Example: {\"block_id\": \"calc_1\", \"latex\": \"E[U] = ...\"}\n"
+            "For SQL: put query in math_block latex. Do NOT use [MATH:...] without declaring math_blocks.\n"
+            "REWRITE with valid math_blocks.\n"
+        ),
+        "MATH_RENDER_FAILURE": (
+            "\n\n[RECOVERY REQUIRED: MATH FORMAT]\n"
+            "Math block latex was empty or had formatting issues. Ensure latex is non-empty and contains no corruption.\n"
+            "REWRITE with corrected math_blocks.\n"
         ),
     }
 
@@ -175,21 +265,211 @@ class SlotOrchestrator:
                 raw_json = self._call_llm(prompt)
                 
                 # 3. Parse JSON
-                data = self._parse_json(raw_json)
+                # AION JSON ESCAPE RECOVERY:
+                # Try untouched model output first. If JSON decoding fails because
+                # LaTeX/code contains invalid JSON backslash escapes, repair only
+                # invalid escapes and retry once.
+                try:
+                    data = self._parse_json(raw_json)
+                except json.JSONDecodeError:
+                    _repaired_raw_json = _repair_invalid_json_backslashes(raw_json)
+                    data = self._parse_json(_repaired_raw_json)
 
-                # AION hotfix: normalize diagram_request aliases before Pydantic validation
+                # === AION PRE-VALIDATION NORMALIZER ===
                 if isinstance(data, dict):
+                    # --- 1. Normalize diagram_request ---
                     _dr = data.get("diagram_request")
-                    if isinstance(_dr, dict):
+                    if _dr is True:
+                        data["diagram_request"] = {
+                            "diagram_type": "conceptual",
+                            "description": "Use relevant figure from source material.",
+                            "label": "Figure",
+                            "elements": [],
+                            "relations": [],
+                        }
+                    elif _dr in (False, "", None):
+                        data["diagram_request"] = None
+                    elif isinstance(_dr, dict):
                         if "diagram_type" not in _dr:
-                            _dr["diagram_type"] = (
-                                _dr.get("type")
-                                or _dr.get("kind")
-                                or _dr.get("diagram_kind")
-                                or "conceptual"
+                            _dr["diagram_type"] = _dr.get("type") or _dr.get("kind") or "conceptual"
+                        if "description" not in _dr:
+                            _dr["description"] = "Relevant figure from source material."
+                        if "label" not in _dr:
+                            _dr["label"] = _dr.get("title") or "Figure"
+                        _dr.setdefault("elements", [])
+                        _dr.setdefault("relations", [])
+                
+                    # --- 2. Normalize math_blocks ---
+                    _mbs = data.get("math_blocks")
+                    _instruction = data.get("instruction", "")
+                    if not isinstance(_instruction, str):
+                        _instruction = str(_instruction)
+                    if isinstance(_mbs, list):
+                        _fixed_mbs = []
+                        for _idx, _mb in enumerate(_mbs):
+                            if isinstance(_mb, str):
+                                _fixed_mbs.append({
+                                    "block_id": "calc_" + str(_idx + 1),
+                                    "latex": _mb.strip() if _mb.strip() else "\\text{calc_" + str(_idx+1) + "}",
+                                    "source": None,
+                                })
+                            elif isinstance(_mb, dict):
+                                if not _mb.get("block_id"):
+                                    _mb["block_id"] = "calc_" + str(_idx + 1)
+                                if not _mb.get("latex") and not _mb.get("content"):
+                                    _mb["latex"] = "\\text{calc_" + str(_idx+1) + "}"
+                                elif not _mb.get("latex") and _mb.get("content"):
+                                    _mb["latex"] = _mb.pop("content")
+                                _mb.setdefault("source", None)
+                                _fixed_mbs.append(_mb)
+                            else:
+                                _fixed_mbs.append({
+                                    "block_id": "calc_" + str(_idx + 1),
+                                    "latex": str(_mb),
+                                    "source": None,
+                                })
+                        data["math_blocks"] = _fixed_mbs
+                
+                    # 2b. Handle [MATH:...] placeholders
+                    import re
+                    _math_refs = set(re.findall(r'\[MATH:(\w+)\]', _instruction))
+                    _declared_ids = set()
+                    if isinstance(data.get("math_blocks"), list):
+                        for _mb in data["math_blocks"]:
+                            if isinstance(_mb, dict) and _mb.get("block_id"):
+                                _declared_ids.add(_mb["block_id"])
+                    _undeclared = _math_refs - _declared_ids
+                    if _undeclared:
+                        if not isinstance(data.get("math_blocks"), list):
+                            data["math_blocks"] = []
+                        for _ref in sorted(_undeclared):
+                            data["math_blocks"].append({
+                                "block_id": _ref,
+                                "latex": "\\text{" + _ref + "}",
+                                "source": None,
+                            })
+                    if _math_refs and not data.get("math_blocks"):
+                        data["instruction"] = re.sub(r'\s*\[MATH:\w+\]\s*', ' ', _instruction).strip()
+
+                    # --- Strip leaked "Reference Equation:" prefixes and orphan placeholders ---
+                    for _strip_field in ("instruction", "question_text"):
+                        _val = data.get(_strip_field)
+                        if isinstance(_val, str):
+                            _val = re.sub(
+                                r'Reference\s+Equation\s*:\s*\[MATH:[^\]]+\]',
+                                '', _val, flags=re.IGNORECASE
                             )
-                        if "label" not in _dr and "title" in _dr:
-                            _dr["label"] = _dr["title"]
+                            _val = re.sub(
+                                r'Reference\s+Equation\s*:',
+                                '', _val, flags=re.IGNORECASE
+                            )
+                            _val = re.sub(r'\s*\[MATH:[^\]]+\]\s*', ' ', _val)
+                            _val = re.sub(r'[ \t]{2,}', ' ', _val).strip()
+                            data[_strip_field] = _val
+                    if isinstance(data.get("math_blocks"), list):
+                        data["math_blocks"] = [
+                            _mb for _mb in data["math_blocks"]
+                            if isinstance(_mb, dict) and (_mb.get("latex") or _mb.get("content"))
+                        ]
+                        if not data["math_blocks"]:
+                            data["math_blocks"] = []
+                
+                    # --- 3. Normalize code_blocks (SQL/Python/programming) ---
+                    _cbs = data.get("code_blocks")
+                    if isinstance(_cbs, list):
+                        _fixed_cbs = []
+                        for _idx, _cb in enumerate(_cbs):
+                            if isinstance(_cb, str):
+                                _fixed_cbs.append({
+                                    "block_id": "code_" + str(_idx + 1),
+                                    "language": "sql",
+                                    "code": _cb,
+                                })
+                            elif isinstance(_cb, dict):
+                                _cb.setdefault("block_id", "code_" + str(_idx + 1))
+                                _cb.setdefault("language", "sql")
+                                _cb.setdefault("code", "")
+                                _fixed_cbs.append(_cb)
+                        data["code_blocks"] = _fixed_cbs
+                
+                                # --- AION sanitize LaTeX underscores and inject required math ---
+                def _sanitize_latex_underscores(text: str) -> str:
+                    import re
+                    # Escape unescaped underscores (subscript markers in KaTeX)
+                    text = re.sub(r'(?<!\\\\)_', r'\\\\_', text)
+                    return text
+                
+                # Apply underscore sanitization to all math_blocks
+                if isinstance(data.get('math_blocks'), list):
+                    for _mblk in data['math_blocks']:
+                        if isinstance(_mblk, dict) and isinstance(_mblk.get('latex'), str):
+                            _mblk['latex'] = _sanitize_latex_underscores(_mblk['latex'])
+                
+                # If slot requires math but no blocks declared, inject minimal safe block
+                if hasattr('attempt_slot', 'math_required') and attempt_slot.math_required:
+                    # Note: attempt_slot is available in generate() scope; we check via data if needed
+                    pass  # Handled below using slot info
+                
+
+# === END NORMALIZER ===
+                
+                # AION enforce authoritative slot Math Policy
+                if isinstance(data, dict):
+                    if not attempt_slot.math_required:
+                        # FORBIDDEN math: discard all MathBlocks and placeholders
+                        data["math_blocks"] = []
+
+                    # For ALL slots: strip orphan [MATH:...] placeholders that
+                    # have no matching declared math_block. This prevents
+                    # "Reference Equation: [MATH:calc_1]" from leaking into output.
+                    _declared_ids = set()
+                    if isinstance(data.get("math_blocks"), list):
+                        for _mb in data["math_blocks"]:
+                            if isinstance(_mb, dict) and _mb.get("block_id"):
+                                _declared_ids.add(str(_mb["block_id"]))
+
+                    for _field in ("instruction", "question_text"):
+                        _value = data.get(_field)
+                        if isinstance(_value, str):
+                            def _strip_orphan(_m):
+                                return _m.group(0) if _m.group(1) in _declared_ids else " "
+                            data[_field] = re.sub(
+                                r"\s*\[MATH:([^\]]+)\]\s*",
+                                _strip_orphan,
+                                _value,
+                            ).strip()
+
+                    # Also strip "Reference Equation:" / "Reference Formula:" labels
+                    for _field in ("instruction", "question_text"):
+                        _value = data.get(_field)
+                        if isinstance(_value, str):
+                            data[_field] = re.sub(
+                                r"\s*Reference\s+(?:Equation|Formula)[:\s]*",
+                                " ",
+                                _value,
+                                flags=re.IGNORECASE,
+                            ).strip()
+
+                # AION enforce authoritative slot Math Policy & clean placeholders
+                if isinstance(data, dict):
+                    if not attempt_slot.math_required:
+                        data["math_blocks"] = []
+
+                    # Strip orphan [MATH:id] references where no math_block with that ID exists
+                    _declared_ids = set()
+                    if isinstance(data.get("math_blocks"), list):
+                        for _mb in data["math_blocks"]:
+                            if isinstance(_mb, dict) and _mb.get("block_id"):
+                                _declared_ids.add(str(_mb["block_id"]))
+
+                    for _field in ("instruction", "question_text"):
+                        _value = data.get(_field)
+                        if isinstance(_value, str):
+                            def _strip_orphan(_m):
+                                return _m.group(0) if _m.group(1) in _declared_ids else " "
+                            _value = re.sub(r"\s*\[MATH:([^\]]+)\]\s*", _strip_orphan, _value)
+                            _value = re.sub(r"\s*Reference\s+(?:Equation|Formula)[:\s]*", " ", _value, flags=re.IGNORECASE)
+                            data[_field] = re.sub(r"\s+", " ", _value).strip()
 
                 output = QuestionOutput(**data)
 
@@ -427,6 +707,12 @@ class SlotOrchestrator:
         else:
             example_text = f"{slot.bloom_verb} how Binary Search Trees operate."
 
+        math_example = (
+            '[{"block_id":"calc_1","latex":"x^2 + y^2","display_mode":true}]'
+            if slot.math_required
+            else "[]"
+        )
+
         prompt = f"""Generate ONE examination sub-question matching this contract:
 Topic: {slot.topic}
 Bloom Verb: {slot.bloom_verb} (primary operation: {slot.bloom_operation})
@@ -449,33 +735,17 @@ If the Topic was "Binary Search Trees", Bloom Verb was "{slot.bloom_verb}", and 
 {{
   "instruction": "{example_text}",
   "question_text": "{example_text}",
-  "math_blocks": [],
+  "math_blocks": {math_example},
   "diagram_request": null
 }}
-
-RULES:
-1. Both "instruction" and "question_text" fields MUST begin with the word "{slot.bloom_verb}" (case-insensitive).
-2. Write a single compound sentence containing at least {min_dims} clauses connected by conjunctions (such as 'and', 'or', 'as well as') or commas.
-3. Place comparison or justification words (like 'compare', 'justify', 'evaluate') LATER in the sentence, NEVER at the start.
-4. Use ONLY these action verbs: {slot.bloom_verb} or verbs from {slot.bloom_operation} / {allowed_sec} operations. Do NOT use other verbs.
-5. This question MUST be conceptually distinct from sibling sub-questions and OR alternatives. Do NOT paraphrase another slot.
-6. Change at least one of these: concept tested, parameter focus, formula used, scenario framing, comparison target, or application context.
-7. If this is sub-question (b), it must not restate sub-question (a) with minor wording changes.
-5. Do NOT include any question numbers, parts like "(a)", "3(a)", or words like "OR".
-6. Do NOT refer to source notes, provided materials, or documents.
-7. Math policy: {math_policy} (declare exactly {1 if slot.math_required else 0} MathBlocks in math_blocks).
-8. Return ONLY valid JSON matching this schema:
-{{
-  "instruction": "{slot.bloom_verb} [clause 1] and [clause 2]...",
-  "question_text": "{slot.bloom_verb} [clause 1] and [clause 2]...",
-  "math_blocks": [],
-  "diagram_request": null
-}}"""
+"""
 
         if profile.requires_comparison:
-            prompt += f"\n9. COMPARISON REQUIRED: The question text and instruction MUST contain comparison keywords such as 'compare', 'contrast', 'distinguish', or 'differentiate' placed in the middle or end of the sentence."
+
+            prompt += "\n9. COMPARISON REQUIRED: The question text and instruction MUST contain comparison keywords such as 'compare', 'contrast', 'distinguish', 'differentiate', or 'versus' placed in the middle or end of the sentence."
+
         if profile.requires_justification:
-            prompt += f"\n10. JUSTIFICATION REQUIRED: The question text and instruction MUST contain justification keywords such as 'justify', 'critique', 'reconcile', or 'evaluate' placed in the middle or end of the sentence."
+            prompt += "\n10. JUSTIFICATION REQUIRED: The question text and instruction MUST contain justification keywords such as 'justify', 'critique', 'reconcile', or 'evaluate' placed in the middle or end of the sentence."
 
         prompt += f"\n11. QUESTION TYPE TARGET: This question must be formatted as {slot.question_type}. "
         if slot.question_type == "NUMERICAL":
@@ -487,6 +757,224 @@ RULES:
 
         if extra_hints:
             prompt += f"\n\nADDITIONAL RECOVERY INSTRUCTIONS:\n{extra_hints}"
+
+        try:
+            _slot_m = getattr(attempt_slot, 'marks', 5) if hasattr(attempt_slot, 'marks') else 5
+            _slot_b = getattr(attempt_slot, 'bloom_level', 3) if hasattr(attempt_slot, 'bloom_level') else 3
+            _slot_id_str = str(getattr(attempt_slot, 'slot_id', ''))
+            # Target higher-mark slots or Apply/Analyse slots for numerical/programming tasks
+            if _slot_m >= 4 or _slot_b >= 3 or any(k in _slot_id_str for k in ('Q1', 'Q3', '_a')):
+                prompt += (
+                    "\n\n[HIGH PRIORITY QUESTION TYPE DIRECTIVE]\n"
+                    "Ensure variety across the paper by formulating this question as EITHER a Numerical Problem OR a Programming / Implementation Problem whenever applicable to the topic:\n"
+                    "1. NUMERICAL CALCULATION FORMAT:\n"
+                    "   - Provide explicit, realistic numeric givens (e.g., state probabilities [e.g., P=0.7, 0.3], utility values [e.g., U=100, -50], agent lifetime time-steps [e.g., 1000 steps], reward per clean square [+1], action penalties [-1]).\n"
+                    "   - Ask the student to compute the expected utility, total agent performance score, optimal action choice, or transition cost step-by-step.\n"
+                    "2. PROGRAMMING / PYTHON IMPLEMENTATION FORMAT:\n"
+                    "   - Ask the student to write a Python function, class, or algorithmic simulation for the concept (e.g., 'Write a Python class for a Simple Reflex Agent with condition-action rules...', 'Implement a Python simulation of the 2-state Vacuum World environment and calculate its total score...', 'Write a Python program to evaluate expected utility given an action-state payoff matrix...').\n"
+                    "   - Specify function/class names, input parameters, and expected return values.\n"
+                    "STRICT CONSTRAINT: Ground all numerical values and code strictly in the provided subject notes (agents, PEAS, decision theory, vacuum world, reflex/goal/utility architectures). Do NOT invent unrelated physics or circuit formulas.\n"
+                )
+        except Exception:
+            pass
+        # --- END NUMERICAL & PROGRAMMING DIRECTIVE ---
+
+        # AION EVIDENCE-DRIVEN APPLIED MODE
+        try:
+            _ae = evidence_text.lower() if isinstance(evidence_text, str) else ""
+
+            # Syntax/programming indicators. These are language-agnostic signals,
+            # with common executable/query constructs included as evidence clues.
+            _code_signals = (
+                "syntax", "program", "programming", "algorithm", "pseudocode",
+                "function", "procedure", "method", "class ", "return ",
+                "query", "statement", "command", "script",
+                "select ", "insert ", "update ", "delete ", "create ",
+                "alter ", "join ", "where ", "group by", "having ",
+                "trigger", "cursor", "stored procedure",
+                "for ", "while ", "if ", "else "
+            )
+
+            # Signals that the material naturally supports calculation.
+            _numeric_signals = (
+                "calculate", "compute", "derive", "formula", "equation",
+                "probability", "utility", "cost", "rate", "ratio",
+                "percentage", "average", "mean", "variance",
+                "throughput", "delay", "latency", "bandwidth",
+                "complexity", "cardinality", "frequency",
+                "distance", "speed", "memory", "size",
+                "score", "time step", "page size", "block size"
+            )
+
+            _has_code = any(_x in _ae for _x in _code_signals)
+            _has_numeric = any(_x in _ae for _x in _numeric_signals)
+
+            # Programming/syntax gets priority when both occur. This avoids
+            # treating SQL/query syntax as mathematics merely because it contains
+            # operators or numeric literals.
+            if _has_code:
+                prompt += (
+                    "\n\n[EVIDENCE-DRIVEN PROGRAMMING/APPLIED MODE]\n"
+                    "The supplied evidence contains executable syntax, queries, "
+                    "commands, algorithms, pseudocode, or programming constructs. "
+                    "Prefer a practical construction task when compatible with the "
+                    "locked Bloom verb and question contract. Ask the student to "
+                    "write, construct, implement, complete, modify, debug, or trace "
+                    "the relevant query/syntax/algorithm using ONLY constructs "
+                    "supported by the evidence. "
+                    "Programming/query syntax belongs directly in question_text. "
+                    "Do NOT create MathBlocks merely to transport code or SQL. "
+                    "If the locked Bloom verb cannot validly support a write/"
+                    "implementation task, keep that verb and make the question an "
+                    "applied interpretation/tracing task instead.\n"
+                )
+
+            elif _has_numeric:
+                prompt += (
+                    "\n\n[EVIDENCE-DRIVEN NUMERICAL/APPLIED MODE]\n"
+                    "The supplied evidence contains quantities, formulas, or "
+                    "computable concepts. Prefer a numerical/application problem "
+                    "when compatible with the locked Bloom verb and question "
+                    "contract. Use explicit numeric givens ONLY when those exact values ""occur in the EVIDENCE above, and require calculation, "
+                    "derivation, comparison, or interpretation of the result. "
+                    "Use ONLY mathematical relationships supported by the evidence. "
+                    "If Math Policy is FORBIDDEN, place the numerical givens and "
+                    "calculation request directly in question_text and return "
+                    "math_blocks as an empty list. If Math Policy is REQUIRED, "
+                    "provide the required MathBlock as a JSON object with non-empty "
+                    "block_id and latex fields.\n"
+                )
+
+        except Exception:
+            pass
+
+        # AION STRICT NUMERICAL GROUNDING
+        prompt += (
+            "\n\n[STRICT NUMERICAL GROUNDING]\n"
+            "If you generate a NUMERICAL question, EVERY numeric input required "
+            "to solve it must literally occur in the EVIDENCE above. "
+            "Never invent example salaries, costs, IDs, probabilities, dimensions, "
+            "percentages, cardinalities, times, rates, or other numeric values. "
+            "A NUMERICAL question must contain sufficient explicit inputs or "
+            "parameters for a student to calculate a definite result. "
+            "If the evidence does not provide enough numeric inputs, do not invent "
+            "them; follow the locked non-numerical/application contract instead. "
+            "Programming, SQL, query construction, algorithms, pseudocode, and "
+            "relational operations are APPLIED/PROGRAMMING tasks and must not be "
+            "treated as NUMERICAL merely because they contain digits.\n"
+        )
+
+        # AION REQUIRED MATH CONTRACT
+        if slot.math_required:
+            prompt += (
+                "\n\n[REQUIRED MATHBLOCK CONTRACT]\n"
+                "This slot requires exactly one genuine MathBlock. "
+                "Include exactly one math_blocks object with a unique block_id and "
+                "non-empty valid KaTeX latex. Reference that same block in "
+                "question_text using [MATH:block_id]. "
+                "The MathBlock must represent an actual formula or relational-algebra "
+                "expression supported by the evidence. Do not put SQL, PL/SQL, "
+                "procedural pseudocode, cursor loops, or ordinary source code into "
+                "the MathBlock.\n"
+            )
+
+        # AION KATEX NOTATION SAFETY
+        prompt += (
+            "\n\n[KATEX NOTATION SAFETY]\n"
+            "When Math Policy is REQUIRED, every math_blocks entry must contain "
+            "valid KaTeX-compatible LaTeX. Escape underscores in textual identifiers "
+            "(for example WORKS\\_ON rather than WORKS_ON), balance all braces, "
+            "and provide both arguments to \\frac. "
+            "Do not place SQL/program source code in math_blocks. SQL and programming "
+            "syntax belong directly in question_text; math_blocks are only for genuine "
+            "mathematical or relational-algebra notation.\n"
+        )
+
+        # AION SELF-CONTAINED QUESTION CONTRACT
+        prompt += (
+            "\n\n[SELF-CONTAINED QUESTION CONTRACT]\n"
+            "Every generated examination question MUST be completely standalone. "
+            "The student will see only the final question paper and will NOT have "
+            "access to the evidence, notes, source document, previous examples, "
+            "or numbered queries from the source.\n"
+            "NEVER write references such as: 'Query 1', 'Query 2', 'Query 3', "
+            "'the above query', 'the given query', 'the given expression', "
+            "'the expression above', 'the SQL query provided', 'provided in the evidence', "
+            "'as shown in the notes', 'the previous query', 'the following query' "
+            "unless the complete referenced query/expression is reproduced directly "
+            "inside the same question_text.\n"
+            "If source material refers to a numbered query/example, either:\n"
+            "1. reproduce all schema, relations, conditions, values, and query/expression "
+            "needed to solve it directly in question_text; OR\n"
+            "2. rewrite the task so it does not depend on that reference.\n"
+            "Prefer option 1 when the evidence contains enough information to make "
+            "a complete practical SQL/programming/problem-solving question.\n"
+            "Do not mention the evidence, uploaded material, source, notes, document, "
+            "or textbook in the final question.\n"
+        )
+
+        # AION STUDENT-FACING LANGUAGE RULE
+        prompt += (
+            "\n\n[STUDENT-FACING LANGUAGE RULE]\n"
+            "The strings 'provided evidence', 'provided in the evidence', "
+            "'source material', 'uploaded notes', 'uploaded document', "
+            "'from the notes', 'according to the notes', 'Query 1', 'Query 2', "
+            "'Query 3', 'previous query', and similar source-relative references "
+            "MUST NOT appear in question_text or instruction. "
+            "Write the actual information needed by the student directly into the "
+            "question instead.\n"
+        )
+
+        # AION SELF-CONTAINED QUESTION RULE
+        prompt += (
+            "\n\n[NO TEXTBOOK QUERY NUMBERS / FULL INLINING]\n"
+            "CRITICAL: Do NOT copy textbook/note labels such as 'Query 1', 'Query 2', 'Query 3', 'Example 4', 'Schema 1', or 'the given query'.\n"
+            "A student taking the exam does NOT have the textbook in front of them.\n"
+            "If the question asks to rewrite, analyze, optimize, or compare a query/expression, you MUST write out the COMPLETE query or relational algebra expression inline inside the question text.\n"
+            "Example of WRONG: 'Rewrite Query 3 using EXISTS instead of CONTAINS.'\n"
+            "Example of CORRECT: 'Rewrite the following SQL query using the EXISTS operator instead of CONTAINS: SELECT FNAME, LNAME FROM EMPLOYEE WHERE NOT EXISTS (SELECT * FROM DEPENDENT WHERE SSN=ESSN);'\n"
+            "Never output raw placeholder text like 'Reference Equation: [MATH:calc_1]'. State the equation or problem statement directly.\n"
+        )
+
+        prompt += (
+            "\n\n[SELF-CONTAINED QUESTION RULE]\n"
+            "Every question MUST be fully self-contained and answerable on its own. "
+            "Do NOT reference other questions by number or label. "
+            "Never write phrases like 'Query 3', 'Question 2', 'the above query', "
+            "'the previous expression', 'rewrite Query N', or 'the given SQL query'. "
+            "If the task involves rewriting or comparing a query/expression, "
+            "include the FULL query or expression inline within the question text "
+            "so the student does not need to look at another question. "
+            "Do NOT include 'Reference Equation:' or 'Reference Formula:' labels.\n"
+        )
+
+        # AION UNIVERSAL APPLIED-QUESTION POLICY
+        prompt += '''
+
+[APPLIED / PROGRAMMING / NUMERICAL QUESTION POLICY]
+Prefer an applied question whenever the supplied evidence supports one.
+
+Choose the question type from the ACTUAL source content, not from a fixed subject name:
+- If the evidence contains programming language, SQL, query syntax, pseudocode, algorithms, commands, grammar, schemas, APIs, or executable notation: ask the student to WRITE, IMPLEMENT, CONSTRUCT, DEBUG, MODIFY, TRACE, or COMPLETE that syntax/program/query.
+- If the evidence contains genuinely solvable numeric parameters: create a NUMERICAL problem using only numeric values explicitly present in the evidence and ask the student to calculate/derive/compare the result. A formula or incidental digit alone is not sufficient reason to create a numerical problem.
+- If both are supported, a programming task may include a numerical computation.
+- If neither is supported by the evidence, do not fabricate an unrelated programming language, formula, or numerical domain.
+
+Examples of adaptation across subjects:
+- DBMS evidence -> SQL query writing, relational algebra expression, normalization/decomposition, transaction schedules, constraints/triggers/procedures where supported.
+- AI/ML evidence -> algorithm/pseudocode/Python-style implementation or probability/utility/search calculations where supported.
+- Computer Networks evidence -> subnetting, delay/throughput calculations, routing tables, protocol pseudocode where supported.
+- Operating Systems evidence -> scheduling/page-replacement calculations, synchronization pseudocode where supported.
+- Data Structures/Algorithms evidence -> implementation, tracing, recurrence/complexity calculations where supported.
+- Mathematics/engineering evidence -> calculations using formulas that occur in the evidence.
+
+IMPORTANT OUTPUT CONTRACT:
+- Programming/SQL/code questions belong directly in question_text. They DO NOT require math_blocks merely because they contain syntax.
+- Use math_blocks only for genuine mathematical/formula expressions when required by the slot contract.
+- Every math_blocks entry must be a JSON object with non-empty block_id and latex strings; never return a raw string inside math_blocks.
+- Never emit [MATH:id] unless a matching math_blocks entry exists.
+- Stay strictly grounded in the uploaded evidence.
+'''
 
         return prompt
 
@@ -521,7 +1009,13 @@ RULES:
         if cleaned.endswith("```"):
             cleaned = cleaned[:-3]
         cleaned = cleaned.strip()
-        return json.loads(cleaned)
+
+        def _sanitize_latex_escapes(s: str) -> str:
+            # Prevent json.loads from eating LaTeX escapes like \b, \f, \t
+            import re as _re
+            return _re.sub(r'(?<!\\)\\(?![\\/"bfnrtu]|u[0-9a-fA-F]{4})([a-zA-Z])', r'\\\\\1', s)
+
+        return json.loads(_sanitize_latex_escapes(cleaned))
 
     def _map_check_to_failure_code(self, check_code: str) -> GenerationFailureCode:
         try:
