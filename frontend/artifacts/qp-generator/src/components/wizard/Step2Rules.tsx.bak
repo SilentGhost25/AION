@@ -13,7 +13,6 @@ import {
 import { toast } from "sonner"
 import { Spinner } from "@/components/ui/spinner"
 import { aionAPI } from "@/lib/aion-api"
-import { buildSegments } from "@/components/normalizeSegments"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -25,7 +24,6 @@ export interface SubQuestion {
   rbt: string
   parts?: string[]
   images?: string[]
-  segments?: import("@/components/QuestionRenderer").QuestionSegment[]
 }
 
 interface QuestionPreview {
@@ -349,21 +347,13 @@ export function Step2Rules({
             rbt:           `L${q.bloomLevel ?? 2}`,
             sectionNumber: modIdx + 1,
             isOrQuestion:  q.isOr ?? false,
-            subQuestions:  (q.subQuestions ?? []).map((sq: any) => {
-              const sqText = sq.text ?? ""
-              const sqMath = sq.math_blocks ?? []
-              const segs = sqMath.length > 0 && sqText
-                ? buildSegments(sqText, sqMath)
-                : sqText ? [{ type: "text" as const, value: sqText }] : undefined
-              return {
-                label: sq.letter ?? "a",
-                text:  sqText,
-                marks: sq.marks ?? 5,
-                co:    sq.co ?? `CO${modIdx + 1}`,
-                rbt:   `L${sq.bloom ?? 2}`,
-                segments: segs,
-              }
-            }),
+            subQuestions:  (q.subQuestions ?? []).map((sq: any) => ({
+              label: sq.letter ?? "a",
+              text:  sq.text ?? "",
+              marks: sq.marks ?? 5,
+              co:    sq.co ?? `CO${modIdx + 1}`,
+              rbt:   `L${sq.bloom ?? 2}`,
+            })),
           }))
         )
         const paper: GeneratedPaper = {

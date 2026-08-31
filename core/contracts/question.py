@@ -91,7 +91,7 @@ class QuestionIntent:
     required_entities    : List[str] = field(default_factory=list)
 
     # Generation seed for reproducibility
-    generation_seed  : int = 42
+    generation_seed  : int = 0  # 0 = random (set per-request in pipeline)
 
 
 class GeneratedQuestion:
@@ -187,7 +187,7 @@ class LegacyGeneratedQuestionAdapter:
             task_signature=TaskSignature.from_bloom_marks_type(bloom, marks, "descriptive"),
             math_required=False,
             visual_required=False,
-            generation_seed=42
+            generation_seed=__import__('random').randint(1, 999999)
         )
 
         return GeneratedQuestion(output, slot)

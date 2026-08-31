@@ -12,7 +12,7 @@ class LLMRequest:
     model         : str
     prompt        : str
     schema        : Optional[dict] = None
-    temperature   : float = 0.2
+    temperature   : float = 0.55
     seed          : int = 42
     timeout_sec   : int = 45
 

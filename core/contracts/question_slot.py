@@ -56,7 +56,7 @@ class QuestionSlot:
     task_signature       : TaskSignature
     math_required        : bool = False
     visual_required      : bool = False
-    generation_seed      : int = 12345
+    generation_seed      : int = 0  # 0 = random
 
     def __post_init__(self):
         if self.marks <= 0:

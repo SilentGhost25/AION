@@ -111,6 +111,48 @@ class KaTeXAvailabilityGate:
 
         return rendered
 
+    @staticmethod
+    def _latex_to_unicode_fallback(latex: str) -> str:
+        """Convert common LaTeX symbols to Unicode when KaTeX fails."""
+        import re
+        s = latex
+        # Common relational algebra symbols
+        s = s.replace(r'\sigma', 'σ')
+        s = s.replace(r'\pi', 'π')
+        s = s.replace(r'\bowtie', '⋈')
+        s = s.replace(r'\cup', '∪')
+        s = s.replace(r'\cap', '∩')
+        s = s.replace(r'\in', '∈')
+        s = s.replace(r'\notin', '∉')
+        s = s.replace(r'\forall', '∀')
+        s = s.replace(r'\exists', '∃')
+        s = s.replace(r'\leq', '≤')
+        s = s.replace(r'\geq', '≥')
+        s = s.replace(r'\neq', '≠')
+        s = s.replace(r'\rightarrow', '→')
+        s = s.replace(r'\leftarrow', '←')
+        s = s.replace(r'\sum', 'Σ')
+        s = s.replace(r'\int', '∫')
+        s = s.replace(r'\infty', '∞')
+        s = s.replace(r'\partial', '∂')
+        s = s.replace(r'\nabla', '∇')
+        s = s.replace(r'\subseteq', '⊆')
+        s = s.replace(r'\supseteq', '⊇')
+        s = s.replace(r'\emptyset', '∅')
+        s = s.replace(r'\times', '×')
+        s = s.replace(r'\div', '÷')
+        s = s.replace(r'\pm', '±')
+        s = s.replace(r'\approx', '≈')
+        s = s.replace(r'\equiv', '≡')
+        s = s.replace(r'\cdots', '…')
+        s = s.replace(r'\ldots', '…')
+        # Remove remaining backslash commands (show as-is)
+        s = re.sub(r'\\[a-zA-Z]+', '', s)
+        # Clean up braces
+        s = s.replace('{', '').replace('}', '')
+        return s.strip()
+
+
 
 
 def validate_math_consistency(output: QuestionOutput) -> CheckResult:

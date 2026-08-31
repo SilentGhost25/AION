@@ -104,7 +104,6 @@ export function KaTeXRenderer({
       displayMode,
       throwOnError: true,
       strict: false,
-      trust: false,
     })
     return (
       <span

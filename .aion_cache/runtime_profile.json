@@ -1,8 +1,0 @@
-{
-  "model": "qwen2.5:3b-instruct",
-  "backend": "ollama",
-  "quantization": "INT4",
-  "device": "CPU",
-  "top_k": 4,
-  "context_length": 4096
-}
