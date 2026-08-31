@@ -134,7 +134,7 @@ def _extract_from_pdf(
     fig_no = 0
 
     for page_num, page in enumerate(doc, 1):
-        module_id = module_map.get(page_num, "module_1")
+        module_id = (module_map or {}).get(page_num, "module_1")
 
         raw_blocks = page.get_text("dict")["blocks"]
         text_blocks = []
@@ -230,6 +230,41 @@ def _extract_from_pdf(
 
     doc.close()
     print(f"[FIGURE] PDF: extracted {len(cards)} eligible figures from {path.name}")
+
+    # Write diagrams_manifest.json for this upload
+    try:
+        from pathlib import Path
+        import json
+        up = Path(file_path).parent
+        m = up / "diagrams_manifest.json"
+        if not m.exists() and cards:
+            cwd = Path.cwd()
+            items = []
+            for i, c in enumerate(cards, 1):
+                if isinstance(c, dict):
+                    ip = c.get("image_path") or c.get("path") or ""
+                else:
+                    ip = getattr(c, "image_path", "") or getattr(c, "path", "")
+                if not ip:
+                    continue
+                try:
+                    rel = str(Path(ip).relative_to(cwd))
+                except ValueError:
+                    rel = str(ip)
+                items.append({
+                    "anchor_id": f"fig_{i}",
+                    "image_path": rel,
+                    "label": f"Figure {i}",
+                    "caption": c.get("caption") if isinstance(c, dict) else getattr(c, "caption", ""),
+                    "page": c.get("page") if isinstance(c, dict) else getattr(c, "page", 1),
+                    "bbox": c.get("bbox") if isinstance(c, dict) else getattr(c, "bbox", [0,0,1,1])
+                })
+            if items:
+                m.write_text(json.dumps(items, indent=2))
+                print(f"[FIGURE] Wrote {m} with {len(items)} figures", flush=True)
+    except Exception as _e:
+        print(f"[FIGURE] manifest write skipped: {_e}", flush=True)
+
     return cards
 
 
@@ -469,6 +504,41 @@ def _extract_from_docx(
         print(f"[FIGURE] DOCX extraction error: {e}")
 
     print(f"[FIGURE] DOCX: extracted {len(cards)} figures from {path.name}")
+
+    # Write diagrams_manifest.json for this upload
+    try:
+        from pathlib import Path
+        import json
+        up = Path(file_path).parent
+        m = up / "diagrams_manifest.json"
+        if not m.exists() and cards:
+            cwd = Path.cwd()
+            items = []
+            for i, c in enumerate(cards, 1):
+                if isinstance(c, dict):
+                    ip = c.get("image_path") or c.get("path") or ""
+                else:
+                    ip = getattr(c, "image_path", "") or getattr(c, "path", "")
+                if not ip:
+                    continue
+                try:
+                    rel = str(Path(ip).relative_to(cwd))
+                except ValueError:
+                    rel = str(ip)
+                items.append({
+                    "anchor_id": f"fig_{i}",
+                    "image_path": rel,
+                    "label": f"Figure {i}",
+                    "caption": c.get("caption") if isinstance(c, dict) else getattr(c, "caption", ""),
+                    "page": c.get("page") if isinstance(c, dict) else getattr(c, "page", 1),
+                    "bbox": c.get("bbox") if isinstance(c, dict) else getattr(c, "bbox", [0,0,1,1])
+                })
+            if items:
+                m.write_text(json.dumps(items, indent=2))
+                print(f"[FIGURE] Wrote {m} with {len(items)} figures", flush=True)
+    except Exception as _e:
+        print(f"[FIGURE] manifest write skipped: {_e}", flush=True)
+
     return cards
 
 
@@ -477,11 +547,21 @@ def _extract_from_docx(
 def extract_figures(
     file_path:        str,
     doc_id:           str,
-    module_map:       dict[int, str],
+    module_map:       dict | None = None,
     asset_dir:        str  = "extracted_output/assets",
     image_url_prefix: str  = "/api/assets",
 ) -> list[FigureCard]:
     path      = Path(file_path)
+    module_map = module_map or {}
+    # Prefer upload-local extracted_figures/ so generate bind can find them
+    try:
+        if "uploads" in path.parts:
+            _up = path.parent
+            _local = _up / "extracted_figures"
+            _local.mkdir(parents=True, exist_ok=True)
+            asset_dir = _local
+    except Exception:
+        pass
     asset_dir = Path(asset_dir)
     asset_dir.mkdir(parents=True, exist_ok=True)
 

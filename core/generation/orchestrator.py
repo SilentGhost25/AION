@@ -119,16 +119,22 @@ class SlotOrchestrator:
     Drives sub-question generation and validation using a failure-specific 
     bounded retry state machine.
     """
-    def __init__(self, llm_client=None, rng=None, artifact=None, profile=None):
+    def __init__(self, llm_client=None, rng=None, artifact=None, profile=None, marks_split=None):
         self.llm_client = llm_client
         self.rng = rng
         self.artifact = artifact
         self.profile = profile
+        self.marks_split = marks_split  # User-specified marks partitions
         self.session_log: List[Dict[str, Any]] = []
 
     def generate(self, slot: QuestionSlot, evidence_pack, excluded_concepts: Set[str] = None) -> GeneratedQuestion:
         if excluded_concepts is None:
             excluded_concepts = set()
+
+        # Use user-provided marks_split if available
+        if self.marks_split:
+            # Store it so downstream code can access it
+            setattr(self, "_active_marks_split", self.marks_split)
 
         # Read retry budget from runtime profile
         try:
@@ -170,6 +176,21 @@ class SlotOrchestrator:
                 
                 # 3. Parse JSON
                 data = self._parse_json(raw_json)
+
+                # AION hotfix: normalize diagram_request aliases before Pydantic validation
+                if isinstance(data, dict):
+                    _dr = data.get("diagram_request")
+                    if isinstance(_dr, dict):
+                        if "diagram_type" not in _dr:
+                            _dr["diagram_type"] = (
+                                _dr.get("type")
+                                or _dr.get("kind")
+                                or _dr.get("diagram_kind")
+                                or "conceptual"
+                            )
+                        if "label" not in _dr and "title" in _dr:
+                            _dr["label"] = _dr["title"]
+
                 output = QuestionOutput(**data)
 
                 # Populate MathBlock source fields automatically from evidence chunk metadata
@@ -206,6 +227,26 @@ class SlotOrchestrator:
                     raise SlotRegenerationExhausted(attempt_slot.slot_id, MAX_ATTEMPTS, failure_history)
                 
                 extra_hints = self._compile_extra_hints(failure)
+                # FORCE visual request when policy requires it
+                try:
+                    msg = str(getattr(failure, "message", "")).lower()
+                    code = str(getattr(failure, "code", ""))
+                    if "visual_policy" in msg or code == "VISUAL_POLICY_VIOLATION":
+                        vhint = (
+                            "\n\n[CRITICAL VISUAL REQUIREMENT]\n"
+                            "This slot REQUIRES a diagram. You MUST include a top-level 'diagram_request' object with EXACT keys:\n"
+                            "- diagram_type (string: flowchart|block|circuit|tree|map|table|image|conceptual|architecture|sequence)\n"
+                            "- description (string, detailed)\n"
+                            "- label (string)\n"
+                            "- elements (array of objects with at least id,label,type)\n"
+                            "- relations (array of objects with source,target,relation or empty array if none)\n"
+                            "Do NOT return null. Do NOT omit this object.\n"
+                            "If you don't know exact elements, infer minimal valid ones from the evidence.\n"
+                        )
+                        extra_hints = (extra_hints + vhint).strip()
+                except Exception:
+                    pass
+
                 # -- AUTO-HEALER: programmatically fix before retry ------------
                 try:
                     from core.generation.auto_healer import AutoHealer
@@ -218,6 +259,17 @@ class SlotOrchestrator:
                 except Exception as _heal_err:
                     LOG.debug(f'[AUTO-HEALER] Skipped: {_heal_err}')
 
+                # Normalize diagram_request after auto-heal
+                try:
+                    if isinstance(output, dict):
+                        _dr = output.get("diagram_request")
+                        if isinstance(_dr, dict):
+                            if "diagram_type" not in _dr and "type" in _dr:
+                                _dr["diagram_type"] = _dr.pop("type")
+                            if "label" not in _dr and "title" in _dr:
+                                _dr["label"] = _dr["title"]
+                except Exception:
+                    pass
                 # Reload evidence for evidence-related failures
                 if getattr(failure, 'code', None) in (
                     'ANSWERABILITY_FAILURE', 'SIBLING_SIMILARITY', 'EVIDENCE_FAILURE'

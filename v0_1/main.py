@@ -257,12 +257,14 @@ def run_pipeline(
     request_contract:   Optional[Any] = None,
     pipeline_trace:     Optional[Any] = None,
     sub_question_count: Optional[int] = None,  # 1, 2, or 3 — user-specified
+    marks_split:        Optional[List[List[int]]] = None,  # User-specified marks partitions
 ) -> Tuple[List[dict], List[dict]]:
     """
     Saves and generates an aligned VTU Question Paper grouped strictly by Module.
     Generates exactly 4 main questions per module.
     Sub-questions per main question are strictly capped to max 3.
     """
+    from pathlib import Path  # AION Path local fix
     from core.validators.academic_validator import validate_academic_quality
 
     t_start = time.time()
@@ -294,11 +296,62 @@ def run_pipeline(
         _profile = None
         _profile_name = "PRODUCTION"
 
+    # Apply user-specified marks split if provided
+    if marks_split:
+        from core.generation.marks_partitioner import set_user_split
+        set_user_split(marks_split, exam_type.upper())
+        print(f"[PIPELINE] Applied user marks split: {marks_split}", flush=True)
+
+    try:
+        import aion_patch
+        aion_patch.ACTIVE_FILE_PATH = file_path
+        _collect = getattr(aion_patch, "collect_extracted_assets", None)
+        assets = _collect(file_path) if callable(_collect) else {}
+        print(f"[ASSETS] images={len((assets or {}).get('images', []))} equations={len((assets or {}).get('equations', []))}", flush=True)
+    except Exception as _e:
+        print(f"[ASSETS] skip: {_e}", flush=True)
+        assets = {}
+
     print(f"[START] AION Exam Generation Pipeline ({exam_type.upper()} Exam Mode)...")
     print(f"[CONFIG] Difficulty: {difficulty.upper()} | Visual RAG: {include_visual} | Profile: {_profile_name}")
     print("=" * 60 + "\n")
 
     diff_manager = DifficultyManager.from_string(difficulty)
+
+    # Bind REAL extracted figures (rewrite /workspace/... -> local extracted_figures/)
+    try:
+        import json as _json
+        import aion_patch as _ap
+        _upload = Path(file_path).parent
+        _figdir = _upload / "extracted_figures"
+        _manifest = _upload / "diagrams_manifest.json"
+        _diagrams = []
+        if _manifest.exists():
+            _diagrams = _json.loads(_manifest.read_text(encoding="utf-8"))
+        if not _diagrams and _figdir.exists():
+            for _n, _img in enumerate(sorted(_figdir.glob("*"))):
+                if _img.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"} and _img.stat().st_size > 2000:
+                    _diagrams.append({
+                        "anchor_id": f"fig_{_n+1}",
+                        "image_path": str(_img.resolve()),
+                        "label": _img.stem,
+                        "caption": _img.stem,
+                        "page": 1,
+                        "bbox": [0, 0, 1, 1],
+                    })
+        for _d in _diagrams:
+            _ip = str(_d.get("image_path") or "")
+            _alt = _figdir / Path(_ip).name
+            if (not _ip) or (not Path(_ip).exists()):
+                if _alt.exists():
+                    _d["image_path"] = str(_alt.resolve())
+            _d.setdefault("caption", _d.get("label") or "")
+            _d.setdefault("page", 1)
+            _d.setdefault("bbox", [0, 0, 1, 1])
+        _ap._ACTIVE_DIAGRAMS = _diagrams
+        print(f"[VISUAL] Loaded {len(_diagrams)} diagram(s) from {_upload}", flush=True)
+    except Exception as _ve:
+        print(f"[VISUAL] diagram bind failed: {_ve}", flush=True)
 
     # 1. Ingestion & Segmentation
     t0 = time.time()
@@ -387,10 +440,10 @@ def run_pipeline(
                 print(f"  Source type     : {artifact.mime_type}")
                 print(f"  Source authority: ORIGINAL")
                 print(f"  Adapters used   : {artifact.backends}")
-                print(f"  Text blocks     : {len(artifact.text_blocks)}")
-                print(f"  Equations       : {len(artifact.equations)}")
-                print(f"  Tables          : {len(artifact.tables)}")
-                print(f"  Figures         : {len(artifact.figures)}")
+                print(f"  Text blocks     : {artifact.text_blocks if isinstance(artifact.text_blocks, int) else artifact.text_blocks}")
+                print(f"  Equations       : {artifact.equations}")
+                print(f"  Tables          : {artifact.tables}")
+                print(f"  Figures         : {artifact.figures}")
                 print(f"  Valid chunks    : {len(valid_chunks)}")
                 print(f"  Hard stop decision: PROCEED")
                 print("=" * 60)
@@ -421,36 +474,184 @@ def run_pipeline(
 
     print(f"[SEGMENTER] Identified {len(modules)} Modules/Chapters in source material.")
 
-    # Try to resolve ExtractionGateway artifact or default to None
-    artifact = None
-    try:
-        from core.extraction.gateway import ExtractionGateway
-        artifact = ExtractionGateway.extract(file_path)
-    except Exception as e:
-        print(f"[EXTRACTION GATEWAY] Extraction failed: {e}")
+    # Reuse artifact from earlier extraction (do not call ExtractionGateway again)
+    if artifact is None:
+        try:
+            from core.extraction.gateway import ExtractionGateway
+            if artifact is None: artifact = ExtractionGateway.extract(file_path)
+        except Exception as e:
+            print(f"[EXTRACTION GATEWAY] Extraction failed: {e}")
 
     # 2. Extract Visual Figures & Build Proximity Chunk Map
     mapper   = None
     selector = None
 
     try:
-        doc_id   = FigureRegistry.make_document_id(file_path)
-        figures  = list(getattr(artifact, "figures", [])) if artifact else []
+        doc_id  = FigureRegistry.make_document_id(file_path)
+        figures = list(getattr(artifact, "figures", [])) if artifact else []
 
-        if not figures and include_visual:
-            print("[VISUAL] Extracting figures (fast proximity mode)...")
-            from .visual.figure_extractor import extract_figures
+        def _has_img(f):
+            if isinstance(f, dict):
+                return bool(str(f.get("image_path") or f.get("path") or "").strip())
+            return bool(str(getattr(f, "image_path", "") or getattr(f, "path", "") or "").strip())
+
+        figures = [f for f in figures if _has_img(f)]
+
+        if include_visual and not figures:
+            print("[VISUAL] Extracting figures (fast proximity mode)...", flush=True)
             try:
+                from .visual.figure_extractor import extract_figures
                 figures = extract_figures(
-                    file_path, 
+                    file_path,
                     doc_id=doc_id,
-                    module_map=_build_module_map(modules),
-                )
+                    module_map=None,
+                ) or []
+                print(f"[VISUAL] extract_figures returned {len(figures)}", flush=True)
             except Exception as e:
-                print(f"[VISUAL] Figure extraction failed: {e}")
+                print(f"[VISUAL] Figure extraction failed: {e}", flush=True)
+                figures = []
+
+        # Persist manifest + bind for LLM injector
+        try:
+            import json as _jfig
+            import aion_patch as _ap
+            _up = Path(file_path).parent
+            _man = []
+            for _c in (figures or []):
+                _ip = _c.get("image_path") if isinstance(_c, dict) else getattr(_c, "image_path", "")
+                if _ip:
+                    _man.append({
+                        "anchor_id": f"fig_{len(_man)+1}",
+                        "image_path": str(_ip),
+                        "label": Path(str(_ip)).stem,
+                        "caption": Path(str(_ip)).stem,
+                        "page": int(getattr(_c, "page", 1) if not isinstance(_c, dict) else _c.get("page", 1) or 1),
+                        "bbox": [0, 0, 1, 1],
+                    })
+            if _man:
+                (_up / "diagrams_manifest.json").write_text(_jfig.dumps(_man, indent=2))
+                _ap._ACTIVE_DIAGRAMS = _man
+                print(f"[VISUAL] bound {len(_man)} diagrams for injector", flush=True)
+        except Exception as _mw:
+            print(f"[VISUAL] manifest write skipped: {_mw}", flush=True)
 
         for fig in figures:
-            fig["eligible"] = True if isinstance(fig, dict) else setattr(fig, "eligible", True)
+            if isinstance(fig, dict):
+                fig["eligible"] = True
+            else:
+                setattr(fig, "eligible", True)
+            if isinstance(fig, dict):
+                fig["eligible"] = True
+            else:
+                try:
+                    setattr(fig, "eligible", True)
+                except Exception:
+                    pass
+
+        class MockRegistry:
+            def __init__(self, figs):
+                self.figs = figs
+            def eligible_cards(self):
+                return self.figs
+
+        mapper = ChunkImageMapper(
+            registry        = MockRegistry(figures),
+            total_pages     = getattr(artifact, "page_count", 200) if artifact else 200,
+            page_tolerance  = 3,
+        )
+        mapper.build(modules)
+        if (include_visual or len(figures) > 0) and figures:
+            selector = QuestionImageSelector(mapper)
+    except Exception as e:
+        import traceback
+        print(f"[MAPPER] Setup failed: {e}")
+        traceback.print_exc()
+        mapper = None
+        selector = None
+
+    mapper   = None
+    selector = None
+
+    try:
+        doc_id   = FigureRegistry.make_document_id(file_path)
+        figures  = list(getattr(artifact, "figures", [])) if artifact else []
+        def _has_img(f):
+            if isinstance(f, dict):
+                return bool(f.get("image_path") or f.get("path"))
+            return bool(getattr(f, "image_path", None) or getattr(f, "path", None))
+        figures = [f for f in figures if _has_img(f)]
+
+
+        if include_visual and not figures:
+            print("[VISUAL] Extracting figures (fast proximity mode)...")
+            try:
+                from .visual.figure_extractor import extract_figures
+                figures = extract_figures(
+                    file_path,
+                    doc_id=doc_id,
+                    module_map=_build_module_map(modules),
+                ) or []
+                # Write manifest if figures extracted
+                try:
+                    import json as _jfig
+                    from pathlib import Path as _Path
+                    _up = _Path(file_path).parent
+                    _man = []
+                    for _c in figures:
+                        if isinstance(_c, dict):
+                            _ip = _c.get("image_path") or _c.get("path") or ""
+                        else:
+                            _ip = getattr(_c, "image_path", "") or getattr(_c, "path", "")
+                        if _ip:
+                            _stem = _Path(str(_ip)).stem
+                            _man.append({"anchor_id": f"fig_{len(_man)+1}", "image_path": str(_ip), "label": _stem or f"Figure {len(_man)+1}", "caption": _stem, "page": 1, "bbox": [0,0,1,1]})
+                    if _man:
+                        (_up / "diagrams_manifest.json").write_text(_jfig.dumps(_man, indent=2))
+                        import aion_patch as _ap
+                        _ap._ACTIVE_DIAGRAMS = _man
+                        print(f"[VISUAL] extract_figures -> {len(_man)} files, manifest written", flush=True)
+                except Exception as _mw:
+                    print(f"[VISUAL] manifest write skipped: {_mw}", flush=True)
+            except Exception as e:
+                print(f"[VISUAL] Figure extraction failed: {e}")
+                figures = []
+
+        # Hydrate figures from diagrams_manifest.json if gateway gave empty ones
+        try:
+            from pathlib import Path
+            import json
+            fp = Path(file_path)
+            parts = fp.parts
+            if "uploads" in parts:
+                up = Path(*parts[:parts.index("uploads")+2])
+            else:
+                up = fp.parent
+            mpath = up / "diagrams_manifest.json"
+            if mpath.exists():
+                mfigs = json.loads(mpath.read_text(encoding="utf-8"))
+                # if figures empty or all image_path empty -> replace
+                def _has_real(f):
+                    if isinstance(f, dict):
+                        ip = f.get("image_path") or f.get("path") or ""
+                        return ip != ""
+                    return False
+                if not figures or all(not _has_real(f) for f in figures):
+                    figures = list(mfigs)
+                    print(f"[VISUAL] Hydrated {len(figures)} figures from manifest", flush=True)
+                # also attach to artifact if possible
+                try:
+                    if artifact is not None and hasattr(artifact, "figures"):
+                        artifact.figures = figures
+                except Exception:
+                    pass
+        except Exception as _e:
+            print(f"[VISUAL] Hydrate skipped: {_e}", flush=True)
+
+        for fig in figures:
+            if isinstance(fig, dict):
+                fig["eligible"] = True
+            else:
+                setattr(fig, "eligible", True)
 
         class MockRegistry:
             def __init__(self, figs):
@@ -465,6 +666,31 @@ def run_pipeline(
             page_tolerance  = 3,
         )
         mapper.build(modules)
+        # If mapper still has no real images, load crops from this upload dir
+        try:
+            _figdir = Path(file_path).parent / "extracted_figures"
+            if _figdir.exists() and (not figures or not any(
+                (f.get("image_path") if isinstance(f, dict) else getattr(f, "image_path", ""))
+                for f in (figures or [])
+            )):
+                from .visual.figure_extractor import extract_figures as _ef
+                figures = _ef(file_path, doc_id=Path(file_path).parent.name, module_map=None) or []
+                print(f"[VISUAL] late extract_figures -> {len(figures)}", flush=True)
+                if figures:
+                    mapper = ChunkImageMapper(
+                        registry=MockRegistry(figures),
+                        total_pages=getattr(artifact, "page_count", 200) if artifact else 200,
+                        page_tolerance=3,
+                    )
+                    mapper.build(modules)
+                    import aion_patch as _ap
+                    _ap._ACTIVE_DIAGRAMS = [
+                        {"image_path": (c.get("image_path") if isinstance(c, dict) else getattr(c, "image_path", "")),
+                         "caption": "", "page": 1, "bbox": [0,0,1,1]}
+                        for c in figures
+                    ]
+        except Exception as _le:
+            print(f"[VISUAL] late extract skipped: {_le}", flush=True)
         if (include_visual or len(figures) > 0) and figures:
             selector = QuestionImageSelector(mapper)
     except Exception as e:
@@ -474,24 +700,40 @@ def run_pipeline(
         mapper   = None
         selector = None
 
-    # Validate partitions — filter by user-specified sub-question count if provided
-    target_marks   = 20 if exam_type.lower() == "see" else 10
-    raw_partitions = SEE_PARTITIONS if exam_type.lower() == "see" else IA_PARTITIONS
-    base_partitions = [p for p in raw_partitions if len(p) <= 3 and sum(p) == target_marks]
+    # Use user-provided marks_split if available (highest priority)
+    target_marks = 20 if exam_type.lower() == "see" else 10
 
-    if sub_question_count and sub_question_count in (1, 2, 3):
-        filtered = [p for p in base_partitions if len(p) == sub_question_count]
-        target_partitions = filtered if filtered else base_partitions
-        print(f"[PIPELINE] Sub-question count locked to {sub_question_count} "
-              f"({len(target_partitions)} matching partitions available)")
+    # Always define base_partitions (never leave unbound)
+    base_partitions = []
+    user_partitions = []
+    if marks_split and isinstance(marks_split, (list, tuple)) and marks_split:
+        if isinstance(marks_split[0], (list, tuple)):
+            user_partitions = [list(p) for p in marks_split if isinstance(p, (list, tuple))]
+        else:
+            user_partitions = [list(marks_split)]
+        base_partitions = list(user_partitions)
+        target_partitions = list(user_partitions)
+        print(f"[PIPELINE] Using user marks_split: {target_partitions}", flush=True)
     else:
-        target_partitions = base_partitions
+        try:
+            raw_partitions = SEE_PARTITIONS if exam_type.lower() == "see" else IA_PARTITIONS
+        except NameError:
+            raw_partitions = []
+        base_partitions = [list(p) for p in raw_partitions if isinstance(p, (list, tuple))]
+        target_partitions = [p for p in base_partitions if sum(p) == target_marks and len(p) <= 3]
+        print(f"[PIPELINE] No user marks_split; using catalog partitions: {target_partitions}", flush=True)
 
-    if not target_partitions:
-        target_partitions = [[10, 10]] if target_marks == 20 else [[5, 5]]
+    # Optional filter by a SINGLE integer sub_question_count (ignore lists)
+    _sq = sub_question_count
+    if isinstance(_sq, int) and _sq in (1, 2, 3) and base_partitions:
+        filtered = [p for p in base_partitions if len(p) == _sq]
+        if filtered:
+            target_partitions = filtered
+            print(f"[PIPELINE] Sub-question count locked to {_sq} ({len(target_partitions)} matching)", flush=True)
+
 
     from core.generation.orchestrator import SlotOrchestrator
-    orchestrator = SlotOrchestrator(artifact=artifact)
+    orchestrator = SlotOrchestrator(artifact=artifact, marks_split=marks_split)
 
     output_paper = []
     # Reset global chunk tracker for each fresh pipeline run
@@ -584,6 +826,31 @@ def run_pipeline(
         except Exception:
             pass
 
+        # Define base_partitions from target_partitions (must always exist)
+        if target_partitions:
+            base_partitions = target_partitions
+        else:
+            # Try user/module split
+            try:
+                from core.generation.marks_partitioner import get_user_split
+                _us = get_user_split()
+            except Exception:
+                _us = None
+            try:
+                import aion_patch
+                _mp = aion_patch.get_module_partition(mod_idx)
+            except Exception:
+                _mp = None
+            if _mp and sum(_mp) == target_marks:
+                base_partitions = [list(_mp)]
+            elif _us and sum(_us) == target_marks:
+                base_partitions = [list(_us)]
+            else:
+                # Last resort: single partition (no forced equal split)
+                if 'target_marks' not in locals():
+                    target_marks = 20 if exam_type.lower() == "see" else 10
+            base_partitions = [[target_marks]]
+
         if not has_override:
             if isinstance(sub_question_count, list) and len(sub_question_count) >= (mod_idx * 2):
                 q1_c = sub_question_count[(mod_idx - 1) * 2]
@@ -592,15 +859,39 @@ def run_pipeline(
                 p2_filtered = [p for p in base_partitions if len(p) == q2_c] or base_partitions
                 pair1_partition = random.choice(p1_filtered)
                 pair2_partition = random.choice(p2_filtered)
-            elif sub_question_count and isinstance(sub_question_count, int):
-                filtered = [p for p in base_partitions if len(p) == sub_question_count] or base_partitions
+            elif sub_question_count:
+                # Handle both int and list (from frontend: list with per-module counts)
+                if isinstance(sub_question_count, int):
+                    sq_target = sub_question_count
+                elif isinstance(sub_question_count, list) and sub_question_count:
+                    # Use the count for this module's first slot, or default to 2
+                    sq_target = sub_question_count[0] if len(sub_question_count) > 0 else 2
+                else:
+                    sq_target = 2
+                filtered = [p for p in base_partitions if len(p) == sq_target] or base_partitions
                 pair1_partition = random.choice(filtered)
                 pair2_partition = random.choice(filtered)
             else:
-                pair1_partition = random.choice(base_partitions)
-                pair2_partition = random.choice(base_partitions)
+                if base_partitions:
+                    pair1_partition = random.choice(base_partitions)
+                    pair2_partition = random.choice(base_partitions)
+                else:
+                    pair1_partition = [target_marks]
+                    pair2_partition = [target_marks]
 
         partitions_for_questions = [pair1_partition, pair1_partition, pair2_partition, pair2_partition]
+
+        # Attach extracted equations/figures so the LLM must use them (not dummy 'eq' / empty image_path)
+        try:
+            import aion_patch as _ap
+            _assets = getattr(_ap, "collect_extracted_assets", lambda p: {})(file_path) if "file_path" in dir() else {}
+            _eqs = (_assets or {}).get("equations") or []
+            _imgs = (_assets or {}).get("images") or []
+            if _eqs or _imgs:
+                print(f"[MODULE {mod_idx}] Binding visuals: {len(_imgs)} images, {len(_eqs)} equations", flush=True)
+        except Exception:
+            _eqs, _imgs = [], []
+
 
         # Calculate dynamic pedagogy-aware slot types for this module
         total_slots = sum(len(p) for p in partitions_for_questions)
@@ -780,6 +1071,10 @@ def run_pipeline(
 
     return output_paper, qa_report
 
+
+    # Lock target_partitions so it cannot be overwritten later
+    if marks_split:
+        print(f"[PIPELINE] Final partitions locked to user choice: {target_partitions}", flush=True)
 
 def _generate_main_question(
     mq_idx:         int,

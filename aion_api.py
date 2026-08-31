@@ -1,3 +1,5 @@
+import sys
+sys.stdout.flush()
 import builtins
 if not hasattr(builtins, "get_user_split"):
     builtins.get_user_split = lambda: None
@@ -5,10 +7,7 @@ if not hasattr(builtins, "get_user_split"):
 import sys, os
 sys.path.insert(0, '/home/AIML1/AIQ/AION')
 import aion_patch
-_sub_q = 2
-_sub_question_count = 2
-_marks_split = [5, 5]
-body = {}
+# (removed leftover debug globals)
 
 #!/usr/bin/env python3
 """
@@ -79,9 +78,11 @@ def _aion_production_guard():
             raw_marks = (
                 body.get("marks_distribution") or body.get("marksDistribution") or
                 body.get("marks_split") or body.get("marksSplit") or
+                body.get("mark_splits") or body.get("markSplits") or
                 body.get("sub_question_marks") or body.get("subQuestionMarks") or
                 body.get("partition") or body.get("distribution") or
                 args.get("marks_distribution") or args.get("marks_split") or
+                args.get("mark_splits") or args.get("markSplits") or
                 args.get("sub_question_marks") or args.get("partition")
             )
             
@@ -92,41 +93,25 @@ def _aion_production_guard():
             )
 
             exam = str(body.get("exam_type") or body.get("exam") or args.get("exam_type") or "IAT1").upper()
-            split = parse_marks(raw_marks, exam, sub_question_count=sq_count)
-            if split:
+            # Handle full partition list sent directly from frontend
+            if isinstance(raw_marks, list) and raw_marks and isinstance(raw_marks[0], list):
+                split = raw_marks
                 set_user_split(split, exam)
-                print(f"[HTTP-GUARD] Locked user marks split: {split} (raw='{raw_marks}', count={sq_count}) for {exam}", flush=True)
+                print(f"[HTTP-GUARD] Locked user marks split (direct): {split} for {exam}", flush=True)
+            elif raw_marks:
+                split = parse_marks(raw_marks, exam, sub_question_count=sq_count)
+                if split:
+                    set_user_split(split, exam)
+                    print(f"[HTTP-GUARD] Locked user marks split: {split} (raw='{raw_marks}', count={sq_count}) for {exam}", flush=True)
+            else:
+                print(f"[HTTP-GUARD] No marks split in payload; not forcing a default for {exam}", flush=True)
     except Exception:
         pass
 # =====================================================================
 
 
 
-@app.before_request
-def _aion_production_guard():
-    from flask import request
-    try:
-        if request.path in ("/api/generate", "/api/generate/stream", "/api/generate/vllm") and request.is_json:
-            body = request.get_json(silent=True) or {}
-            raw_marks = (
-                body.get("marks_distribution") or body.get("marksDistribution") or
-                body.get("marks_split") or body.get("marksSplit") or
-                body.get("sub_question_marks") or body.get("subQuestionMarks") or
-                body.get("partition") or body.get("distribution")
-            )
-            sq_count = (
-                body.get("sub_question_count") or body.get("subQuestionCount") or
-                body.get("sub_question_counts") or body.get("subQuestionCounts") or
-                body.get("parts")
-            )
-            exam = str(body.get("exam_type") or body.get("exam") or "IAT1").upper()
-            split = parse_marks(raw_marks, exam, sub_question_count=sq_count)
-            if split:
-                set_user_split(split, exam)
-                print(f"[USER-CHOICE] Locked marks split to: {split} (raw='{raw_marks}') for {exam}", flush=True)
-    except Exception:
-        pass
-
+# [DUPLICATE HOOK REMOVED]
 
 
 # ✅ PERMANENT FIX 1: Allow ALL origins, ALL methods, ALL headers
@@ -351,6 +336,7 @@ def health():
             model_ok = any(active_profile.model_name in m for m in models) or active_profile.model_name == "AUTO"
     except Exception:
         pass
+# pass  # removed useless statement
 
     mem_state = memory_governor.state()
     katex_ok  = KaTeXAvailabilityGate._available if hasattr(KaTeXAvailabilityGate, "_available") else True
@@ -396,6 +382,7 @@ def ready():
         pymupdf_ok = True
     except ImportError:
         pass
+# pass  # removed useless statement
 
     docling_ok = False
     try:
@@ -403,6 +390,7 @@ def ready():
         docling_ok = True
     except ImportError:
         pass
+# pass  # removed useless statement
 
     ocr_ok = False
     try:
@@ -410,6 +398,7 @@ def ready():
         ocr_ok = True
     except ImportError:
         pass
+# pass  # removed useless statement
 
     gateway_ok = False
     try:
@@ -417,6 +406,7 @@ def ready():
         gateway_ok = True
     except ImportError:
         pass
+# pass  # removed useless statement
 
     orchestrator_ok = False
     try:
@@ -424,6 +414,7 @@ def ready():
         orchestrator_ok = True
     except ImportError:
         pass
+# pass  # removed useless statement
 
     export_gate_ok = False
     try:
@@ -431,6 +422,7 @@ def ready():
         export_gate_ok = True
     except ImportError:
         pass
+# pass  # removed useless statement
 
     # 2. Probe KaTeX
     from core.validation.math_validator import KaTeXAvailabilityGate
@@ -446,6 +438,7 @@ def ready():
             gpu_details = f"CUDA device: {torch.cuda.get_device_name(0)}"
     except Exception:
         pass
+# pass  # removed useless statement
 
     # 4. Probe Ollama & Model
     resolution = get_resolution_info()
@@ -481,6 +474,7 @@ def ready():
                 model_usable = True
         except Exception:
             pass
+# pass  # removed useless statement
 
     # 5. Authoritative Readiness Status
     ready_status = gateway_ok and orchestrator_ok and export_gate_ok and ollama_ok and model_loaded and model_usable and katex_ok
@@ -613,8 +607,9 @@ def upload():
 
         # -- Self-Learning: extract concepts from uploaded document ---------
         try:
+            _body = locals().get('body') or {}
             from v0_1.self_learning import learn_from_document
-            _subject = body.get("subject") or doc.subject or "general"
+            _subject = _body.get("subject") or doc.subject or "general"
             learn_from_document(dest_path, subject=_subject, doc_id=doc.id)
         except Exception as _le:
             print(f"[SELF-LEARNING] Non-critical learn step failed: {_le}")
@@ -689,6 +684,7 @@ def delete_file(file_id):
             Path(stored_path).unlink(missing_ok=True)
     except Exception:
         pass
+# pass  # removed useless statement
     return jsonify({"ok": True})
 
 
@@ -862,6 +858,7 @@ def generate_stream():
                 try:
                     from v0_1.main import run_pipeline as _run_pipe
                     from core.generation.marks_partitioner import parse_marks, set_user_split, get_user_split
+                    _sp = None
                     
                     try:
                         from flask import has_request_context
@@ -873,25 +870,46 @@ def generate_stream():
                     if _extracted:
                         aion_patch.set_active_job_splits(_extracted)
                     _a = (request.args.to_dict() if has_request_context() else {}) if (has_request_context() and request.args) else {}
-                    _raw_m = (_b.get("marks_distribution") or _b.get("marksDistribution") or _b.get("marks_split") or _b.get("sub_question_marks") or _a.get("marks_distribution") or _a.get("marks_split"))
+                    _raw_m = (_b.get("mark_splits") or _b.get("marks_distribution") or _b.get("marksDistribution") or _b.get("marks_split") or _b.get("markSplits") or _b.get("sub_question_marks") or _a.get("marks_distribution") or _a.get("marks_split") or _a.get("mark_splits"))
                     _sq_c = _b.get("sub_question_count") or _b.get("subQuestionCount") or _a.get("sub_question_count")
                     _ex = str(gen_req.exam_type or _b.get("exam_type") or "IAT1").upper()
                     
-                    _sp = parse_marks(_raw_m, _ex, sub_question_count=_sq_c)
-                    if _sp:
-                        set_user_split(_sp, _ex)
-                        print(f"[WORKER-THREAD] Locked marks partition to: {_sp} for {_ex}", flush=True)
+                    _existing = get_user_split()
+                    if _raw_m:
+                        if isinstance(_raw_m, list) and _raw_m and isinstance(_raw_m[0], list):
+                            set_user_split(_raw_m, _ex)
+                            print(f"[WORKER-THREAD] Locked nested split (direct): {_raw_m} for {_ex}", flush=True)
+                        else:
+                            _sp = parse_marks(_raw_m, _ex, sub_question_count=_sq_c)
+                            if _sp:
+                                set_user_split(_sp, _ex)
+                                print(f"[WORKER-THREAD] Locked marks partition to: {_sp} for {_ex}", flush=True)
+                    elif _existing:
+                        print(f"[WORKER-THREAD] Keeping already-locked split: {_existing}", flush=True)
+                    else:
+                        print("[WORKER-THREAD] No marks split in payload; not forcing a default", flush=True)
                     
-                    _active_now = (getattr(__import__("builtins"), "get_user_split", lambda: None)() or None) or _sp
+                    try:
+                        from core.generation.marks_partitioner import get_user_split as _gus2
+                    except Exception:
+                        _gus2 = lambda: None
+                    _locked = None
+                    try:
+                        from core.generation.marks_partitioner import get_user_split as _gus
+                        _locked = _gus()
+                    except Exception:
+                        _locked = None
+                    _active_now = locals().get('_locked') or locals().get('_existing') or locals().get('_sp')
                     _sub_q_arg = len(_active_now) if _active_now else 2
                     _paper, _qa = _run_pipe(
                         file_path          = file_path,
                         exam_type          = gen_req.exam_type,
                         difficulty         = gen_req.difficulty,
-                        include_visual     = False,
+                        include_visual     = getattr(gen_req, "visual_mode", True),
                         max_concepts       = 10,
                         mode               = "turbo",
-                        sub_question_count = _sub_q,
+                        sub_question_count = _sq_c,
+                        marks_split        = _sp or _existing,
                     )
                     dur = (time.time() - t0) * 1000
                     trace.stage("PipelineExecution", status="PASS", duration_ms=dur,
@@ -905,7 +923,7 @@ def generate_stream():
                     import traceback
                     traceback.print_exc()
                     trace.fail(str(e))
-                    result_holder["error"] = str(e)
+                    err_msg = str(e); print(f"[WORKER ERROR] {err_msg}"); traceback.print_exc(); result_holder["error"] = err_msg
                     result_holder["trace"] = tb.format_exc()
                 finally:
                     trace.print_summary()
@@ -972,11 +990,13 @@ def generate_stream():
             })
 
             try:
+                target_marks = 10
                 _subject   = getattr(gen_req, "subject",   None) or body.get("subject",  "Unknown")
                 _exam_type = getattr(gen_req, "exam_type", None) or body.get("examType", "IA")
                 _mode      = getattr(gen_req, "mode",      None) or body.get("mode",     "turbo")
+                target_marks = 10
                 result     = _format_paper(paper, _subject, _exam_type, _mode, qa_report=qa_report)
-                pass
+# pass  # removed useless statement
                 print(f"[STREAM] Formatted paper in {elapsed:.1f}s: {len(result.get('modules', []))} modules", flush=True)
             except Exception as fmt_err:
                 print(f"[STREAM] Format error: {fmt_err}", flush=True)
@@ -1020,7 +1040,9 @@ def generate_stream():
             total_subquestions = 0
             for module in result.get("modules", []):
                 for q in module.get("questions", []):
-                    total_subquestions += len(q.get("subQuestions", q.get("sub_questions", [])))
+                    subs = q.get("subQuestions") or q.get("sub_questions") or []
+                    if isinstance(subs, (list, tuple)):
+                        total_subquestions += len(subs)
 
             # Calculate SHA-256 canonical hash of the modules list
             import hashlib
@@ -1049,18 +1071,24 @@ def generate_stream():
 
             import aion_patch
             result = (getattr(aion_patch, "normalize_paper_for_frontend_ui", lambda r, *a, **k: r)(result, _subject, _exam_type))
-            yield _sse("paper_ready", {
+            print(f"[STREAM DEBUG] About to yield paper_ready. result has {len(result.get('modules', []))} modules", flush=True)
+            paper_payload = {
                 "paper": result,
                 "question_count": total_subquestions,
                 "canonical_hash": canonical_hash
-            })
+            }
+            print(f"[STREAM DEBUG] paper_payload keys: {list(paper_payload.keys())}", flush=True)
+            yield _sse("paper_ready", paper_payload)
+            print(f"[STREAM DEBUG] paper_ready event yielded successfully", flush=True)
 
-            yield _sse("done", {
+            done_payload = {
                 "status": "SUCCESS",
                 "paper_id": result.get("id", "unknown"),
                 "question_count": total_subquestions,
                 "canonical_hash": canonical_hash
-            })
+            }
+            yield _sse("done", done_payload)
+            print(f"[STREAM DEBUG] done event yielded successfully", flush=True)
             result_sent = True
 
         except Exception as e:
@@ -1191,24 +1219,10 @@ def normalize_or_pair_structure(pair: list, is_ia: bool) -> list:
         if len(c) > n_parts:
             n_parts = len(c)
 
-    if is_ia:
-        if n_parts <= 1:
-            canonical = [10]
-        elif n_parts == 2:
-            # Check if first candidate had [5,5] or [6,4]
-            if candidates[0] == [5, 5]:
-                canonical = [5, 5]
-            else:
-                canonical = [6, 4]
-        else:
-            canonical = [4, 3, 3]
-    else:
-        if n_parts <= 1:
-            canonical = [20]
-        elif n_parts == 2:
-            canonical = [10, 10]
-        else:
-            canonical = [8, 6, 6]
+    # Prefer the first candidate as-is (user/pipeline choice). Never force [5,5]/[6,4].
+    canonical = list(candidates[0])
+    if not canonical:
+        canonical = [q_marks]
 
     if sum(canonical) != q_marks:
         canonical = [q_marks]
@@ -1227,7 +1241,7 @@ def _enforce_marks(paper, *args, **kwargs):
     for mod_idx, mod in enumerate(modules, 1):
         if not isinstance(mod, dict): continue
         questions = mod.get("questions", [])
-        dyn_split = (getattr(aion_patch, "get_module_partition", lambda idx: [10])(mod_idx) or [10])
+        dyn_split = (getattr(aion_patch, "get_module_partition", lambda idx: None)(mod_idx))
         for q in questions:
             if not isinstance(q, dict): continue
             subs = q.get("sub_questions", []) or q.get("subQuestions", [])
@@ -1241,7 +1255,12 @@ def _enforce_marks(paper, *args, **kwargs):
                 if existing_marks and len(existing_marks) == len(subs) and sum(existing_marks) == target_marks:
                     active_split = existing_marks
                 elif len(subs) == 2:
-                    active_split = [6, 4] if target_marks == 10 else [12, 8]
+                    # Derive fairly if no user split
+                    base = target_marks // len(subs)
+                    rem  = target_marks % len(subs)
+                    active_split = [base + (1 if i < rem else 0) for i in range(len(subs))]
+                    if sum(active_split) != target_marks:
+                        active_split = [target_marks // len(subs)] * len(subs)
                 elif len(subs) == 3:
                     active_split = [4, 3, 3] if target_marks == 10 else [8, 6, 6]
                 else:
@@ -1372,18 +1391,60 @@ def _format_paper(paper, subject, exam_type, mode, qa_report=None):
                     gen_marks.append(int(_m))
 
             import aion_patch
-            dyn_sp = (getattr(aion_patch, "get_module_partition", lambda idx: [10])(mod_idx + 1) or [10])
+            dyn_sp = (getattr(aion_patch, "get_module_partition", lambda idx: None)(mod_idx + 1))
 
-            if gen_marks and sum(gen_marks) == q_marks:
+            # Compute target_marks for subquestion split
+            tm_cand = mq_dict.get('total_marks') or getattr(raw_mq, 'total_marks', 0)
+            if tm_cand <= 0:
+                tm_cand = q_marks
+            if tm_cand <= 0:
+                tm_cand = 10
+            target_marks = tm_cand
+
+            # AION fix: safe target_marks + valid split if/elif chain
+            tm_cand = None
+            try:
+                tm_cand = mq_dict.get("total_marks", mq_dict.get("marks", None))
+            except Exception:
+                tm_cand = None
+            if tm_cand is None:
+                try:
+                    tm_cand = getattr(raw_mq, "total_marks", None) or getattr(raw_mq, "marks", None)
+                except Exception:
+                    tm_cand = None
+            try:
+                target_marks = int(tm_cand)
+            except Exception:
+                target_marks = 0
+            if target_marks <= 0:
+                target_marks = q_marks if q_marks > 0 else (10 if is_ia else 20)
+
+            if gen_marks and sum(gen_marks) == target_marks:
+                split = gen_marks
+            elif dyn_sp and sum(dyn_sp) == target_marks:
+                split = list(dyn_sp)
+            elif gen_marks and sum(gen_marks) == q_marks:
                 split = gen_marks
             elif dyn_sp and sum(dyn_sp) == q_marks:
                 split = list(dyn_sp)
             elif is_ia:
                 n_parts = min(max(1, len(raw_subs)), max_parts)
-                split = [10] if n_parts == 1 else ([6, 4] if n_parts == 2 else [4, 3, 3])
+                if n_parts <= 1:
+                    split = [target_marks]
+                else:
+                    base = target_marks // n_parts
+                    rem  = target_marks % n_parts
+                    split = [base + (1 if i < rem else 0) for i in range(n_parts)]
             else:
                 n_parts = min(max(1, len(raw_subs)), max_parts)
-                split = [20] if n_parts == 1 else ([10, 10] if n_parts == 2 else [8, 6, 6])
+                if n_parts <= 1:
+                    split = [target_marks]
+                elif target_marks == 20:
+                    split = [10, 10] if n_parts == 2 else [8, 6, 6]
+                else:
+                    base = target_marks // n_parts
+                    rem  = target_marks % n_parts
+                    split = [base + (1 if i < rem else 0) for i in range(n_parts)]
 
             for sq_idx, raw_sq in enumerate(raw_subs):
                 if hasattr(raw_sq, "to_dict"):
@@ -1582,9 +1643,10 @@ try:
                         set_global_user_split(split)
                         print(f"[API-HOOK] Locked user marks split: {split} across all modules")
                 else:
-                    set_global_user_split([10, 10] if tot_marks == 20 else [5, 5])
+                    pass  # do not force default split after generation
             except Exception:
                 pass
+# pass  # removed useless statement
 except Exception as _hook_err:
     print(f"[API-HOOK-WARNING] Could not register before_request marks hook: {_hook_err}")
 # ===========================================================================
