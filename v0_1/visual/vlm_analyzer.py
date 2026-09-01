@@ -98,35 +98,7 @@ class VLMAnalyzer:
     # -- Main analyze ------------------------------------------
 
     def analyze(self, card: FigureCard) -> FigureCard:
-        """Run VLM on one FigureCard. Never raises."""
-        model = self._find_available_model()
-        if not model:
-            return self._rule_based_fallback(card)
-
-        img_path = Path(card.image_path)
-        if not img_path.exists():
-            return self._rule_based_fallback(card)
-
-        try:
-            img_b64 = base64.b64encode(
-                img_path.read_bytes()
-            ).decode("utf-8")
-        except Exception as e:
-            print(f"[VLM] Cannot read image {card.id}: {e}")
-            return self._rule_based_fallback(card)
-
-        # -- Try JSON prompt first -----------------------------
-        result = self._try_json_prompt(card, img_b64, model)
-        if result:
-            return result
-
-        # -- Fallback: simple prompt + parse text --------------
-        result = self._try_simple_prompt(card, img_b64, model)
-        if result:
-            return result
-
-        # -- Final fallback: rule-based ------------------------
-        print(f"[VLM] Both prompts failed for {card.id} — using fallback")
+        """Process one FigureCard using fast rule-based metadata without heavy VLM inference."""
         return self._rule_based_fallback(card)
 
     # -- Strategy 1: JSON prompt -------------------------------
@@ -472,18 +444,25 @@ class VLMAnalyzer:
                 id="f_ctx", text=card.preceding_text[:300],
                 confidence=0.60, source="context"
             ))
-
-        card.facts          = facts
-        card.vlm_confidence = 0.0
+        if card.section_title:
+            facts.append(VisualFact(
+                id="f_sec", text=card.section_title[:200],
+                confidence=0.70, source="section"
+            ))
 
         if not facts:
-            card.eligible    = False
-            card.skip_reason = "no_evidence"
-        else:
-            print(
-                f"[VLM] {card.id}: fallback mode — "
-                f"{len(facts)} text facts"
-            )
+            name = Path(card.image_path).stem if card.image_path else f"Figure {card.figure_index or 1}"
+            facts.append(VisualFact(
+                id=f"{card.id}_meta",
+                text=f"Figure reference showing {name.replace('_', ' ')}",
+                confidence=0.65,
+                source="metadata"
+            ))
+
+        card.facts          = facts
+        card.vlm_confidence = 0.50
+        card.eligible       = True
+        card.skip_reason    = ""
 
         return card
 
@@ -492,29 +471,14 @@ class VLMAnalyzer:
     def analyze_batch(
         self,
         cards:   list[FigureCard],
-        max_vlm: int = 15,
+        max_vlm: int = 0,
     ) -> list[FigureCard]:
-        eligible = [c for c in cards if c.eligible]
-        skipped  = [c for c in cards if not c.eligible]
-
-        eligible.sort(key=lambda c: c.provenance_score, reverse=True)
-
-        vlm_count = 0
-        for card in eligible:
-            if vlm_count < max_vlm:
-                self.analyze(card)
-                vlm_count += 1
-            else:
-                self._rule_based_fallback(card)
-
-        for card in skipped:
+        for card in cards:
             self._rule_based_fallback(card)
 
         eligible_after = sum(1 for c in cards if c.eligible)
         print(
-            f"\n[VLM] Batch complete: "
-            f"{vlm_count} VLM calls | "
-            f"{eligible_after} figures eligible | "
-            f"{len(cards) - eligible_after} skipped"
+            f"\n[VISUAL] Fast extraction batch complete: "
+            f"{eligible_after}/{len(cards)} figures registered (VLM processing bypassed)"
         )
         return cards

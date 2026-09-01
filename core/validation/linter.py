@@ -171,7 +171,9 @@ def check_no_answer_leakage(text: str) -> CheckResult:
         "model answer", "expected answer", "therefore, the correct",
         "hence, the result", "thus, we find", "the correct answer is",
         "thus, the required result", "hence the output will be",
-        "therefore, the output is",
+        "therefore, the output is", "the result is", "which yields",
+        "resulting in", "the solution is", "which gives the result",
+        "which evaluates to", "giving the answer", "the calculated value is",
         # Column-specification leaks (gives away CREATE TABLE answer)
         "should include the following columns",
         "the table should include",

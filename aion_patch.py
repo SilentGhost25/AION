@@ -146,16 +146,24 @@ except Exception:
 
 # 4. Domain Archetype Knowledge & Instruction Directives
 DOMAIN_PROFILES = {
+    "cloud_bigdata": (
+        ["cloud computing", "virtualization", "docker", "container", "hypervisor", "hadoop", "hdfs", "mapreduce", "yarn", "spark", "storage virtualization", "iaas", "paas", "saas"],
+        r"""[DOMAIN DIRECTIVE: CLOUD COMPUTING & BIG DATA ANALYTICS]
+- Formulate concrete problems on cloud virtualization, hypervisors, container engines, or Big Data systems.
+- For Virtualization & Containers: Formulate problems on Type-1 vs Type-2 hypervisors, VM resource mapping/scheduling, storage virtualization pooling, Docker engine/daemon architectures, or container lifecycle commands.
+- For Big Data: Formulate MapReduce key-value dataflow problems, HDFS block distribution/fault tolerance calculations, or YARN container allocations.
+- STRICT CONSTRAINT: Do NOT formulate Relational Algebra queries or relational table schemas unless the document is explicitly a DBMS syllabus."""
+    ),
     "dbms": (
-        ["relational", "tuple", "dbms", "sql", "normalization", "bcnf", "closure", "attribute", "functional dependency", "schema", "table"],
+        ["relational algebra", "sql query", "sql queries", "database normalization", "bcnf", "functional dependency", "relational schema", "relational calculus", "database management systems"],
         r"""[DOMAIN DIRECTIVE: DATABASE SYSTEMS & RELATIONAL ALGEBRA]
 - Formulate precise query and schema analysis problems.
-- Use exact relational algebra operators in LaTeX: Selection \\sigma_{condition}(R), Projection \\pi_{attrs}(R), Join R \\bowtie_{cond} S.
+- Use exact relational algebra operators in LaTeX: Selection \sigma_{condition}(R), Projection \pi_{attrs}(R), Join R \bowtie_{cond} S.
 - For Normalization: Provide functional dependencies F = {A -> B, BC -> D} and ask to compute attribute closures (X+), candidate keys, or test for 3NF/BCNF.
 - Store expressions in "math_blocks" with proper [MATH:math_id] references."""
     ),
     "os_networks": (
-        ["scheduling", "turnaround", "paging", "tlb", "banker", "deadlock", "cidr", "subnet", "dijkstra", "tcp", "window", "crc", "packet"],
+        ["cpu scheduling", "turnaround time", "paging address", "tlb", "banker's algorithm", "deadlock detection", "cidr subnet", "dijkstra routing", "sliding window", "crc polynomial"],
         r"""[DOMAIN DIRECTIVE: OPERATING SYSTEMS & NETWORKS]
 - For OS: Generate numerical scheduling problems (calculate Waiting Time / Turnaround Time for FCFS/SJF/Round-Robin tables), Paging/TLB address translation, or Banker's Algorithm safety vectors.
 - For Networks: Generate CIDR subnet calculation problems (find network ID, broadcast IP, usable hosts), Sliding Window throughput/efficiency calculations, or CRC checksum polynomials.
@@ -298,9 +306,19 @@ for module_path in ["v0_1.llm", "core.generation.robust_llm_caller"]:
                     kwargs["options"] = opts
 
                     p_lower = prompt.lower()
+                    topic_m = re.search(r'(?i)\btopic\s*:\s*([^\n]+)', prompt)
+                    topic_text = topic_m.group(1).lower() if topic_m else ""
+                    ev_m = re.search(r'(?i)\bevidence\s*:\s*(.*?)(?=\n[A-Z\s]{4,}:|\Z)', prompt, re.DOTALL)
+                    ev_text = ev_m.group(1).lower() if ev_m else ""
+                    scope_text = f"{topic_text} {ev_text[:2000]}"
+
+                    is_cloud = any(k in scope_text for k in ["cloud", "virtualization", "docker", "container", "hypervisor", "hadoop", "hdfs", "mapreduce", "yarn", "spark"])
+
                     matched_directives = []
                     for domain, (keywords, directive) in DOMAIN_PROFILES.items():
-                        if any(k in p_lower for k in keywords):
+                        if domain == "dbms" and is_cloud:
+                            continue
+                        if any(re.search(r'\b' + re.escape(k) + r'\b', scope_text) for k in keywords):
                             matched_directives.append(directive)
 
                     if matched_directives:
@@ -591,38 +609,10 @@ def extract_and_qualify_diagram_anchors(file_id: str, pdf_path: str) -> List[Dic
             headers = re.findall(r'^(#{1,4}\s+.+)$', preceding_text, re.MULTILINE)
             section_title = headers[-1] if headers else "Technical Core Content"
 
-            # Step C: Semantic Awareness Gate (Ensures diagram describes rigorous engineering models)
-            eval_prompt = f"""
-Analyze this document excerpt describing an embedded visual artifact:
-Section: {section_title}
-Caption: {caption}
-
---- DOCUMENT EXCERPT ---
-{context_slice[:1200]}
---- END EXCERPT ---
-
-Verify if this represents an engineering schematic (e.g. electrical circuit, block diagram, load beam, timing waveform, structural flow, or system architecture) suitable for designing a quantitative numerical calculation test problem.
-
-Respond STRICTLY with a valid JSON block:
-{{
-  "is_technical_diagram": true_or_false,
-  "diagram_type": "Circuit Diagram | Block Diagram | Graph | Flowchart | Decorative/Icon",
-  "technical_summary": "1-2 sentence description of what system/equations the image represents."
-}}
-"""
+            # Step C: Fast Technical Diagram Qualification (Bypasses slow per-image LLM calls)
             is_tech = True
             diag_type = "Technical Diagram"
-            summary = "Reference visualization for calculations."
-
-            gate_res = query_local_llm(eval_prompt, json_format=True)
-            if gate_res:
-                try:
-                    decision = json.loads(gate_res)
-                    is_tech = bool(decision.get("is_technical_diagram", True))
-                    diag_type = decision.get("diagram_type", "Technical Diagram")
-                    summary = decision.get("technical_summary", summary)
-                except Exception:
-                    pass
+            summary = f"Schematic reference: {caption} ({section_title})"
 
             if is_tech and diag_type != "Decorative/Icon":
                 anchors.append({
@@ -652,32 +642,7 @@ Respond STRICTLY with a valid JSON block:
 
 
 # --- 4. EXAM PROFILES & VTU TEMPLATE WRAPPER ---
-DOMAIN_PROFILES = {
-    "dbms": (
-        ["relational", "tuple", "dbms", "sql", "normalization", "bcnf", "closure", "attribute", "functional dependency"],
-        "Write precise query-writing problems using Relational Algebra operators in LaTeX: Selection \\sigma_{cond}(R), Projection \\pi_{attrs}(R), Join R \\bowtie_{cond} S."
-    ),
-    "os_networks": (
-        ["scheduling", "turnaround", "paging", "tlb", "banker", "cidr", "subnet", "dijkstra", "tcp", "crc"],
-        "Formulate waiting time scheduling tables, paging translation algorithms, or IP subnetting problems."
-    ),
-    "ai_ml_data": (
-        ["gradient", "loss", "bayes", "entropy", "confusion matrix", "precision", "recall", "f1", "neural network"],
-        "Formulate Bayesian probability updates P(A|B), decision tree information gain, or gradient updates."
-    ),
-    "circuits_signals": (
-        ["fourier", "laplace", "z-transform", "transfer function", "bode", "filter", "op-amp", "impedance", "kirchhoff"],
-        "Formulate transfer function calculations, Z-transform poles, Kirchhoff's loop currents, or Op-Amp closed loop gain."
-    ),
-    "mechanics_physics": (
-        ["stress", "strain", "shear", "bending", "thermodynamics", "entropy", "bernoulli", "momentum", "force"],
-        "Formulate normal/shear stress computation \\sigma = F/A, Carnot efficiency, or fluid flow rate."
-    ),
-    "satcom_aero": (
-        ["orbit", "apogee", "perigee", "kepler", "elevation", "slant", "azimuth", "hohmann", "thrust", "link budget"],
-        "Formulate Keplerian orbit periods T^2 = \\frac{4\\pi^2 a^3}{\\mu}, look angles \\theta, or slant range d."
-    )
-}
+# Uses top-level DOMAIN_PROFILES definition directly
 
 
 # --- 5. DYNAMIC CALLER HOOK ---
@@ -732,9 +697,19 @@ def _install_llm_hook():
             if not active_anchor and anchors:
                 active_anchor = anchors[0]
 
+            topic_m = re.search(r'(?i)\btopic\s*:\s*([^\n]+)', prompt)
+            topic_text = topic_m.group(1).lower() if topic_m else ""
+            ev_m = re.search(r'(?i)\bevidence\s*:\s*(.*?)(?=\n[A-Z\s]{4,}:|\Z)', prompt, re.DOTALL)
+            ev_text = ev_m.group(1).lower() if ev_m else ""
+            scope_text = f"{topic_text} {ev_text[:2000]}"
+
+            is_cloud = any(k in scope_text for k in ["cloud", "virtualization", "docker", "container", "hypervisor", "hadoop", "hdfs", "mapreduce", "yarn", "spark"])
+
             matched_domains = []
             for domain, (keywords, instruction) in DOMAIN_PROFILES.items():
-                if any(k in p_lower for k in keywords):
+                if domain == "dbms" and is_cloud:
+                    continue
+                if any(re.search(r'\b' + re.escape(k) + r'\b', scope_text) for k in keywords):
                     matched_domains.append(instruction)
 
             # --- Inject strict engineering exam template directives ---
@@ -754,9 +729,8 @@ def _install_llm_hook():
             if matched_domains:
                 header += "\n[SUBJECT-SPECIFIC INSTRUCTION]\n" + "\n".join(matched_domains) + "\n"
 
-            header += "\n[SCHEME OF EVALUATION DIRECTIVE]\n"
-            header += "Provide step-by-step rigorous LaTeX derivations inside standard bracket delimiters ($...$ and $$...$$).\n"
-            header += "Include a clean breakdown of component marks awarded for diagrams, equations, steps, and final responses.\n"
+            header += "\n[QUESTION CONCISENESS & NO-ANSWER-LEAKAGE GUIDELINE]\n"
+            header += "Aim for a concise question (typically 20 to 50 words). Do NOT include derivations, answers, or solutions in the question text. The student must solve the problem.\n"
             header += "========================================================================\n\n"
 
             return header + prompt

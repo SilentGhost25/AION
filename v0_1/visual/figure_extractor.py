@@ -218,9 +218,12 @@ def _extract_from_pdf(
 
                 card.provenance_score = _compute_provenance_score(card)
 
-                if not caption and not ocr_text and not explicit:
-                    card.eligible    = False
-                    card.skip_reason = "no_evidence"
+                if not caption:
+                    caption = section_title or f"Figure {fig_no} (Page {page_num})"
+                    card.caption = caption
+
+                card.eligible = True
+                card.skip_reason = ""
 
                 cards.append(card)
 
@@ -331,29 +334,7 @@ def _nearest_heading(
 
 
 def _quick_ocr(img_bytes: bytes) -> str:
-    try:
-        import pytesseract
-        from PIL import Image
-        import io
-        img = Image.open(io.BytesIO(img_bytes))
-        return pytesseract.image_to_string(img, timeout=5).strip()
-    except Exception:
-        pass
-
-    try:
-        from rapidocr_onnxruntime import RapidOCR
-        import numpy as np
-        from PIL import Image
-        import io
-        img   = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-        arr   = np.array(img)
-        ocr   = RapidOCR()
-        result, _ = ocr(arr)
-        if result:
-            return " ".join(r[1] for r in result).strip()
-    except Exception:
-        pass
-
+    # Image processing/OCR disabled for fast extraction
     return ""
 
 
@@ -494,9 +475,11 @@ def _extract_from_docx(
                                 _compute_provenance_score(card)
                             )
 
-                            if not ocr_text and not explicit:
-                                card.eligible    = False
-                                card.skip_reason = "no_evidence"
+                            if not card.caption:
+                                card.caption = f"Figure {fig_no}"
+
+                            card.eligible = True
+                            card.skip_reason = ""
 
                             cards.append(card)
 

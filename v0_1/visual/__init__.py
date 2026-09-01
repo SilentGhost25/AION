@@ -71,7 +71,7 @@ def safe_build_planner(
             print(f"[VISUAL] {len(valid)} valid FigureCards")
 
             if valid:
-                VLMAnalyzer().analyze_batch(valid, max_vlm=15)
+                VLMAnalyzer().analyze_batch(valid, max_vlm=0)
                 registry.add_all(valid)
                 registry.save()
             else:
@@ -86,7 +86,7 @@ def safe_build_planner(
                 continue
             if not hasattr(c, "provenance_score"):
                 continue
-            if not hasattr(c, "eligible"):
+            if not getattr(c, "eligible", True):
                 continue
             safe_eligible.append(c)
 

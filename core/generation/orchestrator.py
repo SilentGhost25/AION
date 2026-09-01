@@ -193,14 +193,6 @@ def _check_oscillation(failure_history: List[str], slot_id: str) -> None:
     window = failure_history[-FAILURE_SIGNATURE_WINDOW:]
     if len(window) >= FAILURE_SIGNATURE_WINDOW and len(set(window)) == 1:
         LOG.warning(f'[ORCHESTRATOR] Oscillation detected on slot {slot_id} ({window[0]}). Proceeding with relaxed validation.')
-        # Fallback: generate a simple template question from evidence text
-        if hasattr(self, '_fallback_count'):
-            self._fallback_count += 1
-        else:
-            self._fallback_count = 1
-        if self._fallback_count <= 2:  # Allow max 2 fallbacks per paper
-            LOG.warning(f'[ORCHESTRATOR] Using template fallback for {slot_id} (fallback #{self._fallback_count})')
-            return self._generate_template_fallback(attempt_slot, evidence_pack)
         return
     if False and len(window) >= FAILURE_SIGNATURE_WINDOW and len(set(window)) == 1:
         raise SlotOscillationDetected(
@@ -483,6 +475,25 @@ class SlotOrchestrator:
                             for _mp in _meta_phrases:
                                 _val = re.sub(r'(?i)\b' + _mp + r'\b', '', _val)
                             _val = re.sub(r'(?i)\s*Reference\s+(?:Equation|Formula)[:\s]*', ' ', _val)
+
+                            _leak_trailing = [
+                                r'(?i)[,;.]?\s*(?:the\s+(?:correct\s+)?answer\s+is|the\s+solution\s+is|resulting\s+in|which\s+yields|thus\s+the\s+result\s+is|yielding\s+the\s+result).*',
+                                r'(?i)[,;.]?\s*answer\s*:\s*.*',
+                                r'(?i)[,;.]?\s*solution\s*:\s*.*',
+                            ]
+                            for _lp in _leak_trailing:
+                                _val = re.sub(_lp, '', _val).strip()
+
+                            _vb = attempt_slot.bloom_verb.lower() if hasattr(attempt_slot, 'bloom_verb') else ''
+                            if _vb and len(_val.split()) > 35 and _vb in _val.lower():
+                                _pos = _val.lower().find(_vb)
+                                if _pos > 15:
+                                    _pre = _val[:_pos].strip()
+                                    if any(_pre.endswith(p) for p in ('.', ';', ':', ',')) or len(_pre.split()) >= 4:
+                                        _cand = _val[_pos:].strip()
+                                        if len(_cand.split()) >= 8:
+                                            _val = _cand[0].upper() + _cand[1:]
+
                             data[_f] = re.sub(r'\s+', ' ', _val).strip()
                 
                     # 2. Normalize diagram_request
@@ -922,6 +933,10 @@ Math Policy: {math_policy}
 Visual Policy: {visual_policy}
 Min Clauses: {min_dims} (requires at least {min_dims} distinct parts split by 'and', 'or', 'as well as', or commas)
 
+CRITICAL INSTRUCTIONS FOR QUESTION QUALITY:
+1. QUESTION LENGTH GUIDELINE: Keep the question concise, direct, and focused (ideally around 20 to 50 words, avoiding unnecessary textbook filler, conversational preambles, or paragraph-long context dumps). Begin directly with the required Bloom action verb.
+2. ABSOLUTE PROHIBITION ON ANSWER LEAKAGE: NEVER reveal the answer, solution, derivation, or result in the question text. The student must solve the problem. Provide only the task and necessary inputs; never explain why or what the result is.
+
 EVIDENCE:
 {evidence_text}
 
@@ -960,9 +975,9 @@ PREVIOUSLY GENERATED QUESTIONS (do NOT generate anything similar to these):
             prompt += f"\n\nADDITIONAL RECOVERY INSTRUCTIONS:\n{extra_hints}"
 
         try:
-            _slot_m = getattr(attempt_slot, 'marks', 5) if hasattr(attempt_slot, 'marks') else 5
-            _slot_b = getattr(attempt_slot, 'bloom_level', 3) if hasattr(attempt_slot, 'bloom_level') else 3
-            _slot_id_str = str(getattr(attempt_slot, 'slot_id', ''))
+            _slot_m = getattr(slot, 'marks', 5) if hasattr(slot, 'marks') else 5
+            _slot_b = getattr(slot, 'bloom_level', 3) if hasattr(slot, 'bloom_level') else 3
+            _slot_id_str = str(getattr(slot, 'slot_id', ''))
             # Target higher-mark slots or Apply/Analyse slots for numerical/programming tasks
             if _slot_m >= 4 or _slot_b >= 3 or any(k in _slot_id_str for k in ('Q1', 'Q3', '_a')):
                 prompt += (
@@ -1104,12 +1119,8 @@ PREVIOUSLY GENERATED QUESTIONS (do NOT generate anything similar to these):
             "'as shown in the notes', 'the previous query', 'the following query' "
             "unless the complete referenced query/expression is reproduced directly "
             "inside the same question_text.\n"
-            "If source material refers to a numbered query/example, either:\n"
-            "1. reproduce all schema, relations, conditions, values, and query/expression "
-            "needed to solve it directly in question_text; OR\n"
-            "2. rewrite the task so it does not depend on that reference.\n"
-            "Prefer option 1 when the evidence contains enough information to make "
-            "a complete practical SQL/programming/problem-solving question.\n"
+            "If source material refers to a numbered query or example, state the specific question directly "
+            "with minimal necessary schema (e.g. table name and key columns). Never dump extensive background schemas, sample data, or solutions.\n"
             "Do not mention the evidence, uploaded material, source, notes, document, "
             "or textbook in the final question.\n"
         )
@@ -1131,9 +1142,7 @@ PREVIOUSLY GENERATED QUESTIONS (do NOT generate anything similar to these):
             "\n\n[NO TEXTBOOK QUERY NUMBERS / FULL INLINING]\n"
             "CRITICAL: Do NOT copy textbook/note labels such as 'Query 1', 'Query 2', 'Query 3', 'Example 4', 'Schema 1', or 'the given query'.\n"
             "A student taking the exam does NOT have the textbook in front of them.\n"
-            "If the question asks to rewrite, analyze, optimize, or compare a query/expression, you MUST write out the COMPLETE query or relational algebra expression inline inside the question text.\n"
-            "Example of WRONG: 'Rewrite Query 3 using EXISTS instead of CONTAINS.'\n"
-            "Example of CORRECT: 'Rewrite the following SQL query using the EXISTS operator instead of CONTAINS: SELECT FNAME, LNAME FROM EMPLOYEE WHERE NOT EXISTS (SELECT * FROM DEPENDENT WHERE SSN=ESSN);'\n"
+            "If the question asks to rewrite, analyze, optimize, or trace a code snippet, query, algorithm, or expression, write out the complete statement inline inside the question text.\n"
             "Never output raw placeholder text like 'Reference Equation: [MATH:calc_1]'. State the equation or problem statement directly.\n"
         )
 
@@ -1142,9 +1151,9 @@ PREVIOUSLY GENERATED QUESTIONS (do NOT generate anything similar to these):
             "Every question MUST be fully self-contained and answerable on its own. "
             "Do NOT reference other questions by number or label. "
             "Never write phrases like 'Query 3', 'Question 2', 'the above query', "
-            "'the previous expression', 'rewrite Query N', or 'the given SQL query'. "
-            "If the task involves rewriting or comparing a query/expression, "
-            "include the FULL query or expression inline within the question text "
+            "'the previous expression', 'rewrite Query N', or 'the given query'. "
+            "If the task involves rewriting or comparing an expression or code block, "
+            "include the full statement inline within the question text "
             "so the student does not need to look at another question. "
             "Do NOT include 'Reference Equation:' or 'Reference Formula:' labels.\n"
         )
@@ -1162,6 +1171,7 @@ Choose the question type from the ACTUAL source content, not from a fixed subjec
 - If neither is supported by the evidence, do not fabricate an unrelated programming language, formula, or numerical domain.
 
 Examples of adaptation across subjects:
+- Cloud Computing & Big Data evidence -> Virtualization concepts, Type-1/Type-2 hypervisors, container lifecycle, Docker engine commands, storage pooling, MapReduce key-value flow, HDFS replication, YARN scheduling. NEVER invent Relational Algebra or SQL problems for cloud infrastructure.
 - DBMS evidence -> SQL query writing, relational algebra expression, normalization/decomposition, transaction schedules, constraints/triggers/procedures where supported.
 - AI/ML evidence -> algorithm/pseudocode/Python-style implementation or probability/utility/search calculations where supported.
 - Computer Networks evidence -> subnetting, delay/throughput calculations, routing tables, protocol pseudocode where supported.
