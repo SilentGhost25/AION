@@ -1,0 +1,28 @@
+{
+  "request_id": "dc6a217f-672",
+  "subject": "DBMS",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-09-01T05:55:07.870079",
+  "finished_at": "2026-09-01T05:57:21.236963",
+  "fail_reason": "GeneratedQuestion.__init__() got an unexpected keyword argument 'slot_id'",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-09-01T05:55:07.871250",
+      "metrics": {
+        "subject": "DBMS",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-09-01T05:57:21.234188",
+      "message": "GeneratedQuestion.__init__() got an unexpected keyword argument 'slot_id'",
+      "duration_ms": 133061.2
+    }
+  ]
+}

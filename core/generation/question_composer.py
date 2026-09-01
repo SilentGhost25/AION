@@ -232,7 +232,7 @@ CONSTRAINTS:
 
 Question:"""
         try:
-            raw = self._llm.generate(prompt, options={"num_predict": 140, "temperature": 0.55, "stop": ["Ideal Answer","Marking Scheme","Explanation:","Note:"]})
+            raw = self._llm.generate(prompt, options={"num_predict": 200, "temperature": 0.55, "stop": ["Ideal Answer","Marking Scheme","Explanation:","Note:"]})
             if raw and len(raw.split()) >= 8:
                 return raw.strip()
         except Exception as e:
@@ -326,7 +326,7 @@ Question:"""
             raw = self._llm.generate(
                 prompt,
                 options={
-                    "num_predict": 120,
+                    "num_predict": 200,
                     "temperature": 0.55,
                     "stop": ["Ideal Answer", "Marking Scheme", "Explanation:", "Note:"],
                 },

@@ -1,0 +1,28 @@
+{
+  "request_id": "75ff3cb5-e8d",
+  "subject": "IAI",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-28T11:38:58.403031",
+  "finished_at": "2026-08-28T11:38:58.708595",
+  "fail_reason": "cannot access local variable 'Path' where it is not associated with a value",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-28T11:38:58.405359",
+      "metrics": {
+        "subject": "IAI",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-28T11:38:58.708243",
+      "message": "cannot access local variable 'Path' where it is not associated with a value",
+      "duration_ms": 0.6
+    }
+  ]
+}

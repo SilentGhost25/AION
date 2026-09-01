@@ -1,0 +1,28 @@
+{
+  "request_id": "dd5728c1-9cf",
+  "subject": "DBMS",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-31T08:48:18.431959",
+  "finished_at": "2026-08-31T08:49:34.570914",
+  "fail_reason": "Slot module_2_Q4_b failed with SCHEMA_FAILURE 3 consecutive times. Recovery not converging \u2014 blocking slot.",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-31T08:48:18.434048",
+      "metrics": {
+        "subject": "DBMS",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-31T08:49:34.568732",
+      "message": "Slot module_2_Q4_b failed with SCHEMA_FAILURE 3 consecutive times. Recovery not converging \u2014 blocking slot.",
+      "duration_ms": 75832.8
+    }
+  ]
+}

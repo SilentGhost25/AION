@@ -1,0 +1,30 @@
+{
+  "request_id": "0c64ba34-699",
+  "subject": "Cloud Computing & Big Data Analytics",
+  "model": "qwen2.5:14b",
+  "status": "complete",
+  "started_at": "2026-09-01T11:58:14.175158",
+  "finished_at": "2026-09-01T12:03:02.125820",
+  "fail_reason": null,
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-09-01T11:58:14.183561",
+      "metrics": {
+        "subject": "Cloud Computing & Big Data Analytics",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "PASS",
+      "time": "2026-09-01T12:03:02.125807",
+      "metrics": {
+        "questions": 5
+      },
+      "duration_ms": 287636.9
+    }
+  ]
+}

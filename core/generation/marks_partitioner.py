@@ -73,26 +73,7 @@ def parse_marks(
         if digits and sum(digits) == total:
             return digits
 
-    sq_c = None
-    if isinstance(sub_question_count, int) and sub_question_count > 0:
-        sq_c = sub_question_count
-    elif isinstance(sub_question_count, list) and sub_question_count:
-        sq_c = sub_question_count[0]
-    elif raw and str(raw).isdigit():
-        sq_c = int(raw)
-
-    if sq_c:
-        if total == 10:
-            if sq_c == 1: return [10]
-            if sq_c == 2: return [5, 5]
-            if sq_c == 3: return [4, 3, 3]
-            if sq_c == 4: return [3, 3, 2, 2]
-        else:
-            if sq_c == 1: return [20]
-            if sq_c == 2: return [10, 10]
-            if sq_c == 3: return [8, 6, 6]
-            if sq_c == 4: return [5, 5, 5, 5]
-
+    # Do not invent a split from sub_question_count / empty raw.
     return None
 
 
@@ -106,12 +87,8 @@ def resolve_partition(parts: int = 2, total_marks: int = 10, user_pref: Optional
         if parsed and sum(parsed) == total_marks:
             return parsed
 
-    if parts <= 1:
-        return [total_marks]
-
-    base = total_marks // parts
-    remainder = total_marks % parts
-    return [base + (1 if i < remainder else 0) for i in range(parts)]
+    # No user split locked — do not invent [5,5]
+    return [total_marks]
 
 
 parse_user_split = parse_marks

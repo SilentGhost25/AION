@@ -1,0 +1,28 @@
+{
+  "request_id": "cbbfd1c2-a6f",
+  "subject": "Cloud computing and Big Data",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-09-01T06:45:40.687824",
+  "finished_at": "2026-09-01T06:48:44.853161",
+  "fail_reason": "expected string or bytes-like object, got 'NoneType'",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-09-01T06:45:40.697168",
+      "metrics": {
+        "subject": "Cloud computing and Big Data",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-09-01T06:48:44.842625",
+      "message": "expected string or bytes-like object, got 'NoneType'",
+      "duration_ms": 183839.8
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "request_id": "26417291-503",
+  "subject": "Database Management System",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-31T07:40:44.653250",
+  "finished_at": "2026-08-31T07:41:10.306817",
+  "fail_reason": "Slot module_1_Q4_a regeneration exhausted after 4 attempts. Failures: ['MATH_POLICY_VIOLATION', 'MATH_POLICY_VIOLATION', 'MATH_RENDER_FAILURE', 'MATH_RENDER_FAILURE']",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-31T07:40:44.654435",
+      "metrics": {
+        "subject": "Database Management System",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-31T07:41:10.305051",
+      "message": "Slot module_1_Q4_a regeneration exhausted after 4 attempts. Failures: ['MATH_POLICY_VIOLATION', 'MATH_POLICY_VIOLATION', 'MATH_RENDER_FAILURE', 'MATH_RENDER_FAILURE']",
+      "duration_ms": 25348.9
+    }
+  ]
+}

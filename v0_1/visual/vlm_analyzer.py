@@ -117,7 +117,7 @@ class VLMAnalyzer:
                 img_b64 = img_b64,
                 options = {
                     "temperature": 0.05,  # Very low for JSON
-                    "num_predict": 300,
+                    "num_predict": 200,
                     "num_ctx":     1024,
                 }
             )
@@ -150,7 +150,7 @@ class VLMAnalyzer:
                 img_b64 = img_b64,
                 options = {
                     "temperature": 0.2,
-                    "num_predict": 250,
+                    "num_predict": 200,
                     "num_ctx":     1024,
                 }
             )

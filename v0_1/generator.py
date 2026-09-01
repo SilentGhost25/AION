@@ -1,3 +1,19 @@
+from __future__ import annotations
+def _visual_constraint(equations=None, images=None):
+    eqs = equations or []
+    imgs = images or []
+    if not eqs and not imgs:
+        return ''
+    eqb = '\n'.join(f'  eq_{i+1}: {e}' for i,e in enumerate(eqs[:8])) or '  (none)'
+    imb = '\n'.join(f'  {p}' for p in imgs[:8]) or '  (none)'
+    return (
+        '\n=== SOURCE VISUALS & EQUATIONS (MANDATORY) ===\n'
+        'Use ONLY these extracted equations/figures. Put latex in math_blocks as [MATH:eq_k].\n'
+        'If an image path is given, set image_path and say Refer to the figure.\n'
+        'Do NOT invent other subjects.\nEQUATIONS:\n' + eqb +
+        '\nIMAGES:\n' + imb + '\n==============================================\n'
+    )
+
 """
 AION Module: Question Generator
 Integrates: difficulty levels, formula inclusion,
@@ -5,7 +21,6 @@ Integrates: difficulty levels, formula inclusion,
 Max 3 sub-questions per main question.
 """
 
-from __future__ import annotations
 from core.generation.marks_partitioner import get_user_split
 
 import os
@@ -239,6 +254,21 @@ def get_vtu_vibe_question(
     Generate a single text-based question.
     Automatically detects and includes formulas from chunk.
     """
+    try:
+        import aion_patch as _ap
+        _figs = list(getattr(_ap, "_ACTIVE_DIAGRAMS", None) or [])
+    except Exception:
+        _figs = []
+    _img_paths = []
+    for _d in _figs:
+        if isinstance(_d, dict):
+            _ip = _d.get("image_path") or _d.get("path") or ""
+        else:
+            _ip = getattr(_d, "image_path", "") or ""
+        if _ip:
+            _img_paths.append(_ip)
+    _visual_add = _visual_constraint(images=_img_paths) if _img_paths else ""
+
     dm   = diff_manager or DifficultyManager.from_string(difficulty)
     verb = dm.get_verb(difficulty, bloom)
     hint = dm.get_hint(difficulty)
@@ -252,7 +282,7 @@ def get_vtu_vibe_question(
             f"{format_formula_for_prompt(best)}\n\n"
         )
 
-    prompt = _TEXT_PROMPT.format(
+    prompt = (_visual_add or "") + _TEXT_PROMPT.format(
         chunk            = chunk[:1000],
         formula_section  = formula_section,
         marks            = marks,
@@ -308,6 +338,40 @@ def get_visual_question(
     Generate a question that requires examining a figure.
     Returns None if generation fails verification.
     """
+    # Bind extracted figures into the LLM prompt (mandatory figure use)
+    try:
+        import aion_patch as _ap
+        _figs = list(getattr(_ap, "_ACTIVE_DIAGRAMS", None) or [])
+    except Exception:
+        _figs = []
+    _visual_add = ""
+    if _figs:
+        _paths = []
+        for _d in _figs[:8]:
+            if isinstance(_d, dict):
+                _ip = _d.get("image_path") or _d.get("path") or ""
+                _cap = _d.get("caption") or _d.get("label") or ""
+            else:
+                _ip = getattr(_d, "image_path", "") or ""
+                _cap = getattr(_d, "caption", "") or ""
+            if _ip:
+                _paths.append(f"- {_cap}: {_ip}")
+        if _paths:
+            _visual_add = (
+                "\n=== SOURCE FIGURES (MANDATORY) ===\n"
+                "You MUST use at least one of these extracted figures.\n"
+                "In question_text say \"With reference to the given figure...\".\n"
+                "In the JSON set BOTH image_path and associated_image to the exact file path.\n"
+                + "\n".join(_paths) +
+                "\nDo NOT invent other subjects or figures.\n"
+                "===================================\n"
+            )
+    if "_visual_constraint" in globals() and _figs:
+        try:
+            _visual_add = _visual_constraint(_figs) + "\n" + _visual_add
+        except Exception:
+            pass
+
     dm   = diff_manager or DifficultyManager.from_string(difficulty)
     verb = dm.get_verb(difficulty, bloom)
 
@@ -329,7 +393,7 @@ def get_visual_question(
                 f"{format_formula_for_prompt(best)}\n"
             )
 
-    prompt = _VISUAL_PROMPT.format(
+    prompt = (_visual_add or "") + _VISUAL_PROMPT.format(
         facts           = facts_text,
         visual_type     = card.visual_type,
         formula_section = formula_section,
@@ -393,6 +457,40 @@ def _tokens_for_marks(marks: int) -> int:
 
 def generate_turbo(concept, marks: int = 5) -> GeneratedQuestion:
     """Legacy backward compatibility wrapper."""
+    # Bind extracted figures into the LLM prompt (mandatory figure use)
+    try:
+        import aion_patch as _ap
+        _figs = list(getattr(_ap, "_ACTIVE_DIAGRAMS", None) or [])
+    except Exception:
+        _figs = []
+    _visual_add = ""
+    if _figs:
+        _paths = []
+        for _d in _figs[:8]:
+            if isinstance(_d, dict):
+                _ip = _d.get("image_path") or _d.get("path") or ""
+                _cap = _d.get("caption") or _d.get("label") or ""
+            else:
+                _ip = getattr(_d, "image_path", "") or ""
+                _cap = getattr(_d, "caption", "") or ""
+            if _ip:
+                _paths.append(f"- {_cap}: {_ip}")
+        if _paths:
+            _visual_add = (
+                "\n=== SOURCE FIGURES (MANDATORY) ===\n"
+                "You MUST use at least one of these extracted figures.\n"
+                "In question_text say \"With reference to the given figure...\".\n"
+                "In the JSON set BOTH image_path and associated_image to the exact file path.\n"
+                + "\n".join(_paths) +
+                "\nDo NOT invent other subjects or figures.\n"
+                "===================================\n"
+            )
+    if "_visual_constraint" in globals() and _figs:
+        try:
+            _visual_add = _visual_constraint(_figs) + "\n" + _visual_add
+        except Exception:
+            pass
+
     chunk = concept.get("content") if isinstance(concept, dict) else getattr(concept, "content", "")
     q = get_vtu_vibe_question(chunk, marks, 2)
     return GeneratedQuestion(
@@ -406,6 +504,40 @@ def generate_turbo(concept, marks: int = 5) -> GeneratedQuestion:
 
 def generate(concept: Concept, mode: str = "balanced") -> GeneratedQuestion:
     """Full question object generator."""
+    # Bind extracted figures into the LLM prompt (mandatory figure use)
+    try:
+        import aion_patch as _ap
+        _figs = list(getattr(_ap, "_ACTIVE_DIAGRAMS", None) or [])
+    except Exception:
+        _figs = []
+    _visual_add = ""
+    if _figs:
+        _paths = []
+        for _d in _figs[:8]:
+            if isinstance(_d, dict):
+                _ip = _d.get("image_path") or _d.get("path") or ""
+                _cap = _d.get("caption") or _d.get("label") or ""
+            else:
+                _ip = getattr(_d, "image_path", "") or ""
+                _cap = getattr(_d, "caption", "") or ""
+            if _ip:
+                _paths.append(f"- {_cap}: {_ip}")
+        if _paths:
+            _visual_add = (
+                "\n=== SOURCE FIGURES (MANDATORY) ===\n"
+                "You MUST use at least one of these extracted figures.\n"
+                "In question_text say \"With reference to the given figure...\".\n"
+                "In the JSON set BOTH image_path and associated_image to the exact file path.\n"
+                + "\n".join(_paths) +
+                "\nDo NOT invent other subjects or figures.\n"
+                "===================================\n"
+            )
+    if "_visual_constraint" in globals() and _figs:
+        try:
+            _visual_add = _visual_constraint(_figs) + "\n" + _visual_add
+        except Exception:
+            pass
+
     chunk = getattr(concept, "content", "") or getattr(concept, "canonical_definition", "")
     q = get_vtu_vibe_question(chunk, 10, 3)
     return GeneratedQuestion(

@@ -1,0 +1,28 @@
+{
+  "request_id": "34ea8180-4e1",
+  "subject": "DBMS",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-09-01T04:20:17.535470",
+  "finished_at": "2026-09-01T04:22:58.554308",
+  "fail_reason": "Slot module_5_Q3_a regeneration exhausted after 4 attempts. Failures: ['ANSWERABILITY_FAILURE', 'SIBLING_SIMILARITY', 'SIBLING_SIMILARITY', 'SIBLING_SIMILARITY']",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-09-01T04:20:17.537546",
+      "metrics": {
+        "subject": "DBMS",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-09-01T04:22:58.552159",
+      "message": "Slot module_5_Q3_a regeneration exhausted after 4 attempts. Failures: ['ANSWERABILITY_FAILURE', 'SIBLING_SIMILARITY', 'SIBLING_SIMILARITY', 'SIBLING_SIMILARITY']",
+      "duration_ms": 160712.7
+    }
+  ]
+}

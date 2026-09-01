@@ -1,0 +1,28 @@
+{
+  "request_id": "d807eef3-97d",
+  "subject": "DBMS",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-31T11:07:48.532809",
+  "finished_at": "2026-08-31T11:10:06.366028",
+  "fail_reason": "Slot module_3_Q3_b failed with BLOOM_VERB_NOT_AT_START 3 consecutive times. Recovery not converging \u2014 blocking slot.",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-31T11:07:48.533991",
+      "metrics": {
+        "subject": "DBMS",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-31T11:10:06.363875",
+      "message": "Slot module_3_Q3_b failed with BLOOM_VERB_NOT_AT_START 3 consecutive times. Recovery not converging \u2014 blocking slot.",
+      "duration_ms": 137528.2
+    }
+  ]
+}

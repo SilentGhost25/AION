@@ -15,17 +15,17 @@ import threading
 
 warnings.filterwarnings("ignore")
 
-_GLOBAL_DESIRED_SPLIT = [5, 5]
+_GLOBAL_DESIRED_SPLIT = None
 _LOCK = threading.Lock()
 
 def set_active_desired_split(split, exam_type="IAT1"):
     global _GLOBAL_DESIRED_SPLIT
     with _LOCK:
-        _GLOBAL_DESIRED_SPLIT = list(split)
+        _GLOBAL_DESIRED_SPLIT = list(split) if split else None if split else None
 
 def get_active_desired_split():
     with _LOCK:
-        return list(_GLOBAL_DESIRED_SPLIT)
+        return list(_GLOBAL_DESIRED_SPLIT) if _GLOBAL_DESIRED_SPLIT else None if _GLOBAL_DESIRED_SPLIT else None
 
 # ---------------------------------------------------------------------------
 # [1] Marks Parsing
@@ -56,7 +56,7 @@ def parse_desired_split(raw_marks, exam_type="IAT1"):
         if digits and sum(digits) == target_sum:
             return digits
 
-    return [10, 10] if is_see else [5, 5]
+    return None
 
 # ---------------------------------------------------------------------------
 # [2] Surgical Partition Table Replacement
@@ -67,6 +67,8 @@ def patch_partition_table():
         import v0_1.main as main_module
         
         desired = get_active_desired_split()
+        if not desired:
+            return
         part_count = len(desired)
         
         # Replace PARTITION_TABLE constant
@@ -74,8 +76,8 @@ def patch_partition_table():
             # Create new table where every count maps to user's choice
             new_table = {
                 1: [[10]] if sum(desired) == 10 else [[20]],
-                2: [desired] if part_count == 2 else [[6, 4]],
-                3: [desired] if part_count == 3 else [[4, 3, 3]]
+                2: [desired] if part_count == 2 and desired else [[6, 4]],
+                3: [desired] if part_count == 3 else [desired]
             }
             main_module.PARTITION_TABLE = new_table
             print(f"[HOTFIX] Replaced PARTITION_TABLE: all counts now map to {desired}")

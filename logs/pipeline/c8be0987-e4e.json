@@ -1,0 +1,28 @@
+{
+  "request_id": "c8be0987-e4e",
+  "subject": "DBMS",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-31T08:34:43.886268",
+  "finished_at": "2026-08-31T08:35:20.485181",
+  "fail_reason": "Slot module_1_Q3_a failed with TEACHER_SUITABILITY_FAILURE 3 consecutive times. Recovery not converging \u2014 blocking slot.",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-31T08:34:43.887451",
+      "metrics": {
+        "subject": "DBMS",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-31T08:35:20.483941",
+      "message": "Slot module_1_Q3_a failed with TEACHER_SUITABILITY_FAILURE 3 consecutive times. Recovery not converging \u2014 blocking slot.",
+      "duration_ms": 36294.8
+    }
+  ]
+}

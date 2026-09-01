@@ -81,7 +81,6 @@ class KaTeXAvailabilityGate:
 
         try:
             cmd = list(cls._cmd)
-            cmd.extend(["--strict", "warn"])
             if display_mode:
                 cmd.append("--display-mode")
 

@@ -33,7 +33,7 @@ def get_server_llm():
 
     # Server-optimized generation options
     caller._server_options = {
-        "num_predict":    800,
+        "num_predict": 200,
         "temperature":    0.1,
         "top_p":          0.9,
         "top_k":          20,

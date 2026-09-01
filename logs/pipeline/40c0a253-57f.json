@@ -1,0 +1,28 @@
+{
+  "request_id": "40c0a253-57f",
+  "subject": "IAI",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-28T10:39:55.350955",
+  "finished_at": "2026-08-28T10:39:55.676387",
+  "fail_reason": "cannot access local variable '_sp' where it is not associated with a value",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-28T10:39:55.354163",
+      "metrics": {
+        "subject": "IAI",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-28T10:39:55.676166",
+      "message": "cannot access local variable '_sp' where it is not associated with a value",
+      "duration_ms": 19.5
+    }
+  ]
+}

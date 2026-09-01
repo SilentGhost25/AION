@@ -1,83 +1,218 @@
 {
   "Sat Com": {
     "module_1": {
-      "times_covered": 76,
+      "times_covered": 78,
       "topics": [],
-      "last_covered": "2026-08-22T11:54:18.841891"
+      "last_covered": "2026-09-01T07:46:58.359147"
     },
     "module_2": {
-      "times_covered": 73,
+      "times_covered": 75,
       "topics": [],
-      "last_covered": "2026-08-22T11:54:18.841932"
+      "last_covered": "2026-09-01T07:46:58.359185"
     },
     "module_3": {
-      "times_covered": 73,
+      "times_covered": 75,
       "topics": [],
-      "last_covered": "2026-08-22T11:54:18.841953"
+      "last_covered": "2026-09-01T07:46:58.359211"
     },
     "module_4": {
-      "times_covered": 73,
+      "times_covered": 75,
       "topics": [],
-      "last_covered": "2026-08-22T11:54:18.841971"
+      "last_covered": "2026-09-01T07:46:58.359227"
     },
     "module_5": {
-      "times_covered": 73,
+      "times_covered": 75,
       "topics": [],
-      "last_covered": "2026-08-22T11:54:18.841989"
+      "last_covered": "2026-09-01T07:46:58.359247"
     }
   },
   "Database Management System": {
     "module_1": {
-      "times_covered": 8,
+      "times_covered": 9,
       "topics": [],
-      "last_covered": "2026-08-22T10:46:31.731397"
+      "last_covered": "2026-08-31T07:36:22.141626"
     },
     "module_2": {
-      "times_covered": 8,
+      "times_covered": 9,
       "topics": [],
-      "last_covered": "2026-08-22T10:46:31.731420"
+      "last_covered": "2026-08-31T07:36:22.141655"
     },
     "module_3": {
-      "times_covered": 8,
+      "times_covered": 9,
       "topics": [],
-      "last_covered": "2026-08-22T10:46:31.731438"
+      "last_covered": "2026-08-31T07:36:22.141679"
     },
     "module_4": {
-      "times_covered": 8,
+      "times_covered": 9,
       "topics": [],
-      "last_covered": "2026-08-22T10:46:31.731449"
+      "last_covered": "2026-08-31T07:36:22.141696"
     },
     "module_5": {
-      "times_covered": 8,
+      "times_covered": 9,
       "topics": [],
-      "last_covered": "2026-08-22T10:46:31.731476"
+      "last_covered": "2026-08-31T07:36:22.141709"
     }
   },
   "IAI": {
     "module_1": {
-      "times_covered": 7,
+      "times_covered": 11,
       "topics": [],
-      "last_covered": "2026-08-22T12:11:27.759338"
+      "last_covered": "2026-08-28T12:13:42.280351"
     },
     "module_2": {
-      "times_covered": 7,
+      "times_covered": 11,
       "topics": [],
-      "last_covered": "2026-08-22T12:11:27.759374"
+      "last_covered": "2026-08-28T12:13:42.280390"
     },
     "module_3": {
-      "times_covered": 7,
+      "times_covered": 11,
       "topics": [],
-      "last_covered": "2026-08-22T12:11:27.759394"
+      "last_covered": "2026-08-28T12:13:42.280410"
     },
     "module_4": {
-      "times_covered": 7,
+      "times_covered": 11,
       "topics": [],
-      "last_covered": "2026-08-22T12:11:27.759414"
+      "last_covered": "2026-08-28T12:13:42.280426"
     },
     "module_5": {
-      "times_covered": 7,
+      "times_covered": 11,
       "topics": [],
-      "last_covered": "2026-08-22T12:11:27.759433"
+      "last_covered": "2026-08-28T12:13:42.280446"
+    }
+  },
+  "Operating System": {
+    "module_1": {
+      "times_covered": 14,
+      "topics": [],
+      "last_covered": "2026-08-31T06:14:13.921789"
+    },
+    "module_2": {
+      "times_covered": 14,
+      "topics": [],
+      "last_covered": "2026-08-31T06:14:13.921823"
+    },
+    "module_3": {
+      "times_covered": 14,
+      "topics": [],
+      "last_covered": "2026-08-31T06:14:13.921847"
+    },
+    "module_4": {
+      "times_covered": 14,
+      "topics": [],
+      "last_covered": "2026-08-31T06:14:13.921864"
+    },
+    "module_5": {
+      "times_covered": 14,
+      "topics": [],
+      "last_covered": "2026-08-31T06:14:13.921878"
+    }
+  },
+  "DBMS": {
+    "module_1": {
+      "times_covered": 23,
+      "topics": [],
+      "last_covered": "2026-09-01T05:55:03.573339"
+    },
+    "module_2": {
+      "times_covered": 23,
+      "topics": [],
+      "last_covered": "2026-09-01T05:55:03.573371"
+    },
+    "module_3": {
+      "times_covered": 23,
+      "topics": [],
+      "last_covered": "2026-09-01T05:55:03.573399"
+    },
+    "module_4": {
+      "times_covered": 23,
+      "topics": [],
+      "last_covered": "2026-09-01T05:55:03.573418"
+    },
+    "module_5": {
+      "times_covered": 23,
+      "topics": [],
+      "last_covered": "2026-09-01T05:55:03.573438"
+    }
+  },
+  "Cloud computing and Big Data": {
+    "module_1": {
+      "times_covered": 4,
+      "topics": [],
+      "last_covered": "2026-09-01T07:19:26.781287"
+    },
+    "module_2": {
+      "times_covered": 4,
+      "topics": [],
+      "last_covered": "2026-09-01T07:19:26.781308"
+    },
+    "module_3": {
+      "times_covered": 4,
+      "topics": [],
+      "last_covered": "2026-09-01T07:19:26.781325"
+    },
+    "module_4": {
+      "times_covered": 4,
+      "topics": [],
+      "last_covered": "2026-09-01T07:19:26.781336"
+    },
+    "module_5": {
+      "times_covered": 4,
+      "topics": [],
+      "last_covered": "2026-09-01T07:19:26.781351"
+    }
+  },
+  "Cloud Computing & Big Data Analytics": {
+    "module_1": {
+      "times_covered": 6,
+      "topics": [],
+      "last_covered": "2026-09-01T12:18:01.995944"
+    },
+    "module_2": {
+      "times_covered": 6,
+      "topics": [],
+      "last_covered": "2026-09-01T12:18:01.995976"
+    },
+    "module_3": {
+      "times_covered": 6,
+      "topics": [],
+      "last_covered": "2026-09-01T12:18:01.995991"
+    },
+    "module_4": {
+      "times_covered": 6,
+      "topics": [],
+      "last_covered": "2026-09-01T12:18:01.996007"
+    },
+    "module_5": {
+      "times_covered": 6,
+      "topics": [],
+      "last_covered": "2026-09-01T12:18:01.996019"
+    }
+  },
+  "IOT Agriculture and Health care": {
+    "module_1": {
+      "times_covered": 3,
+      "topics": [],
+      "last_covered": "2026-09-01T12:36:45.960589"
+    },
+    "module_2": {
+      "times_covered": 3,
+      "topics": [],
+      "last_covered": "2026-09-01T12:36:45.960618"
+    },
+    "module_3": {
+      "times_covered": 3,
+      "topics": [],
+      "last_covered": "2026-09-01T12:36:45.960633"
+    },
+    "module_4": {
+      "times_covered": 3,
+      "topics": [],
+      "last_covered": "2026-09-01T12:36:45.960645"
+    },
+    "module_5": {
+      "times_covered": 3,
+      "topics": [],
+      "last_covered": "2026-09-01T12:36:45.960660"
     }
   }
 }

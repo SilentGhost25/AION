@@ -1,0 +1,30 @@
+{
+  "request_id": "a12ad2a2-194",
+  "subject": "IAI",
+  "model": "qwen2.5:14b",
+  "status": "complete",
+  "started_at": "2026-08-28T12:11:42.809337",
+  "finished_at": "2026-08-28T12:13:42.277745",
+  "fail_reason": null,
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-28T12:11:42.811674",
+      "metrics": {
+        "subject": "IAI",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "PASS",
+      "time": "2026-08-28T12:13:42.277733",
+      "metrics": {
+        "questions": 5
+      },
+      "duration_ms": 119163.8
+    }
+  ]
+}

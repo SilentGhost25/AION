@@ -1,0 +1,30 @@
+{
+  "request_id": "c5254eff-e5a",
+  "subject": "DBMS",
+  "model": "qwen2.5:14b",
+  "status": "complete",
+  "started_at": "2026-08-31T10:50:04.865372",
+  "finished_at": "2026-08-31T10:54:00.530953",
+  "fail_reason": null,
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-31T10:50:04.866572",
+      "metrics": {
+        "subject": "DBMS",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "PASS",
+      "time": "2026-08-31T10:54:00.530938",
+      "metrics": {
+        "questions": 5
+      },
+      "duration_ms": 235362.7
+    }
+  ]
+}

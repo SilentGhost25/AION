@@ -1,0 +1,28 @@
+{
+  "request_id": "5647f6e6-7e0",
+  "subject": "Sat Com",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-09-01T07:48:01.226679",
+  "finished_at": "2026-09-01T07:54:17.528548",
+  "fail_reason": "[EXPORT GATE] FAILED: Slot module_1_Q4_a has math render failure for block calc_1: Block calc_1: KaTeX render failed: /home/AIML1/.npm/_npx/8c2cfac42696c54b/node_modules/katex/dist/katex.js:17558",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-09-01T07:48:01.229916",
+      "metrics": {
+        "subject": "Sat Com",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-09-01T07:54:17.527347",
+      "message": "[EXPORT GATE] FAILED: Slot module_1_Q4_a has math render failure for block calc_1: Block calc_1: KaTeX render failed: /home/AIML1/.npm/_npx/8c2cfac42696c54b/node_modules/katex/dist/katex.js:17558",
+      "duration_ms": 375994.7
+    }
+  ]
+}

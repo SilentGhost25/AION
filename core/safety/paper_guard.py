@@ -56,17 +56,13 @@ class PaperSafetyGuard:
                 else:
                     target_total = raw_m
 
-                # Determine active split to apply
+                # Only rewrite marks when the user actually locked a split
                 if active_split and sum(active_split) == target_total:
                     split_to_apply = list(active_split)
-                elif len(subs) == 2:
-                    split_to_apply = [5, 5] if target_total == 10 else [10, 10]
-                elif len(subs) == 3:
-                    split_to_apply = [4, 3, 3] if target_total == 10 else [8, 6, 6]
                 else:
-                    split_to_apply = [target_total]
+                    split_to_apply = None
 
-                if subs:
+                if subs and split_to_apply:
                     for idx, sq in enumerate(subs):
                         if isinstance(sq, dict):
                             # Assign exact marks per sub-question

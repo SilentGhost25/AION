@@ -1,0 +1,17 @@
+{
+  "document_id": "f1ca9e44-a50",
+  "created_at": "2026-09-01T03:58:19.356475+00:00",
+  "source": {
+    "path": "/home/AIML1/AIQ/AION/workspace/uploads/f1ca9e44-a50/original.pdf",
+    "filename": "module 3 notes.pdf",
+    "mime_type": "application/pdf",
+    "size_bytes": 547403,
+    "sha256": "f20b360c5f783d88e52a46ec591ba251bd9dcd6c387e213bc8f82849f8fb199f",
+    "authoritative": true
+  },
+  "derived": {},
+  "extraction_status": "PENDING",
+  "extraction_report": null,
+  "status": "READY",
+  "status_changed_at": "2026-09-01T03:58:23.541097+00:00"
+}

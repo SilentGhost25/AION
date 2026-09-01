@@ -39,7 +39,7 @@ def diagnose() -> bool:
                 "model": "qwen2.5:7b",
                 "prompt": "OK",
                 "stream": False,
-                "options": {"num_predict": 1},
+                "options": {"num_predict": 200},
                 "keep_alive": 0,
             },
             timeout=10
@@ -91,7 +91,7 @@ def diagnose() -> bool:
                 "model": "qwen2.5:7b",
                 "prompt": "Say: Test OK",
                 "stream": False,
-                "options": {"num_predict": 10},
+                "options": {"num_predict": 200},
                 "keep_alive": 0,
             },
             timeout=15

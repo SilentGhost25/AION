@@ -76,6 +76,7 @@ export function Step3Preview({
     setPaper({ ...paper, questions: newQuestions })
   }
 
+<<<<<<< Updated upstream
   // Edit the text of a single Course Outcome (CO).
   const updateCO = (index: number, newText: string) => {
     const currentCOs = (courseOutcomes && courseOutcomes.length > 0)
@@ -89,6 +90,14 @@ export function Step3Preview({
         ]
     currentCOs[index] = newText
     setPaper({ ...paper, courseOutcomes: currentCOs })
+=======
+  // Editable Course Outcomes
+  const updateCO = (coIndex: number, newText: string) => {
+    const newCOs = (paper.courseOutcomes || []).map((co, i) =>
+      i === coIndex ? newText : co
+    )
+    setPaper({ ...paper, courseOutcomes: newCOs })
+>>>>>>> Stashed changes
   }
 
   return (
@@ -258,6 +267,7 @@ export function Step3Preview({
           <h3 className="font-bold text-sm text-black mb-2">Course Outcomes (COs): At the end of the Course, the Student will be able to:</h3>
           <table className="w-full border-collapse border border-black text-xs text-black">
             <tbody>
+<<<<<<< Updated upstream
               {((courseOutcomes && courseOutcomes.length > 0) ? courseOutcomes : [
                 "Understand fundamental concepts and theoretical foundations",
                 "Apply analytical methods and problem-solving techniques",
@@ -271,6 +281,17 @@ export function Step3Preview({
                     <AutoGrowTextarea
                       value={co}
                       onChange={v => updateCO(i, v)}
+=======
+              {(courseOutcomes || []).map((co, i) => (
+                <tr key={i}>
+                  <td className="border border-black p-1 font-bold w-[10%] text-center">CO{i+1}</td>
+                  <td className="border border-black p-1">
+                    <textarea
+                      value={co}
+                      onChange={(e) => updateCO(i, e.target.value)}
+                      className="w-full bg-transparent resize-none focus:outline-none min-h-[28px] hover:bg-slate-50 print:hover:bg-transparent print:resize-none transition-colors"
+                      rows={1}
+>>>>>>> Stashed changes
                     />
                   </td>
                 </tr>
@@ -279,7 +300,11 @@ export function Step3Preview({
           </table>
         </div>
 
+<<<<<<< Updated upstream
         {/* Coverage Tables side-by-side — visible only in preview, removed on export/print */}
+=======
+        {/* Coverage Tables side-by-side */}
+>>>>>>> Stashed changes
         <div className="flex gap-4 print-break-inside-avoid print:hidden">
           <div className="flex-1">
             <h3 className="font-bold text-sm text-black mb-2 text-center">Percentage of CO Coverage</h3>
@@ -561,7 +586,7 @@ function SegmentEditor({
           return <span key={i}>{seg.value}</span>
         })
       ) : (
-        <span>{rawText}</span>
+        <MathText text={rawText} />
       )}
     </div>
   )

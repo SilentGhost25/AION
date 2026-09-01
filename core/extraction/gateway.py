@@ -46,7 +46,27 @@ class DocumentArtifact(dict):
         self.text_blocks = kwargs.get("text_blocks", 0)
         
         raw_figs = kwargs.get("figures", [])
-        self.figures = raw_figs if isinstance(raw_figs, list) else []
+        # Ensure each figure has required bbox and image_path fields for ChunkImageMapper
+        if isinstance(raw_figs, list):
+            self.figures = []
+            for fig in raw_figs:
+                if isinstance(fig, dict):
+                    fig.setdefault("bbox", fig.get("bbox", fig.get("rect", [0, 0, 0, 0])))
+                    fig.setdefault("page", fig.get("page", 1))
+                    fig.setdefault("image_path", fig.get("image_path", fig.get("path", "")))
+                    fig.setdefault("caption", fig.get("caption", ""))
+                    self.figures.append(fig)
+                elif hasattr(fig, "__dict__"):
+                    # dataclass or object — convert to dict
+                    fd = vars(fig) if hasattr(fig, "__dict__") else {}
+                    fd.setdefault("bbox", fd.get("bbox", [0, 0, 0, 0]))
+                    fd.setdefault("page", fd.get("page", 1))
+                    fd.setdefault("image_path", fd.get("image_path", fd.get("path", "")))
+                    self.figures.append(fd)
+                else:
+                    pass  # never inject empty figure stubs
+        else:
+            self.figures = []
         self.figure_count = len(self.figures)
 
         raw_tbls = kwargs.get("tables", [])
@@ -236,7 +256,7 @@ class ExtractionGateway:
                 return DocumentArtifact(
                     text=content,
                     text_blocks=len(blocks),
-                    equations=["eq" for _ in range(max(inline_eq + block_eq, 14))],
+                    equations=[],
                     tables=["tbl" for _ in range(max(tables_cnt, 2))],
                     figures=[{"path": str(f)} for f in figs],
                     valid_chunks=len(blocks),
@@ -269,12 +289,18 @@ class ExtractionGateway:
             # Extract figures
             figures_list = []
             for f in getattr(result.document, "pictures", []):
-                figures_list.append({"page": getattr(f, "page_no", 1)})
+                fig_dict = {
+                    "page": getattr(f, "page_no", 1),
+                    "bbox": getattr(f, "bbox", getattr(f, "rect", [0,0,0,0])),
+                    "image_path": getattr(f, "image_path", getattr(f, "path", "")),
+                    "caption": getattr(f, "caption", ""),
+                }
+                figures_list.append(fig_dict)
                 
             return DocumentArtifact(
                 text=content,
                 text_blocks=len(blocks),
-                equations=["eq" for _ in range(max(inline_eq + block_eq, 14))],
+                equations=[],
                 tables=tables_list or ["tbl", "tbl"],
                 figures=figures_list,
                 valid_chunks=len(blocks),
@@ -314,7 +340,29 @@ class ExtractionGateway:
                 text = re.sub(r'(\b[a-zA-Z]\b)\s*=\s*([a-zA-Z0-9_\^]+)\s*/\s*([a-zA-Z0-9_\^]+)', r'$\1 = \\frac{\2}{\3}$', text)
                 pages_content.append(text)
                 for img_info in page.get_images(full=True):
-                    figures_list.append({"page": page_idx + 1, "image_xref": img_info[0]})
+                    try:
+                        xref = img_info[0]
+                        bbox = page.get_image_bbox(img_info)
+                        # Try to export the image
+                        img_path = ""
+                        try:
+                            import tempfile, os
+                            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), clip=bbox)
+                            tmp_dir = tempfile.mkdtemp(prefix="aion_figs_")
+                            img_path = os.path.join(tmp_dir, f"fig_p{page_idx+1}_{xref}.png")
+                            pix.save(img_path)
+                        except Exception:
+                            pass
+
+                        figures_list.append({
+                            "page": page_idx + 1,
+                            "bbox": list(bbox) if bbox else [0, 0, 0, 0],
+                            "image_path": img_path,
+                            "image_xref": xref,
+                            "caption": "",
+                        })
+                    except Exception:
+                        figures_list.append({"page": page_idx + 1, "bbox": [0,0,0,0], "image_path": "", "image_xref": img_info[0]})
         finally:
             doc.close()
 
@@ -333,7 +381,7 @@ class ExtractionGateway:
         return DocumentArtifact(
             text=full_content,
             text_blocks=len(blocks),
-            equations=["eq" for _ in range(max(inline_eq + block_eq, 14))],
+            equations=[],
             tables=["tbl" for _ in range(max(tables_cnt, 2))],
             figures=figures_list,
             valid_chunks=len(blocks),

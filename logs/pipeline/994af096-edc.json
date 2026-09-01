@@ -1,0 +1,28 @@
+{
+  "request_id": "994af096-edc",
+  "subject": "DBMS",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-09-01T04:15:33.984954",
+  "finished_at": "2026-09-01T04:17:27.966180",
+  "fail_reason": "MATH_RENDER_FAILURE",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-09-01T04:15:33.986111",
+      "metrics": {
+        "subject": "DBMS",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-09-01T04:17:27.964356",
+      "message": "MATH_RENDER_FAILURE",
+      "duration_ms": 113676.5
+    }
+  ]
+}

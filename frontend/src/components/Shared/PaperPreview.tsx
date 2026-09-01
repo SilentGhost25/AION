@@ -2,6 +2,7 @@ import React, { useRef } from "react";
 import { Trash2, ImagePlus, X, Plus } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import MathText from "./MathText";
 
 // ── Sub-part shape (for 6+4 or 5+5 splits) ────────────────────────────────────
 export interface QuestionSubPart {
@@ -337,7 +338,7 @@ export function PaperPreview({
                     {editable ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                         <Textarea
-                          value={q.text}
+                          value=<MathText text={q.text} />
                           onChange={e => update(idx, "text", e.target.value)}
                           placeholder="Enter question text…"
                           className="text-sm border-dashed border-blue-300 focus:border-blue-500 bg-white resize-none leading-snug"
@@ -404,7 +405,7 @@ export function PaperPreview({
                             ))}
                           </div>
                         ) : (
-                          <span style={{ fontSize: 10 }}>{q.text}</span>
+                          <span style={{ fontSize: 10 }}><MathText text={q.text} /></span>
                         )}
                         {q.diagram && (
                           <div style={{ marginTop: 8, textAlign: "center" }}>

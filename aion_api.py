@@ -218,7 +218,7 @@ def warmup_model():
             "keep_alive": -1,
             "stream":     False,
             "options":    {
-                "num_predict": 1,
+                "num_predict": 200,
                 "num_ctx":     2048  # Force context on load
             }
         }).encode("utf-8")
@@ -465,7 +465,7 @@ def ready():
                     "prompt": "healthcheck",
                     "stream": False,
                     "options": {
-                        "num_predict": 1
+                        "num_predict": 200
                     }
                 },
                 timeout=5
@@ -840,7 +840,7 @@ def generate_stream():
             # Stage 3: Extraction / Evidence Validation
             yield _sse("stage_update", {
                 "stage": "extraction",
-                "message": f"Extracting from original source {Path(file_path).name}..."
+                "message": f"Extracting from original source {Path(file_path).name if file_path else 'unknown'}..."
             })
             time.sleep(0.1)
 

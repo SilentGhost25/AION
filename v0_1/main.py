@@ -259,6 +259,7 @@ def run_pipeline(
     sub_question_count: Optional[int] = None,  # 1, 2, or 3 — user-specified
     marks_split:        Optional[List[List[int]]] = None,  # User-specified marks partitions
 ) -> Tuple[List[dict], List[dict]]:
+    artifact = None
     """
     Saves and generates an aligned VTU Question Paper grouped strictly by Module.
     Generates exactly 4 main questions per module.
@@ -380,7 +381,7 @@ def run_pipeline(
                 print(f"[PIPELINE] Ingesting file: {file_item.name} ...")
                 try:
                     val_file_path = upload(str(file_item))
-                    doc = extract(val_file_path)
+                    doc = extract(val_file_path, extract_images=False)
                     # Decode raw bytes with UTF-8 to prevent charmap failures on non-ASCII
                     if hasattr(doc, 'raw_text'):
                         content = doc.raw_text
@@ -429,7 +430,7 @@ def run_pipeline(
         else:
             try:
                 from core.extraction.gateway import ExtractionGateway, ExtractionError
-                artifact = ExtractionGateway.extract(validated_path)
+                artifact = ExtractionGateway.extract(validated_path, extract_images=False)
                 valid_chunks = [c for c in artifact.chunks if c.is_retrieval_eligible()]
                 content = "\n\n".join(c.text for c in valid_chunks)
 
@@ -452,7 +453,7 @@ def run_pipeline(
                 raise RuntimeError(f"Extraction Hard Stop: [{ee.code}] {ee.message}")
             except Exception as ex:
                 print(f"[EXTRACTION FALLBACK] Gateway error: {ex}")
-                raw_document = extract(validated_path)
+                raw_document = extract(validated_path, extract_images=False)
                 content = raw_document.raw_text
 
             # Modular Academic Validation Gate
@@ -474,15 +475,13 @@ def run_pipeline(
 
     print(f"[SEGMENTER] Identified {len(modules)} Modules/Chapters in source material.")
 
-    # Reuse artifact from earlier extraction (do not call ExtractionGateway again)
+    # Reuse artifact from earlier extraction if present
     if artifact is None:
         try:
             from core.extraction.gateway import ExtractionGateway
-            if artifact is None: artifact = ExtractionGateway.extract(file_path)
+            artifact = ExtractionGateway.extract(file_path, extract_images=False)
         except Exception as e:
             print(f"[EXTRACTION GATEWAY] Extraction failed: {e}")
-
-    # 2. Extract Visual Figures & Build Proximity Chunk Map
     mapper   = None
     selector = None
 

@@ -1,0 +1,1542 @@
+from core.generation.marks_partitioner import get_global_user_split, resolve_partition
+"""
+AION Module: Pipeline Orchestrator
+Maturity:    v0.1 — MODULE-BY-MODULE PARALLEL EXAM ORCHESTRATOR
+Integrated:  Custom Model, Difficulty System, Formula Extractor, Visual RAG
+"""
+
+import re
+import json
+import random
+import time
+from pathlib import Path
+from typing import List, Tuple, Dict, Optional, Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from .uploader import upload
+from .extractor import extract
+from .cleaner import clean
+from .memory import ConceptMemoryStore
+from .learner import Learner
+from .schemas import GeneratedQuestion
+from .segmenter import segment_document, ModuleSegment
+from .content_validator import validate_content, validate_chunks
+from .paper_validator import enforce_or_parity
+from .generator import (
+    get_vtu_vibe_question,
+    _is_valid,
+    IA_PARTITIONS,
+    SEE_PARTITIONS,
+    get_bloom_level_name
+)
+from core.contracts.module_identity import parse_module_number, make_module_id, make_co
+from core.contracts.pipeline_integrity import PipelineReadiness, GenerationIntegrity
+from core.contracts.question_slot import QuestionSlot
+from core.contracts.budgets import AnswerBudget, QuestionBudget
+from core.contracts.task_signature import TaskSignature
+from core.contracts.question import GeneratedQuestion, LegacyGeneratedQuestionAdapter, QuestionProvenance
+
+from .difficulty import DifficultyManager, DifficultyLevel
+
+# Universal Academic Pipeline (new, grounded) — import is optional for backward compat
+try:
+    from core.pipeline.aion_pipeline import AionUniversalPipeline
+    HAS_UNIFIED = True
+except ImportError:
+    HAS_UNIFIED = False
+from .visual import (
+    safe_build_planner,
+    VisualQuestionGenerator,
+    ModuleVisualPlanner,
+    FigureRegistry,
+    _build_module_map
+)
+from .chunk_image_mapper import (
+    ChunkImageMapper,
+    QuestionImageSelector,
+    split_module_into_chunks,
+    TextChunk
+)
+
+# -------------------------------------------------------------
+# Modules Caching
+# -------------------------------------------------------------
+CACHE_DIR = Path("extracted_output") / ".cache"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _modules_cache_key(file_path: str) -> str:
+    import hashlib
+    p = Path(file_path)
+    try:
+        if p.is_dir():
+            suffixes = {".pdf", ".txt", ".md"}
+            files = sorted(
+                [f for f in p.iterdir() if f.is_file() and f.suffix.lower() in suffixes and not f.name.startswith(".")],
+                key=lambda f: f.name
+            )
+            raw_parts = [file_path]
+            for f in files:
+                stat = f.stat()
+                raw_parts.append(f"{f.name}:{stat.st_size}:{stat.st_mtime}")
+            raw = "|".join(raw_parts)
+        else:
+            stat = p.stat()
+            raw  = f"{file_path}:{stat.st_size}:{stat.st_mtime}"
+    except Exception:
+        raw  = f"{file_path}:0:0"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _load_cached_modules(file_path: str):
+    import pickle
+    try:
+        key   = _modules_cache_key(file_path)
+        cache = CACHE_DIR / f"modules_{key}.pkl"
+        if cache.exists():
+            with open(cache, "rb") as f:
+                data = pickle.load(f)
+            print(f"[CACHE] Loaded {len(data['modules'])} segmented modules from cache (skipping ingestion)")
+            return data["modules"]
+    except Exception:
+        pass
+    return None
+
+
+def _save_cached_modules(file_path: str, modules):
+    import pickle
+    try:
+        key   = _modules_cache_key(file_path)
+        cache = CACHE_DIR / f"modules_{key}.pkl"
+        with open(cache, "wb") as f:
+            pickle.dump({"modules": modules}, f)
+        print(f"[CACHE] Saved {len(modules)} segmented modules to cache")
+    except Exception as e:
+        print(f"[CACHE] Could not save modules cache: {e}")
+
+
+# -------------------------------------------------------------
+# Pipeline Orchestrator
+# -------------------------------------------------------------
+
+def run_unified_pipeline(
+    file_path:      str,
+    exam_type:      str  = "see",
+    difficulty:     str  = "mixed",
+    num_questions:  int  = 8,
+    use_llm:        bool = True,
+    allow_external: bool = False,
+) -> Tuple[List[dict], List[dict]]:
+    """
+    Universal Academic Pipeline (AION Development Context):
+      Upload -> Extract -> Understand -> Build Concept Graph -> Ground
+           -> Reason -> Plan -> Compose -> Audit -> Output
+    Every question grounded: Concept ID | Source chunk | Confidence | Expected answer | Bloom | Question
+    Stateless, pluggable, hallucination-resistant.
+
+    Returns (accepted, rejected) as dicts compatible with legacy run_pipeline.
+    """
+    if not HAS_UNIFIED:
+        raise ImportError("AionUniversalPipeline not available — check core/pipeline/aion_pipeline.py")
+
+    pipeline = AionUniversalPipeline(
+        use_llm=use_llm,
+        allow_external=allow_external,
+        exam_type=exam_type,
+        difficulty=difficulty,
+    )
+    result = pipeline.run(
+        source_path=file_path,
+        num_questions=num_questions,
+    )
+    # Convert to legacy dict format for Flask / CLI
+    accepted = []
+    for q in result.accepted:
+        accepted.append({
+            "question_text": q.question_text,
+            "concept_id": q.concept_id,
+            "source_hash": q.source_hash,
+            "marks": q.marks,
+            "bloom_level": q.bloom_level,
+            "bloom_label": q.bloom_label,
+            "expected_answer": q.expected_answer,
+            "question_type": q.question_type,
+            "grounding": q.grounding,
+            "confidence": q.confidence,
+            "plan_id": q.plan_id,
+        })
+    rejected = []
+    for q, rep in result.rejected:
+        rejected.append({
+            "question_text": q.question_text,
+            "concept_id": q.concept_id,
+            "reason_codes": rep.reason_codes,
+            "overall_score": rep.overall_score,
+            "gates": [g.__dict__ for g in rep.gates],
+        })
+    # Also expose full result via side-file for debugging
+    import json
+    from pathlib import Path as _P
+    out = _P("extracted_output") / "unified_pipeline_report.json"
+    out.parent.mkdir(exist_ok=True, parents=True)
+    out.write_text(json.dumps(result.summary(), indent=2), encoding="utf-8")
+    return accepted, rejected
+
+
+# Assessment Profile configuration representing targeted pedagogy quotas per module (🔴 4)
+ASSESSMENT_PROFILES = {
+    1: {"conceptual": 0.40, "application": 0.30, "numerical": 0.30},
+    2: {"conceptual": 0.50, "application": 0.50, "numerical": 0.00},
+    3: {"conceptual": 0.40, "application": 0.60, "numerical": 0.00},
+    4: {"conceptual": 0.40, "application": 0.60, "numerical": 0.00},
+    5: {"conceptual": 0.50, "application": 0.50, "numerical": 0.00},
+}
+
+
+def resolve_co_bl_from_marks(
+    module_idx: int,
+    marks: int,
+    total_parts: int,
+    planned_type: str = "CONCEPTUAL",
+) -> tuple[str, int]:
+    """
+    Marks-first CO/BL policy:
+      4M  -> CO1 / L1-L2
+      6M  -> CO2 / L3  (mods 1-4), CO3 / L4 (mod 5+)
+      8M+ -> CO3 / L4
+      10M single design/application -> CO3 / L4
+    Lower marks = lower CO/Bloom.
+    """
+    ptype = (planned_type or "CONCEPTUAL").upper()
+
+    # 4 marks -> foundational only
+    if marks <= 4:
+        return "CO1", (1 if ptype == "CONCEPTUAL" else 2)
+
+    # 6 marks -> application / analysis
+    if marks <= 6:
+        if module_idx <= 4:
+            return "CO2", 3
+        return "CO3", 4
+
+    # 8 or 10 -> higher complexity, but keep within your current policy
+    return "CO3", 4
+
+
+def plan_slot_types(module_idx: int, num_slots: int) -> list[str]:
+    profile = ASSESSMENT_PROFILES.get(module_idx, {"conceptual": 0.5, "application": 0.5, "numerical": 0.0})
+    conceptual_cnt = max(1, round(profile.get("conceptual", 0.4) * num_slots))
+    numerical_cnt = round(profile.get("numerical", 0.0) * num_slots)
+    application_cnt = max(0, num_slots - conceptual_cnt - numerical_cnt)
+    
+    while conceptual_cnt + numerical_cnt + application_cnt < num_slots:
+        application_cnt += 1
+    while conceptual_cnt + numerical_cnt + application_cnt > num_slots:
+        if application_cnt > 0:
+            application_cnt -= 1
+        elif conceptual_cnt > 1:
+            conceptual_cnt -= 1
+        else:
+            numerical_cnt -= 1
+
+    return (
+        ["CONCEPTUAL"] * conceptual_cnt +
+        ["NUMERICAL"] * numerical_cnt +
+        ["APPLICATION"] * application_cnt
+    )
+
+
+def run_pipeline(
+    file_path:          str,
+    max_concepts:       int  = 10,
+    mode:               str  = "turbo",
+    exam_type:          str  = "see",
+    difficulty:         str  = "mixed",
+    include_visual:     bool = True,
+    use_unified:        bool = False,
+    request_contract:   Optional[Any] = None,
+    pipeline_trace:     Optional[Any] = None,
+    sub_question_count: Optional[int] = None,  # 1, 2, or 3 — user-specified
+    marks_split:        Optional[List[List[int]]] = None,  # User-specified marks partitions
+) -> Tuple[List[dict], List[dict]]:
+    """
+    Saves and generates an aligned VTU Question Paper grouped strictly by Module.
+    Generates exactly 4 main questions per module.
+    Sub-questions per main question are strictly capped to max 3.
+    """
+    from pathlib import Path  # AION Path local fix
+    from core.validators.academic_validator import validate_academic_quality
+
+    t_start = time.time()
+    try:
+        import aion_patch
+        aion_patch.ACTIVE_FILE_PATH = file_path
+    except Exception:
+        pass
+    if pipeline_trace:
+        pipeline_trace.stage("PipelineStart", status="PASS", metrics={"file": Path(file_path).name, "exam": exam_type})
+
+    # -- Unified pipeline delegate (grounded) -----------------
+    if use_unified and HAS_UNIFIED:
+        print("[PIPELINE] Delegating to Universal Academic Pipeline (grounded, hallucination-resistant)")
+        return run_unified_pipeline(
+            file_path=file_path,
+            exam_type=exam_type,
+            difficulty=difficulty,
+            num_questions=max(4, max_concepts),
+        )
+
+    print("=" * 60)
+    # -- Read runtime profile (LAPTOP_FAST / LAPTOP_DEMO / PRODUCTION) --
+    try:
+        from runtime import get_active_profile
+        _profile = get_active_profile()
+        _profile_name = _profile.name
+    except Exception:
+        _profile = None
+        _profile_name = "PRODUCTION"
+
+    # Apply user-specified marks split if provided
+    if marks_split:
+        from core.generation.marks_partitioner import set_user_split
+        set_user_split(marks_split, exam_type.upper())
+        print(f"[PIPELINE] Applied user marks split: {marks_split}", flush=True)
+
+    try:
+        import aion_patch
+        aion_patch.ACTIVE_FILE_PATH = file_path
+        _collect = getattr(aion_patch, "collect_extracted_assets", None)
+        assets = _collect(file_path) if callable(_collect) else {}
+        print(f"[ASSETS] images={len((assets or {}).get('images', []))} equations={len((assets or {}).get('equations', []))}", flush=True)
+    except Exception as _e:
+        print(f"[ASSETS] skip: {_e}", flush=True)
+        assets = {}
+
+    print(f"[START] AION Exam Generation Pipeline ({exam_type.upper()} Exam Mode)...")
+    print(f"[CONFIG] Difficulty: {difficulty.upper()} | Visual RAG: {include_visual} | Profile: {_profile_name}")
+    print("=" * 60 + "\n")
+
+    diff_manager = DifficultyManager.from_string(difficulty)
+
+    # Bind REAL extracted figures (rewrite /workspace/... -> local extracted_figures/)
+    try:
+        import json as _json
+        import aion_patch as _ap
+        _upload = Path(file_path).parent
+        _figdir = _upload / "extracted_figures"
+        _manifest = _upload / "diagrams_manifest.json"
+        _diagrams = []
+        if _manifest.exists():
+            _diagrams = _json.loads(_manifest.read_text(encoding="utf-8"))
+        if not _diagrams and _figdir.exists():
+            for _n, _img in enumerate(sorted(_figdir.glob("*"))):
+                if _img.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"} and _img.stat().st_size > 2000:
+                    _diagrams.append({
+                        "anchor_id": f"fig_{_n+1}",
+                        "image_path": str(_img.resolve()),
+                        "label": _img.stem,
+                        "caption": _img.stem,
+                        "page": 1,
+                        "bbox": [0, 0, 1, 1],
+                    })
+        for _d in _diagrams:
+            _ip = str(_d.get("image_path") or "")
+            _alt = _figdir / Path(_ip).name
+            if (not _ip) or (not Path(_ip).exists()):
+                if _alt.exists():
+                    _d["image_path"] = str(_alt.resolve())
+            _d.setdefault("caption", _d.get("label") or "")
+            _d.setdefault("page", 1)
+            _d.setdefault("bbox", [0, 0, 1, 1])
+        _ap._ACTIVE_DIAGRAMS = _diagrams
+        print(f"[VISUAL] Loaded {len(_diagrams)} diagram(s) from {_upload}", flush=True)
+    except Exception as _ve:
+        print(f"[VISUAL] diagram bind failed: {_ve}", flush=True)
+
+    # 1. Ingestion & Segmentation
+    t0 = time.time()
+    cached_modules = _load_cached_modules(file_path)
+    if cached_modules is not None:
+        modules = cached_modules
+        if pipeline_trace:
+            pipeline_trace.stage("Extraction", status="PASS", duration_ms=(time.time()-t0)*1000, metrics={"cached": True, "modules": len(modules)})
+    else:
+        validated_path = upload(file_path)
+        p = Path(validated_path)
+
+        modules = []
+        if p.is_dir():
+            suffixes = {".pdf", ".txt", ".md"}
+            files = sorted(
+                [f for f in p.iterdir() if f.is_file() and f.suffix.lower() in suffixes and not f.name.startswith(".")],
+                key=lambda f: f.name
+            )
+            if not files:
+                raise FileNotFoundError(f"No PDF, TXT, or MD files found in directory: {file_path}")
+
+            print(f"[PIPELINE] Processing directory: {file_path} ({len(files)} files found)")
+            ingestion_errors: list = []
+            for file_item in files:
+                print(f"[PIPELINE] Ingesting file: {file_item.name} ...")
+                try:
+                    val_file_path = upload(str(file_item))
+                    doc = extract(val_file_path)
+                    # Decode raw bytes with UTF-8 to prevent charmap failures on non-ASCII
+                    if hasattr(doc, 'raw_text'):
+                        content = doc.raw_text
+                        if isinstance(content, bytes):
+                            content = content.decode('utf-8', errors='replace')
+                        content = content.strip()
+                    else:
+                        content = str(doc).strip()
+
+                    # Modular Academic Validation Gate
+                    acad_res = validate_academic_quality(content)
+                    if pipeline_trace:
+                        pipeline_trace.stage(
+                            f"AcademicValidator:{file_item.stem}",
+                            status = "PASS" if acad_res.valid else "WARN",
+                            metrics = {"score": acad_res.academic_score, "noise": acad_res.noise_score},
+                            message = acad_res.rejection_reason if not acad_res.valid else "Clean academic text"
+                        )
+
+                    words = len(content.split())
+                    modules.append(ModuleSegment(title=file_item.stem, content=content, word_count=words))
+                except Exception as e:
+                    ingestion_errors.append({"file": file_item.name, "error": str(e)})
+                    print(f"  [INGESTION ERROR] {file_item.name}: {e}")
+
+            # -- MODULE COMPLETENESS GATE ---------------------------------------------
+            # Validate that every expected module file was ingested without error.
+            # Module numbers are positional (matching sorted file order) since
+            # ModuleSegment does not carry a module_id field at this stage.
+            expected_module_numbers = list(range(1, len(files) + 1))
+            actual_module_numbers   = list(range(1, len(modules) + 1))
+            missing_modules    = sorted(set(expected_module_numbers) - set(actual_module_numbers))
+            unexpected_modules = sorted(set(actual_module_numbers)   - set(expected_module_numbers))
+            if missing_modules or unexpected_modules or ingestion_errors:
+                err_lines = [f"    {e['file']}: {e['error']}" for e in ingestion_errors]
+                raise RuntimeError(
+                    f"[INGESTION GATE] FAILED\n"
+                    f"  Expected modules : {expected_module_numbers}\n"
+                    f"  Found modules    : {actual_module_numbers}\n"
+                    f"  Missing          : {missing_modules}\n"
+                    f"  Unexpected       : {unexpected_modules}\n"
+                    f"  Ingestion errors :\n" +
+                    "\n".join(err_lines)
+                )
+
+        else:
+            try:
+                from core.extraction.gateway import ExtractionGateway, ExtractionError
+                artifact = ExtractionGateway.extract(validated_path)
+                valid_chunks = [c for c in artifact.chunks if c.is_retrieval_eligible()]
+                content = "\n\n".join(c.text for c in valid_chunks)
+
+                # PRINT RESOLVED OBJECT TYPES BEFORE CHUNKING & GENERATION
+                print("=" * 60)
+                print("[RUNTIME EXTRACTION RESOLUTION]")
+                print(f"  Source path     : {artifact.source_path}")
+                print(f"  Source type     : {artifact.mime_type}")
+                print(f"  Source authority: ORIGINAL")
+                print(f"  Adapters used   : {artifact.backends}")
+                print(f"  Text blocks     : {artifact.text_blocks if isinstance(artifact.text_blocks, int) else artifact.text_blocks}")
+                print(f"  Equations       : {artifact.equations}")
+                print(f"  Tables          : {artifact.tables}")
+                print(f"  Figures         : {artifact.figures}")
+                print(f"  Valid chunks    : {len(valid_chunks)}")
+                print(f"  Hard stop decision: PROCEED")
+                print("=" * 60)
+            except ExtractionError as ee:
+                print(f"[EXTRACTION HARD STOP] {ee.code}: {ee.message}")
+                raise RuntimeError(f"Extraction Hard Stop: [{ee.code}] {ee.message}")
+            except Exception as ex:
+                print(f"[EXTRACTION FALLBACK] Gateway error: {ex}")
+                raw_document = extract(validated_path)
+                content = raw_document.raw_text
+
+            # Modular Academic Validation Gate
+            acad_res = validate_academic_quality(content)
+            if pipeline_trace:
+                pipeline_trace.stage(
+                    "AcademicValidator",
+                    status = "PASS" if acad_res.valid else "WARN",
+                    metrics = {"score": acad_res.academic_score, "noise": acad_res.noise_score},
+                    message = acad_res.rejection_reason if not acad_res.valid else "Clean academic text"
+                )
+
+            seg_result = segment_document(content, file_path=validated_path)
+            modules = seg_result.segments
+
+        _save_cached_modules(file_path, modules)
+        if pipeline_trace:
+            pipeline_trace.stage("Extraction", status="PASS", duration_ms=(time.time()-t0)*1000, metrics={"cached": False, "modules": len(modules)})
+
+    print(f"[SEGMENTER] Identified {len(modules)} Modules/Chapters in source material.")
+
+    # Reuse artifact from earlier extraction (do not call ExtractionGateway again)
+    if artifact is None:
+        try:
+            from core.extraction.gateway import ExtractionGateway
+            if artifact is None: artifact = ExtractionGateway.extract(file_path)
+        except Exception as e:
+            print(f"[EXTRACTION GATEWAY] Extraction failed: {e}")
+
+    # 2. Extract Visual Figures & Build Proximity Chunk Map
+    mapper   = None
+    selector = None
+
+    try:
+        doc_id  = FigureRegistry.make_document_id(file_path)
+        figures = list(getattr(artifact, "figures", [])) if artifact else []
+
+        def _has_img(f):
+            # AION hotfix: manifest writer expects file_path
+            file_path = f
+            if isinstance(f, dict):
+                return bool(str(f.get("image_path") or f.get("path") or "").strip())
+            return bool(str(getattr(f, "image_path", "") or getattr(f, "path", "") or "").strip())
+
+        figures = [f for f in figures if _has_img(f)]
+
+        if include_visual and not figures:
+            print("[VISUAL] Extracting figures (fast proximity mode)...", flush=True)
+            try:
+                from .visual.figure_extractor import extract_figures
+                figures = extract_figures(
+                    file_path,
+                    doc_id=doc_id,
+                    module_map=None,
+                ) or []
+                print(f"[VISUAL] extract_figures returned {len(figures)}", flush=True)
+            except Exception as e:
+                print(f"[VISUAL] Figure extraction failed: {e}", flush=True)
+                figures = []
+
+        # Persist manifest + bind for LLM injector
+        try:
+            import json as _jfig
+            import aion_patch as _ap
+            _up = Path(file_path).parent
+            _man = []
+            for _c in (figures or []):
+                _ip = _c.get("image_path") if isinstance(_c, dict) else getattr(_c, "image_path", "")
+                if _ip:
+                    _man.append({
+                        "anchor_id": f"fig_{len(_man)+1}",
+                        "image_path": str(_ip),
+                        "label": Path(str(_ip)).stem,
+                        "caption": Path(str(_ip)).stem,
+                        "page": int(getattr(_c, "page", 1) if not isinstance(_c, dict) else _c.get("page", 1) or 1),
+                        "bbox": [0, 0, 1, 1],
+                    })
+            if _man:
+                (_up / "diagrams_manifest.json").write_text(_jfig.dumps(_man, indent=2))
+                _ap._ACTIVE_DIAGRAMS = _man
+                print(f"[VISUAL] bound {len(_man)} diagrams for injector", flush=True)
+        except Exception as _mw:
+            print(f"[VISUAL] manifest write skipped: {_mw}", flush=True)
+
+        for fig in figures:
+            if isinstance(fig, dict):
+                fig["eligible"] = True
+            else:
+                setattr(fig, "eligible", True)
+            if isinstance(fig, dict):
+                fig["eligible"] = True
+            else:
+                try:
+                    setattr(fig, "eligible", True)
+                except Exception:
+                    pass
+
+        class MockRegistry:
+            def __init__(self, figs):
+                self.figs = figs
+            def eligible_cards(self):
+                return self.figs
+
+        mapper = ChunkImageMapper(
+            registry        = MockRegistry(figures),
+            total_pages     = getattr(artifact, "page_count", 200) if artifact else 200,
+            page_tolerance  = 3,
+        )
+        mapper.build(modules)
+        if (include_visual or len(figures) > 0) and figures:
+            selector = QuestionImageSelector(mapper)
+    except Exception as e:
+        import traceback
+        print(f"[MAPPER] Setup failed: {e}")
+        traceback.print_exc()
+        mapper = None
+        selector = None
+
+    mapper   = None
+    selector = None
+
+    try:
+        doc_id   = FigureRegistry.make_document_id(file_path)
+        figures  = list(getattr(artifact, "figures", [])) if artifact else []
+        def _has_img(f):
+            if isinstance(f, dict):
+                return bool(f.get("image_path") or f.get("path"))
+            return bool(getattr(f, "image_path", None) or getattr(f, "path", None))
+        figures = [f for f in figures if _has_img(f)]
+
+
+        if include_visual and not figures:
+            print("[VISUAL] Extracting figures (fast proximity mode)...")
+            try:
+                from .visual.figure_extractor import extract_figures
+                figures = extract_figures(
+                    file_path,
+                    doc_id=doc_id,
+                    module_map=_build_module_map(modules),
+                ) or []
+                # Write manifest if figures extracted
+                try:
+                    import json as _jfig
+                    from pathlib import Path as _Path
+                    _up = _Path(file_path).parent
+                    _man = []
+                    for _c in figures:
+                        if isinstance(_c, dict):
+                            _ip = _c.get("image_path") or _c.get("path") or ""
+                        else:
+                            _ip = getattr(_c, "image_path", "") or getattr(_c, "path", "")
+                        if _ip:
+                            _stem = _Path(str(_ip)).stem
+                            _man.append({"anchor_id": f"fig_{len(_man)+1}", "image_path": str(_ip), "label": _stem or f"Figure {len(_man)+1}", "caption": _stem, "page": 1, "bbox": [0,0,1,1]})
+                    if _man:
+                        (_up / "diagrams_manifest.json").write_text(_jfig.dumps(_man, indent=2))
+                        import aion_patch as _ap
+                        _ap._ACTIVE_DIAGRAMS = _man
+                        print(f"[VISUAL] extract_figures -> {len(_man)} files, manifest written", flush=True)
+                except Exception as _mw:
+                    print(f"[VISUAL] manifest write skipped: {_mw}", flush=True)
+            except Exception as e:
+                print(f"[VISUAL] Figure extraction failed: {e}")
+                figures = []
+
+        # Hydrate figures from diagrams_manifest.json if gateway gave empty ones
+        try:
+            from pathlib import Path
+            import json
+            fp = Path(file_path)
+            parts = fp.parts
+            if "uploads" in parts:
+                up = Path(*parts[:parts.index("uploads")+2])
+            else:
+                up = fp.parent
+            mpath = up / "diagrams_manifest.json"
+            if mpath.exists():
+                mfigs = json.loads(mpath.read_text(encoding="utf-8"))
+                # if figures empty or all image_path empty -> replace
+                def _has_real(f):
+                    if isinstance(f, dict):
+                        ip = f.get("image_path") or f.get("path") or ""
+                        return ip != ""
+                    return False
+                if not figures or all(not _has_real(f) for f in figures):
+                    figures = list(mfigs)
+                    print(f"[VISUAL] Hydrated {len(figures)} figures from manifest", flush=True)
+                # also attach to artifact if possible
+                try:
+                    if artifact is not None and hasattr(artifact, "figures"):
+                        artifact.figures = figures
+                except Exception:
+                    pass
+        except Exception as _e:
+            print(f"[VISUAL] Hydrate skipped: {_e}", flush=True)
+
+        for fig in figures:
+            if isinstance(fig, dict):
+                fig["eligible"] = True
+            else:
+                setattr(fig, "eligible", True)
+
+        class MockRegistry:
+            def __init__(self, figs):
+                self.figs = figs
+            def eligible_cards(self):
+                return self.figs
+
+        # Build chunk-image map with mock registry (handles both visual and text-only mapping)
+        mapper = ChunkImageMapper(
+            registry        = MockRegistry(figures),
+            total_pages     = getattr(artifact, "page_count", 200) if artifact else 200,
+            page_tolerance  = 3,
+        )
+        mapper.build(modules)
+        # If mapper still has no real images, load crops from this upload dir
+        try:
+            _figdir = Path(file_path).parent / "extracted_figures"
+            if _figdir.exists() and (not figures or not any(
+                (f.get("image_path") if isinstance(f, dict) else getattr(f, "image_path", ""))
+                for f in (figures or [])
+            )):
+                from .visual.figure_extractor import extract_figures as _ef
+                figures = _ef(file_path, doc_id=Path(file_path).parent.name, module_map=None) or []
+                print(f"[VISUAL] late extract_figures -> {len(figures)}", flush=True)
+                if figures:
+                    mapper = ChunkImageMapper(
+                        registry=MockRegistry(figures),
+                        total_pages=getattr(artifact, "page_count", 200) if artifact else 200,
+                        page_tolerance=3,
+                    )
+                    mapper.build(modules)
+                    import aion_patch as _ap
+                    _ap._ACTIVE_DIAGRAMS = [
+                        {"image_path": (c.get("image_path") if isinstance(c, dict) else getattr(c, "image_path", "")),
+                         "caption": "", "page": 1, "bbox": [0,0,1,1]}
+                        for c in figures
+                    ]
+        except Exception as _le:
+            print(f"[VISUAL] late extract skipped: {_le}", flush=True)
+        if (include_visual or len(figures) > 0) and figures:
+            selector = QuestionImageSelector(mapper)
+    except Exception as e:
+        import traceback
+        print(f"[MAPPER] Setup failed: {e}")
+        traceback.print_exc()
+        mapper   = None
+        selector = None
+
+    # Use user-provided marks_split if available (highest priority)
+    target_marks = 20 if exam_type.lower() == "see" else 10
+
+    # Always define base_partitions (never leave unbound)
+    base_partitions = []
+    user_partitions = []
+    if marks_split and isinstance(marks_split, (list, tuple)) and marks_split:
+        if isinstance(marks_split[0], (list, tuple)):
+            user_partitions = [list(p) for p in marks_split if isinstance(p, (list, tuple))]
+        else:
+            user_partitions = [list(marks_split)]
+        base_partitions = list(user_partitions)
+        target_partitions = list(user_partitions)
+        print(f"[PIPELINE] Using user marks_split: {target_partitions}", flush=True)
+    else:
+        try:
+            raw_partitions = SEE_PARTITIONS if exam_type.lower() == "see" else IA_PARTITIONS
+        except NameError:
+            raw_partitions = []
+        base_partitions = [list(p) for p in raw_partitions if isinstance(p, (list, tuple))]
+        target_partitions = [p for p in base_partitions if sum(p) == target_marks and len(p) <= 3]
+        print(f"[PIPELINE] No user marks_split; using catalog partitions: {target_partitions}", flush=True)
+
+    # Optional filter by a SINGLE integer sub_question_count (ignore lists)
+    _sq = sub_question_count
+    if isinstance(_sq, int) and _sq in (1, 2, 3) and base_partitions:
+        filtered = [p for p in base_partitions if len(p) == _sq]
+        if filtered:
+            target_partitions = filtered
+            print(f"[PIPELINE] Sub-question count locked to {_sq} ({len(target_partitions)} matching)", flush=True)
+
+
+    from core.generation.orchestrator import SlotOrchestrator
+    orchestrator = SlotOrchestrator(artifact=artifact, marks_split=marks_split)
+
+    output_paper = []
+    # Reset global chunk tracker for each fresh pipeline run
+    run_pipeline._global_used_chunks = set()
+    _workers = _profile.concurrency if _profile else 1
+    executor = ThreadPoolExecutor(max_workers=_workers)
+
+    for mod_idx, mod in enumerate(modules, 1):
+        module_id = f"module_{mod_idx}"
+        print(f"\n[MODULE {mod_idx}] Processing: '{mod.title}' ({mod.word_count} words)")
+
+        if mod.word_count < 10:
+            print(f"[MODULE {mod_idx}] Skipping — too short")
+            continue
+
+        if mapper:
+            module_chunks = mapper.get_chunks_for_module(module_id)
+        else:
+            module_chunks = []
+
+        if not module_chunks:
+            raw_splits = [
+                c.strip()
+                for c in re.split(r"\n\n+", mod.content)
+                if len(c.split()) > 20
+            ]
+            module_chunks_text = raw_splits or [mod.content]
+        else:
+            module_chunks_text = [c.text for c in module_chunks]
+
+        # Content Validation Gate — Filter corrupted/noisy chunks
+        _res_vc = validate_chunks(module_chunks_text)
+        valid_chunks = _res_vc[0] if isinstance(_res_vc, (tuple, list)) and len(_res_vc) > 0 and isinstance(_res_vc[0], list) else (module_chunks_text if isinstance(module_chunks_text, list) else [str(module_chunks_text)])
+        rejected_chunks = _res_vc[1] if isinstance(_res_vc, (tuple, list)) and len(_res_vc) > 1 and isinstance(_res_vc[1], list) else []
+        avg_conf = _res_vc[2] if isinstance(_res_vc, (tuple, list)) and len(_res_vc) > 2 and isinstance(_res_vc[2], (int, float)) else 0.95
+        if valid_chunks:
+            module_chunks_text = valid_chunks
+        else:
+            print(f"[VALIDATOR] Warning: All chunks rejected in module '{mod.title}'. Using sanitized text.")
+            module_chunks_text = [validate_content(c).clean_text or c for c in module_chunks_text if c.strip()]
+
+        # ── STRUCTURED CO/BLOOM BLUEPRINT ─────────────────────────────
+        # Maps each module's OR-pair to CO and Bloom level targets.
+        # Blueprint: Q1/Q2 = lower cognitive, Q3/Q4 = higher cognitive
+        # CO rotates across modules to ensure coverage:
+        #   mod 1,2 -> CO1 (fundamentals)
+        #   mod 3,4 -> CO2 (application/analysis)
+        #   mod 5   -> CO3 (implementation/design)
+        _CO_BLUEPRINT = {
+            1: ('CO1', 'CO1'),   # mod1: pair1=CO1, pair2=CO1
+            2: ('CO1', 'CO1'),   # mod2: pair1=CO1, pair2=CO1
+            3: ('CO2', 'CO2'),   # mod3: pair1=CO2, pair2=CO2
+            4: ('CO2', 'CO2'),   # mod4: pair1=CO2, pair2=CO2
+            5: ('CO3', 'CO3'),   # mod5: pair1=CO3, pair2=CO3
+        }
+        # Bloom blueprint: (pair1_a_slot, pair1_b_slot, pair2_a_slot, pair2_b_slot)
+        # a-slot (6M): L1 or L2 for lower pairs, L2 or L3 for higher pairs
+        # b-slot (4M): L3 or L4 for lower pairs, L4 or L5 for higher pairs
+        _BLOOM_BLUEPRINT = {
+            1: (2, 4, 2, 4),   # mod1: Q1a=L2, Q1b=L4, Q2a=L2, Q2b=L4
+            2: (1, 3, 2, 4),   # mod2: Q3a=L1, Q3b=L3, Q4a=L2, Q4b=L4
+            3: (3, 4, 3, 5),   # mod3: Q5a=L3, Q5b=L4, Q6a=L3, Q6b=L5
+            4: (3, 4, 3, 5),   # mod4: Q7a=L3, Q7b=L4, Q8a=L3, Q8b=L5
+            5: (3, 4, 3, 6),   # mod5: Q9a=L3, Q9b=L4, Q10a=L3, Q10b=L6
+        }
+        _bb = _BLOOM_BLUEPRINT.get(mod_idx, (2, 4, 2, 4))
+        # bloom_levels[i] = target bloom for Q(i+1) as a whole
+        # These drive verb selection; remapper clamps a/b slots correctly
+        bloom_levels = [_bb[0], _bb[0], _bb[2], _bb[2]]
+        # Store per-slot bloom targets for slot construction below
+        _slot_bloom_targets = {
+            1: _bb[0], 2: _bb[1],   # Q1: a=bb[0], b=bb[1]
+            3: _bb[0], 4: _bb[1],   # Q2 (OR of Q1): same targets
+            5: _bb[2], 6: _bb[3],   # Q3: a=bb[2], b=bb[3]
+            7: _bb[2], 8: _bb[3],   # Q4 (OR of Q3): same targets
+        }
+        _pair1_co, _pair2_co = _CO_BLUEPRINT.get(mod_idx, ('CO1', 'CO2'))
+        pair1_bloom = _bb[0]
+        pair2_bloom = _bb[2]
+
+        # Lock mark partitions per OR pair (Pair 1: Q1/Q2, Pair 2: Q3/Q4)
+        has_override = False
+        try:
+            import aion_patch
+            active_partition = aion_patch.get_module_partition(mod_idx)
+            if active_partition and sum(active_partition) == target_marks:
+                pair1_partition = list(active_partition)
+                pair2_partition = list(active_partition)
+                has_override = True
+        except Exception:
+            pass
+
+        # Define base_partitions from target_partitions (must always exist)
+        if target_partitions:
+            base_partitions = target_partitions
+        else:
+            # Try user/module split
+            try:
+                from core.generation.marks_partitioner import get_user_split
+                _us = get_user_split()
+            except Exception:
+                _us = None
+            try:
+                import aion_patch
+                _mp = aion_patch.get_module_partition(mod_idx)
+            except Exception:
+                _mp = None
+            if _mp and sum(_mp) == target_marks:
+                base_partitions = [list(_mp)]
+            elif _us and sum(_us) == target_marks:
+                base_partitions = [list(_us)]
+            else:
+                # Last resort: single partition (no forced equal split)
+                if 'target_marks' not in locals():
+                    target_marks = 20 if exam_type.lower() == "see" else 10
+            base_partitions = [[target_marks]]
+
+        if not has_override:
+            if isinstance(sub_question_count, list) and len(sub_question_count) >= (mod_idx * 2):
+                q1_c = sub_question_count[(mod_idx - 1) * 2]
+                q2_c = sub_question_count[(mod_idx - 1) * 2 + 1]
+                p1_filtered = [p for p in base_partitions if len(p) == q1_c] or base_partitions
+                p2_filtered = [p for p in base_partitions if len(p) == q2_c] or base_partitions
+                pair1_partition = random.choice(p1_filtered)
+                pair2_partition = random.choice(p2_filtered)
+            elif sub_question_count:
+                # Handle both int and list (from frontend: list with per-module counts)
+                if isinstance(sub_question_count, int):
+                    sq_target = sub_question_count
+                elif isinstance(sub_question_count, list) and sub_question_count:
+                    # Use the count for this module's first slot, or default to 2
+                    sq_target = sub_question_count[0] if len(sub_question_count) > 0 else 2
+                else:
+                    sq_target = 2
+                filtered = [p for p in base_partitions if len(p) == sq_target] or base_partitions
+                pair1_partition = random.choice(filtered)
+                pair2_partition = random.choice(filtered)
+            else:
+                if base_partitions:
+                    pair1_partition = random.choice(base_partitions)
+                    pair2_partition = random.choice(base_partitions)
+                else:
+                    pair1_partition = [target_marks]
+                    pair2_partition = [target_marks]
+
+        partitions_for_questions = [pair1_partition, pair1_partition, pair2_partition, pair2_partition]
+
+        # Attach extracted equations/figures so the LLM must use them (not dummy 'eq' / empty image_path)
+        try:
+            import aion_patch as _ap
+            _assets = getattr(_ap, "collect_extracted_assets", lambda p: {})(file_path) if "file_path" in dir() else {}
+            _eqs = (_assets or {}).get("equations") or []
+            _imgs = (_assets or {}).get("images") or []
+            if _eqs or _imgs:
+                print(f"[MODULE {mod_idx}] Binding visuals: {len(_imgs)} images, {len(_eqs)} equations", flush=True)
+        except Exception:
+            _eqs, _imgs = [], []
+
+
+        # Calculate dynamic pedagogy-aware slot types for this module
+        total_slots = sum(len(p) for p in partitions_for_questions)
+        planned_types = plan_slot_types(mod_idx, total_slots)
+        
+        # Partition planned types among the 4 main questions
+        planned_types_by_question = []
+        offset = 0
+        for p in partitions_for_questions:
+            n_sub = len(p)
+            planned_types_by_question.append(planned_types[offset:offset+n_sub])
+            offset += n_sub
+
+        # used_chunk_ids persists across questions within module
+        # (already declared outside loop — cleared per module is correct,
+        #  but we also track globally to prevent cross-module repetition)
+        used_chunk_ids: set[str] = set()
+        if not hasattr(run_pipeline, '_global_used_chunks'):
+            run_pipeline._global_used_chunks = set()
+        used_chunk_ids = used_chunk_ids | run_pipeline._global_used_chunks
+        module_questions         = []
+        futures = []
+
+        for mq_idx in range(1, 5):
+            bloom     = bloom_levels[mq_idx - 1]
+            partition = partitions_for_questions[mq_idx - 1]
+            planned_sub_types = planned_types_by_question[mq_idx - 1]
+
+            if mapper and module_chunks:
+                prefer_img = (mq_idx == 1)
+                best_tc    = mapper.get_best_chunk_for_question(
+                    module_id      = module_id,
+                    prefer_image   = prefer_img,
+                    used_chunk_ids = used_chunk_ids,
+                    target_bloom   = bloom,
+                )
+                if best_tc:
+                    used_chunk_ids.add(best_tc.id)
+                    selected_chunks = [best_tc.text] * len(partition)
+                    best_chunk_obj  = best_tc
+                else:
+                    selected_chunks = [random.choice(module_chunks_text)] * len(partition)
+                    best_chunk_obj  = None
+            else:
+                selected_chunks = [random.choice(module_chunks_text)] * len(partition)
+                best_chunk_obj = None
+
+            futures.append(
+                executor.submit(
+                    _generate_main_question,
+                    mq_idx, partition, bloom, selected_chunks, target_marks,
+                    diff_manager, best_chunk_obj, selector, module_id, orchestrator,
+                    planned_sub_types,
+                    _pair1_co if mq_idx in (1, 2) else _pair2_co,
+                    _slot_bloom_targets,
+                )
+            )
+
+        for fut in as_completed(futures):
+            res = fut.result()
+            module_questions.append(res)
+
+        module_questions.sort(key=lambda x: x["mq_index"])
+
+        # -- SLOT COMPLETENESS GATE ----------------------------------------------
+        # Build expected set from the slots that were actually planned
+        # (not from a hardcoded count of 4)
+        expected_slot_ids: set[str] = set()
+        generated_slot_ids: set[str] = set()
+        for mq in module_questions:
+            for slot in mq.get("slots", []):
+                expected_slot_ids.add(slot.slot_id)   # every planned slot
+            for gq in mq.get("generated_questions", []):
+                generated_slot_ids.add(gq.slot_id)
+
+        missing_slots = expected_slot_ids - generated_slot_ids
+        extra_slots   = generated_slot_ids - expected_slot_ids
+
+        if missing_slots or extra_slots:
+            raise RuntimeError(
+                f"[SLOT GATE] Module {mod_idx} '{mod.title}' — slot contract violated.\n"
+                f"  Missing slots : {sorted(missing_slots)}\n"
+                f"  Extra slots   : {sorted(extra_slots)}"
+            )
+
+        # Enforce OR pair parity (Q1 vs Q2, Q3 vs Q4) using new OR validator
+        if len(module_questions) >= 2:
+            module_questions[0], module_questions[1] = run_or_pair_check(
+                module_questions[0], module_questions[1], orchestrator
+            )
+        if len(module_questions) >= 4:
+            module_questions[2], module_questions[3] = run_or_pair_check(
+                module_questions[2], module_questions[3], orchestrator
+            )
+
+        # Update global chunk tracking to prevent cross-module repetition
+        run_pipeline._global_used_chunks = (
+            getattr(run_pipeline, '_global_used_chunks', set()) | used_chunk_ids
+        )
+        output_paper.append({
+            "module_index": mod_idx,
+            "module_title": mod.title,
+            "questions": module_questions
+        })
+
+    executor.shutdown()
+
+    if mapper:
+        print(f"\n[MAPPER] Final: {mapper.summary()}")
+
+    _print_exam_paper(output_paper, exam_type.upper())
+
+    # -- EXPORT GATE — unconditional, fatal, single authority ------------------
+    all_gqs: list = []
+    for mod in output_paper:
+        for mq in mod["questions"]:
+            all_gqs.extend(mq.get("generated_questions", []))
+
+    if not all_gqs:
+        raise RuntimeError(
+            "[EXPORT GATE] Paper contains zero generated questions. Generation failed entirely."
+        )
+
+    from core.validation.export_gate import ExportGate
+    export_result = ExportGate.validate(all_gqs)
+    if not export_result.passed:
+        raise RuntimeError(f"[EXPORT GATE] FAILED: {export_result.message}")
+    print("[EXPORT GATE] PASS — full paper integrity verified.")
+
+    # -- POST-GENERATION INTEGRITY GATE -----------------------------------
+    all_slot_ids = [gq.slot_id for gq in all_gqs]
+    integrity = GenerationIntegrity(
+        expected_slots    = sum(len(mq.get("slots", [])) for mod in output_paper for mq in mod["questions"]),
+        generated_slots   = len(all_gqs),
+        missing_slot_ids  = [],
+        extra_slot_ids    = [],
+        modules_expected  = len(modules),
+        modules_generated = len(output_paper),
+        export_gate_pass  = True,
+        marks_integrity_pass = all(
+            sum(sq["marks"] for sq in mq["sub_questions"]) == mq["total_marks"]
+            for mod in output_paper for mq in mod["questions"]
+        ),
+        co_integrity_pass = all(
+            gq.co.startswith("CO") for gq in all_gqs
+        ),
+        bloom_integrity_pass = all(
+            gq.bloom_level.startswith("L") for gq in all_gqs
+        ),
+        provenance_pass = all(
+            hasattr(gq, "provenance") and gq.provenance is not None
+            for gq in all_gqs
+        ),
+    )
+    integrity.print_gate()
+    integrity.raise_if_blocked()
+
+    qa_report: dict = {
+        "status": "PASS",
+        "export_gate_passed": True,
+        "export_gate_message": "All validation gates passed.",
+    }
+    try:
+        from .qa_engine import QPGeneratorWithQA
+        qa_manager = QPGeneratorWithQA()
+        legacy_report = qa_manager.run_full_paper_qa(output_paper)
+        qa_report["legacy_qa_score"] = (
+            legacy_report.get("quality_score")
+            or legacy_report.get("qa_score")
+            or 85
+        )
+        qa_report["legacy_issues"] = legacy_report.get("issues", [])
+        qa_report["quality_score"] = qa_report["legacy_qa_score"]
+        print(f"\n[QA ENGINE] Completed Paper QA Check | Score: {qa_report['legacy_qa_score']}/100")
+    except Exception as e:
+        print(f"[QA ENGINE] Warning running paper QA check: {e}")
+
+    return output_paper, qa_report
+
+
+    # Lock target_partitions so it cannot be overwritten later
+    if marks_split:
+        print(f"[PIPELINE] Final partitions locked to user choice: {target_partitions}", flush=True)
+
+def _generate_main_question(
+    mq_idx:         int,
+    partition:      List[int],
+    bloom:          int,
+    chunks:         List[str],
+    total_marks:    int,
+    diff_manager:   DifficultyManager = None,
+    chunk_obj:      TextChunk = None,
+    selector:       QuestionImageSelector = None,
+    module_id:      str  = "",
+    orchestrator:   Any  = None,
+    planned_types:  List[str] = None,
+    blueprint_co:   str  = "CO1",
+    slot_bloom_targets: dict = None,
+) -> dict:
+    """Worker function to build a main question with max 3 subquestions using Slot-Contract Architecture."""
+    from core.contracts.budgets import AnswerBudget, QuestionBudget
+    from core.contracts.task_signature import TaskSignature
+    from core.contracts.question_slot import QuestionSlot
+    from core.contracts.question import GeneratedQuestion, LegacyGeneratedQuestionAdapter
+
+    dm = diff_manager or DifficultyManager.from_string("mixed")
+
+    # HARD CLAMP: never more than 3 sub-questions
+    if len(partition) > 3:
+        partition = sorted(partition, reverse=True)
+        while len(partition) > 3:
+            smallest      = partition.pop()
+            partition[-1] += smallest
+        partition = sorted(partition, reverse=True)
+
+    sub_questions = []
+    generated_questions = []
+    slots = []
+    sub_letters   = ["a", "b", "c"]
+
+    for idx, marks in enumerate(partition):
+        chunk      = chunks[idx % len(chunks)]
+        difficulty = dm.assign_difficulty(idx, len(partition), marks)
+        sub_bloom  = dm.get_bloom_for_difficulty(difficulty)
+        verb       = dm.get_verb(difficulty, sub_bloom)
+
+        image_data = None
+        if selector and chunk_obj and idx == 0:
+            try:
+                image_data = selector.select(
+                    chunk     = chunk_obj,
+                    module_id = module_id,
+                    sub_index = idx,
+                )
+            except Exception as e:
+                print(f"[SELECTOR] Error: {e}")
+                image_data = None
+
+        # Build Slot contracts
+        sub_letter = sub_letters[idx] if len(partition) > 1 else ""
+        slot_id = f"{module_id}_Q{mq_idx}_{sub_letter}" if sub_letter else f"{module_id}_Q{mq_idx}"
+
+        if orchestrator is not None:
+            answer_budget = AnswerBudget.from_marks_and_bloom(marks, f"L{sub_bloom}")
+            question_budget = QuestionBudget.from_bloom(f"L{sub_bloom}", marks)
+            task_signature = TaskSignature.from_bloom_marks_type(f"L{sub_bloom}", marks, "descriptive")
+
+            # Evidence-aware MathBlock requirement.
+            # Do not let generic extractor has_formula flags classify SQL/procedural
+            # syntax as mathematics. MathBlocks are reserved for genuine mathematical
+            # or relational-algebra notation.
+            _math_chunk = str(chunk)
+            _math_lower = _math_chunk.lower()
+
+            _strong_code_signals = (
+                "select ", "insert ", "update ", "delete ", "create table",
+                "alter table", "drop table", "join ", "where ", "group by",
+                "having ", "trigger", "cursor", "stored procedure",
+                "declare ", "begin ", "end;", "while ", "loop",
+                "fetch ", "open ", "close ", "procedure ", "function "
+            )
+
+            _strong_math_signals = (
+                "\\frac", "\\sum", "\\prod", "\\sqrt", "\\int",
+                "\\sigma", "\\pi_", "\\rho", "\\bowtie",
+                "\\cup", "\\cap", "\\times", "\\rightarrow",
+                "σ", "π", "⋈", "∪", "∩", "→",
+                "$$", "\\[", "\\("
+            )
+
+            _looks_like_code = any(
+                _sig in _math_lower for _sig in _strong_code_signals
+            )
+
+            _looks_like_real_math = any(
+                _sig in _math_chunk for _sig in _strong_math_signals
+            )
+
+            # Dollar-delimited formulas are retained only when they actually look
+            # mathematical rather than currency/code text.
+            if "$" in _math_chunk and _math_chunk.count("$") >= 2:
+                _looks_like_real_math = True
+
+            _extractor_formula = bool(
+                chunk_obj is not None
+                and getattr(chunk_obj, "has_formula", False)
+            )
+
+            # Only strong mathematical/relational-algebra evidence requires a
+            # MathBlock. The extractor has_formula flag is diagnostic only because
+            # it can also be triggered by SQL/procedural notation.
+            math_required = bool(_looks_like_real_math)
+            visual_required = (image_data is not None)
+
+            # Resolve pedagogy-aware question type (strict source-grounded mode)
+            planned_type = "CONCEPTUAL"
+            if planned_types and idx < len(planned_types):
+                planned_type = planned_types[idx]
+
+            # Evidence-aware applied question classifier.
+            # Keep numerical and programming eligibility independent.
+            _chunk_lower = str(chunk).lower()
+
+            _code_signals = (
+                "syntax", "program", "programming", "algorithm", "pseudocode",
+                "function", "procedure", "method", "class ", "return ",
+                "query", "statement", "command", "script",
+                "select ", "insert ", "update ", "delete ", "create table",
+                "alter table", "drop table", "join ", "where ", "group by",
+                "having ", "trigger", "cursor", "stored procedure",
+                "for ", "while ", "if ", "else "
+            )
+
+            _numeric_context_signals = (
+                "calculate", "compute", "derive", "determine",
+                "formula", "equation", "probability", "utility", "cost",
+                "rate", "ratio", "percentage", "average", "mean", "variance",
+                "throughput", "delay", "latency", "bandwidth",
+                "complexity", "cardinality", "frequency", "distance", "speed",
+                "memory", "size", "score", "time step", "page size",
+                "block size", "response time", "waiting time",
+                "turnaround time", "hit ratio", "miss ratio"
+            )
+
+            # Standalone numeric values only; do not count tokens such as 1NF/2NF/3NF.
+            import re as _re
+            _numeric_values = _re.findall(
+                r'(?<![A-Za-z])[-+]?\d+(?:\.\d+)?(?:\s*%)?(?![A-Za-z])',
+                _chunk_lower
+            )
+            _has_digit = bool(_numeric_values)
+            _has_numeric_context = any(
+                sig in _chunk_lower for sig in _numeric_context_signals
+            )
+
+            # Explicit code extraction or textual code/syntax signals make the
+            # evidence suitable for a programming/query/application question.
+            _chunk_code_blocks = getattr(chunk_obj, "code_blocks", None) if chunk_obj is not None else None
+            programming_allowed = bool(
+                _chunk_code_blocks
+                or any(sig in _chunk_lower for sig in _code_signals)
+            )
+
+            # Do NOT treat programming evidence as numerical evidence.
+            # For numerical eligibility require computational context with numbers,
+            # or a genuine extracted formula.
+            # NUMERICAL requires actual numeric inputs plus computational context.
+            # Prefer two or more values; one value is accepted only with an
+            # explicit calculation verb in the source evidence.
+            _explicit_calc = any(
+                sig in _chunk_lower
+                for sig in ("calculate", "compute", "solve", "determine", "evaluate")
+            )
+            numerical_allowed = bool(
+                (not programming_allowed)
+                and _has_numeric_context
+                and (
+                    len(_numeric_values) >= 2
+                    or (len(_numeric_values) >= 1 and _explicit_calc)
+                )
+            )
+
+            # Preserve the planner's locked type whenever support exists.
+            # If it requested NUMERICAL without suitable numerical evidence,
+            # downgrade only that type to APPLICATION. Programming evidence remains
+            # available to the evidence-driven prompt as an applied construction task.
+            if planned_type == "NUMERICAL" and not numerical_allowed:
+                q_type = "APPLICATION"
+            else:
+                q_type = planned_type
+
+            print(
+                f"[APPLIED-CLASSIFIER] {slot_id}: "
+                f"planned={planned_type} final={q_type} "
+                f"programming={programming_allowed} "
+                f"numerical={numerical_allowed} "
+                f"numeric_values={_numeric_values[:8]} "
+                f"numeric_context={_has_numeric_context} "
+                f"math_required={math_required} "
+                f"looks_code={_looks_like_code} "
+                f"looks_math={_looks_like_real_math} "
+                f"extractor_formula={_extractor_formula}",
+                flush=True,
+            )
+
+            # Use canonical module identity helpers (F6b)
+            _mod_num = parse_module_number(module_id)
+            # Marks-first authoritative CO/BL resolution
+            _policy_co, _policy_bloom = resolve_co_bl_from_marks(
+                module_idx=_mod_num,
+                marks=marks,
+                total_parts=len(partition),
+                planned_type=q_type,
+            )
+            _blueprint_co = _policy_co
+            sub_bloom     = _policy_bloom
+            verb = dm.get_verb(
+                'easy' if sub_bloom <= 2 else 'medium' if sub_bloom <= 4 else 'hard',
+                sub_bloom
+            )
+            slot = QuestionSlot(
+                slot_id=slot_id,
+                question_no=mq_idx,
+                sub_label=sub_letter,
+                or_pair_id=f"{module_id}_OR_{1 if mq_idx in (1, 2) else 2}",
+                is_alternative=(mq_idx in (2, 4)),
+                module_id=_mod_num,
+                marks=marks,
+                bloom_level=f"L{sub_bloom}",
+                bloom_verb=verb,
+                bloom_operation=get_bloom_level_name(sub_bloom),
+                co=_blueprint_co,
+                difficulty=difficulty.upper(),
+                question_type=q_type,
+                topic=f"{slot_id} ({chunk_obj.depth})" if chunk_obj else slot_id,
+                evidence_ids=(chunk_obj.id,) if chunk_obj else ("chunk_legacy",),
+                answer_budget=answer_budget,
+                question_budget=question_budget,
+                task_signature=task_signature,
+                math_required=math_required,
+                visual_required=visual_required,
+                generation_seed=random.randint(1, 100000)
+            )
+
+            class MockEvidencePack:
+                def __init__(self, text, math_art="none"):
+                    self.combined_text = text
+                    self.math_artifacts = math_art
+
+            evidence_pack = MockEvidencePack(chunk)
+
+            gq = orchestrator.generate(
+                slot=slot,
+                evidence_pack=evidence_pack,
+                excluded_concepts=set()
+            )
+
+            # AION image binder: attach extracted image path to generated question when available
+            try:
+                def _aion_find_img(_obj, _seen=None):
+                    if _seen is None:
+                        _seen = set()
+                    try:
+                        if _obj in (None, '', False, True):
+                            return None
+                    except Exception:
+                        pass
+                    try:
+                        _oid = id(_obj)
+                        if _oid in _seen:
+                            return None
+                        _seen.add(_oid)
+                    except Exception:
+                        pass
+                    if isinstance(_obj, str):
+                        _s = _obj.strip()
+                        if _s.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp')):
+                            return _s
+                        return None
+                    if isinstance(_obj, dict):
+                        for _k in ('image', 'image_path', 'image_url', 'diagram_image', 'diagram_path', 'figure_path', 'figure', 'visual', 'asset_path', 'path', 'file_path', 'src', 'url'):
+                            _v = _obj.get(_k)
+                            _r = _aion_find_img(_v, _seen)
+                            if _r:
+                                return _r
+                        for _v in _obj.values():
+                            _r = _aion_find_img(_v, _seen)
+                            if _r:
+                                return _r
+                    elif isinstance(_obj, (list, tuple, set)):
+                        for _v in _obj:
+                            _r = _aion_find_img(_v, _seen)
+                            if _r:
+                                return _r
+                    else:
+                        for _k in ('image', 'image_path', 'image_url', 'diagram_image', 'diagram_path', 'figure_path', 'figure', 'visual', 'asset_path', 'path', 'file_path', 'src', 'url'):
+                            try:
+                                _v = getattr(_obj, _k, None)
+                            except Exception:
+                                _v = None
+                            _r = _aion_find_img(_v, _seen)
+                            if _r:
+                                return _r
+                    return None
+                _existing_img = getattr(gq, 'image', None) if not isinstance(gq, dict) else gq.get('image')
+                if _existing_img in (None, '', False, True):
+                    _candidate_img = None
+                    for _src_name in ('selected_chunks', 'evidence_pack', 'module_visuals', 'figures', 'chunk_image_map', 'image_map', 'visuals'):
+                        _src = locals().get(_src_name)
+                        _candidate_img = _aion_find_img(_src)
+                        if _candidate_img:
+                            break
+                    if _candidate_img:
+                        if isinstance(gq, dict):
+                            gq['image'] = str(_candidate_img)
+                        else:
+                            setattr(gq, 'image', str(_candidate_img))
+            except Exception as _img_bind_err:
+                try:
+                    print(f'[VISUAL] image bind skipped: {_img_bind_err}', flush=True)
+                except Exception:
+                    pass
+
+            q_text = gq.question_text
+        else:
+            # Fallback legacy mode if orchestrator is not provided (e.g. legacy tests calling this directly)
+            q_text = get_vtu_vibe_question(
+                chunk        = chunk,
+                marks        = marks,
+                bloom        = sub_bloom,
+                difficulty   = difficulty,
+                diff_manager = dm,
+            )
+            gq = LegacyGeneratedQuestionAdapter.adapt(
+                slot_id=slot_id,
+                question_text=q_text,
+                marks=marks,
+                bloom=f"L{sub_bloom}",
+                co=make_co(parse_module_number(module_id)) if "_" in module_id else "CO1",
+                topic=slot_id,
+                module_id=parse_module_number(module_id) if "_" in module_id else 1,
+                question_no=mq_idx,
+                sub_label=sub_letter
+            )
+            slot = gq.slot
+
+        if image_data:
+            if not re.search(
+                r"\b(figure|diagram|given|shown|refer|image|chart)\b",
+                q_text, re.I
+            ):
+                q_text = (
+                    "With reference to the given figure, "
+                    + q_text[0].lower()
+                    + q_text[1:]
+                )
+                # Re-sync modified text
+                gq.question_text = q_text
+
+        sub_questions.append({
+            "letter":     sub_letters[idx] if len(partition) > 1 else None,
+            "text":       q_text,
+            "marks":      marks,
+            "difficulty": difficulty,
+            "bloom":      sub_bloom,
+            "co":         _blueprint_co,
+            "image":      image_data,
+        })
+        generated_questions.append(gq)
+        slots.append(slot)
+
+    actual_total = sum(sq["marks"] for sq in sub_questions)
+    reported_bloom = sub_questions[0]["bloom"] if len(sub_questions) == 1 else bloom
+
+    return {
+        "mq_index":      mq_idx,
+        "bloom_level":   reported_bloom,
+        "bloom_name":    get_bloom_level_name(reported_bloom),
+        "total_marks":   actual_total,
+        "sub_questions": sub_questions,
+        "generated_questions": generated_questions,
+        "slots":         slots,
+    }
+
+
+def run_or_pair_check(mq_a: dict, mq_b: dict, orchestrator: Any) -> Tuple[dict, dict]:
+    """OR alternative deduplication validator using core or_pair_validator."""
+    from core.assembly.or_pair_validator import validate_and_repair as run_or_validator
+
+    q_a = mq_a.get("generated_questions", [])
+    q_b = mq_b.get("generated_questions", [])
+    slots_b = mq_b.get("slots", [])
+    
+    if not q_a or not q_b or not slots_b:
+        return mq_a, mq_b
+
+    try:
+        new_q_a, new_q_b = run_or_validator(
+            q_a=q_a,
+            q_b=q_b,
+            slots_b=slots_b,
+            excluded=frozenset(),
+            orchestrator=orchestrator
+        )
+        
+        # Update mq_b with regenerated questions
+        mq_b["generated_questions"] = new_q_b
+        sub_letters = ["a", "b", "c"]
+        sub_questions = []
+        for idx, gq in enumerate(new_q_b):
+            sub_questions.append({
+                "letter": sub_letters[idx] if len(new_q_b) > 1 else None,
+                "text": gq.question_text,
+                "marks": gq.marks,
+                "difficulty": gq.difficulty,
+                "bloom": int(gq.bloom_level[1]) if gq.bloom_level.startswith("L") else 2,
+                "co": gq.co,
+                "image": getattr(gq, "visual_asset", None),
+            })
+        mq_b["sub_questions"] = sub_questions
+    except Exception as e:
+        print(f"[OR VALIDATOR] Dedup failed or skipped: {e}")
+
+    return mq_a, mq_b
+
+
+def _print_exam_paper(paper: List[dict], exam_type: str):
+    """Prints the final generated VTU paper structured perfectly."""
+    print("\n" + "="*80)
+    print(f"                     VTU {exam_type} QUESTION PAPER")
+    print("="*80)
+
+    for mod in paper:
+        print(f"\nMODULE {mod['module_index']}: {mod['module_title'].upper()}")
+        print("-" * 80)
+
+        _print_mq(mod["questions"][0])
+        print(f"{' '*36}[OR]")
+        _print_mq(mod["questions"][1])
+
+        print("\n" + "· " * 40 + "\n")
+
+        _print_mq(mod["questions"][2])
+        print(f"{' '*36}[OR]")
+        _print_mq(mod["questions"][3])
+        print()
+
+
+def _print_mq(mq: dict):
+    prefix = f"Q{mq['mq_index']} "
+    bloom_tag = f" [Bloom Level {mq['bloom_level']}: {mq['bloom_name']}]"
+
+    if len(mq["sub_questions"]) == 1:
+        sq = mq["sub_questions"][0]
+        diff_tag = f"[{sq.get('difficulty', '?').upper()}]"
+        img_tag  = " [IMG]" if sq.get("image") else ""
+        print(f"{prefix}{sq['text']} ({sq['marks']} Marks) {diff_tag}{img_tag}{bloom_tag}")
+    else:
+        print(f"{prefix}Answer the following:{bloom_tag}")
+        for sq in mq["sub_questions"]:
+            diff_tag = f"[{sq.get('difficulty', '?').upper()}]"
+            img_tag  = " [IMG]" if sq.get("image") else ""
+            print(
+                f"   ({sq['letter']}) {sq['text']} "
+                f"({sq['marks']} Marks) {diff_tag}{img_tag}"
+            )

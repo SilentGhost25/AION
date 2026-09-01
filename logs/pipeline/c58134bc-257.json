@@ -1,0 +1,28 @@
+{
+  "request_id": "c58134bc-257",
+  "subject": "Cloud computing and Big Data",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-09-01T06:50:20.454825",
+  "finished_at": "2026-09-01T06:54:52.705778",
+  "fail_reason": "GeneratedQuestion.__init__() got an unexpected keyword argument 'slot_id'",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-09-01T06:50:20.463348",
+      "metrics": {
+        "subject": "Cloud computing and Big Data",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-09-01T06:54:52.703591",
+      "message": "GeneratedQuestion.__init__() got an unexpected keyword argument 'slot_id'",
+      "duration_ms": 271934.7
+    }
+  ]
+}

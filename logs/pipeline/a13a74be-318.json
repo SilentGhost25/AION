@@ -1,0 +1,30 @@
+{
+  "request_id": "a13a74be-318",
+  "subject": "IOT Agriculture and Health care",
+  "model": "qwen2.5:14b",
+  "status": "complete",
+  "started_at": "2026-09-01T11:02:58.901125",
+  "finished_at": "2026-09-01T11:07:12.314750",
+  "fail_reason": null,
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-09-01T11:02:58.902152",
+      "metrics": {
+        "subject": "IOT Agriculture and Health care",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "PASS",
+      "time": "2026-09-01T11:07:12.314736",
+      "metrics": {
+        "questions": 5
+      },
+      "duration_ms": 253111.0
+    }
+  ]
+}

@@ -450,7 +450,7 @@ def query_ollama_question(prompt_text: str, model_name: str = "aion") -> Optiona
                 "prompt": prompt_text,
                 "stream": False,
                 "options": {
-                    "num_predict": 128,
+                    "num_predict": 200,
                     "temperature": 0.2,
                     "num_thread": 14
                 }

@@ -383,6 +383,51 @@ class ChunkImageMapper:
             ]
         else:
             self._all_figures = []
+        # Fallback: load diagrams_manifest.json next to the source PDF
+        if not self._all_figures:
+            try:
+                from pathlib import Path as _P
+                import json as _json
+                import aion_patch as _ap
+                fp = getattr(_ap, "ACTIVE_FILE_PATH", None)
+                diags = list(getattr(_ap, "_ACTIVE_DIAGRAMS", None) or [])
+                if not diags and fp:
+                    mp = _P(fp).parent / "diagrams_manifest.json"
+                    if mp.exists():
+                        diags = _json.loads(mp.read_text(encoding="utf-8"))
+                cards = []
+                for d in diags:
+                    ip = str(d.get("image_path") or "")
+                    if ip.startswith("/workspace/"):
+                        # map container path -> local extracted_figures
+                        if fp:
+                            ip = str(_P(fp).parent / "extracted_figures" / _P(ip).name)
+                    if not ip or not _P(ip).exists():
+                        continue
+                    try:
+                        from v0_1.figure_card import FigureCard
+                        cards.append(FigureCard(
+                            image_path=ip,
+                            caption=str(d.get("caption") or d.get("label") or ""),
+                            page=int(d.get("page") or 1),
+                        ))
+                    except Exception:
+                        class _F:
+                            pass
+                        f = _F()
+                        f.image_path = ip
+                        f.caption = str(d.get("caption") or d.get("label") or "")
+                        f.ocr_text = ""
+                        f.preceding_text = ""
+                        f.page = int(d.get("page") or 1)
+                        f.bbox = d.get("bbox") or [0, 0, 1, 1]
+                        f.figure_id = d.get("anchor_id") or ip
+                        cards.append(f)
+                if cards:
+                    self._all_figures = cards
+                    print(f"[MAPPER] Loaded {len(cards)} figures from diagrams_manifest", flush=True)
+            except Exception as _me:
+                print(f"[MAPPER] manifest fallback failed: {_me}", flush=True)
 
         print(
             f"[MAPPER] Building chunk map | "

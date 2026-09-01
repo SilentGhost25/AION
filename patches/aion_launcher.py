@@ -45,23 +45,30 @@ if orig_format:
 def capture():
     from flask import request
     try:
+        # Only process generation endpoints
+        if request.path not in ("/api/generate", "/api/generate/stream", "/api/generate/vllm"):
+            return
+
         data = request.get_json(silent=True) or {}
-        print(f"\n{'='*70}\n[REQUEST] {request.endpoint}\n{json.dumps(data, indent=2)}\n{'='*70}\n")
-        
         exam = data.get("exam_type") or data.get("exam") or "IAT1"
-        raw = data.get("marks_distribution") or data.get("marksDistribution") or data.get("marks_split")
-        
+        raw = (
+            data.get("marks_distribution") or data.get("marksDistribution") or
+            data.get("marks_split") or data.get("marksSplit") or
+            data.get("mark_splits") or data.get("markSplits") or
+            data.get("sub_question_marks")
+        )
+
         if raw:
             split = aion_hotfixes.parse_desired_split(raw, exam)
+            if split:
+                aion_hotfixes.set_active_desired_split(split, exam)
+                aion_hotfixes.patch_partition_table()
+                print(f"[USER-CHOICE] Applied marks split: {split} for {exam}", flush=True)
+            # if split is None, do NOT set anything
         else:
-            split = [10, 10] if "SEE" in exam.upper() else [5, 5]
-        
-        aion_hotfixes.set_active_desired_split(split, exam)
-        aion_hotfixes.patch_partition_table()
-        
-        print(f"\n{'='*70}\n[✓ USER CHOICE] Exam: {exam} | Marks: {split}\n{'='*70}\n")
+            pass
     except Exception as e:
-        print(f"[ERROR] {e}")
+        print(f"[ERROR] capture hook error: {e}")
 
 if __name__ == "__main__":
     print("="*70)

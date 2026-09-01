@@ -3,7 +3,7 @@ import katex from "katex"
 import "katex/dist/katex.min.css"
 
 // Matches: \command, \command_{...}, \command^{...}, \command_{...}^{...}, \text{...}
-const LATEX_RE = /\\(?:[a-zA-Z]+)(?:\{[^}]*\}|\^[^{]*|\_{[^}]*})*/g
+const LATEX_RE = /\\\((?:[^\\]|\\(?!\)))*?\\\)|\$[^$]+\$|\\(?:[a-zA-Z]+)(?:\{[^}]*\}|\^[^{]*|_{[^}]*})*/g
 
 export function MathText({ text, className }: { text: string; className?: string }) {
   if (!text) return null

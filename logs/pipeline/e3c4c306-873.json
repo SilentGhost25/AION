@@ -1,0 +1,28 @@
+{
+  "request_id": "e3c4c306-873",
+  "subject": "IAI",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-08-28T10:46:20.834803",
+  "finished_at": "2026-08-28T10:46:44.403252",
+  "fail_reason": "cannot access local variable 'base_partitions' where it is not associated with a value",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-28T10:46:20.837126",
+      "metrics": {
+        "subject": "IAI",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-08-28T10:46:44.402772",
+      "message": "cannot access local variable 'base_partitions' where it is not associated with a value",
+      "duration_ms": 23263.3
+    }
+  ]
+}

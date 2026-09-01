@@ -62,7 +62,7 @@ INSTRUCTIONS:
 Question:"""
         
         try:
-            raw = self._llm.generate(prompt, options={"num_predict": 180, "temperature": 0.35, "stop": ["Ideal Answer", "Marking Scheme"]})
+            raw = self._llm.generate(prompt, options={"num_predict": 200, "temperature": 0.35, "stop": ["Ideal Answer", "Marking Scheme"]})
             if raw and len(raw.split()) >= 10:
                 return self._polish(raw.strip(), spec)
         except Exception as e:

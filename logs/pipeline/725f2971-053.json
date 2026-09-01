@@ -1,0 +1,30 @@
+{
+  "request_id": "725f2971-053",
+  "subject": "Operating System",
+  "model": "qwen2.5:14b",
+  "status": "complete",
+  "started_at": "2026-08-28T09:35:01.104953",
+  "finished_at": "2026-08-28T09:36:47.242239",
+  "fail_reason": null,
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-08-28T09:35:01.105927",
+      "metrics": {
+        "subject": "Operating System",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "PASS",
+      "time": "2026-08-28T09:36:47.242227",
+      "metrics": {
+        "questions": 5
+      },
+      "duration_ms": 105834.7
+    }
+  ]
+}

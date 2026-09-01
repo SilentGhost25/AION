@@ -1,3 +1,18 @@
+def _visual_constraint(equations=None, images=None):
+    eqs = equations or []
+    imgs = images or []
+    if not eqs and not imgs:
+        return ''
+    eqb = '\n'.join(f'  eq_{i+1}: {e}' for i,e in enumerate(eqs[:8])) or '  (none)'
+    imb = '\n'.join(f'  {p}' for p in imgs[:8]) or '  (none)'
+    return (
+        '\n=== SOURCE VISUALS & EQUATIONS (MANDATORY) ===\n'
+        'Use ONLY these extracted equations/figures. Put latex in math_blocks as [MATH:eq_k].\n'
+        'If an image path is given, set image_path and say Refer to the figure.\n'
+        'Do NOT invent other subjects.\nEQUATIONS:\n' + eqb +
+        '\nIMAGES:\n' + imb + '\n==============================================\n'
+    )
+
 from core.generation.marks_partitioner import get_user_split
 """
 AION Module: Turbo Mode Direct Question Generator
@@ -63,6 +78,40 @@ def generate_turbo(concept: Concept, marks: int = 5) -> GeneratedQuestion:
     Direct ultra-fast question generation for Turbo Mode.
     Generates ONLY the question text directly from the concept chunk.
     """
+    # Bind extracted figures into the LLM prompt (mandatory figure use)
+    try:
+        import aion_patch as _ap
+        _figs = list(getattr(_ap, "_ACTIVE_DIAGRAMS", None) or [])
+    except Exception:
+        _figs = []
+    _visual_add = ""
+    if _figs:
+        _paths = []
+        for _d in _figs[:8]:
+            if isinstance(_d, dict):
+                _ip = _d.get("image_path") or _d.get("path") or ""
+                _cap = _d.get("caption") or _d.get("label") or ""
+            else:
+                _ip = getattr(_d, "image_path", "") or ""
+                _cap = getattr(_d, "caption", "") or ""
+            if _ip:
+                _paths.append(f"- {_cap}: {_ip}")
+        if _paths:
+            _visual_add = (
+                "\n=== SOURCE FIGURES (MANDATORY) ===\n"
+                "You MUST use at least one of these extracted figures.\n"
+                "In question_text say \"With reference to the given figure...\".\n"
+                "In the JSON set BOTH image_path and associated_image to the exact file path.\n"
+                + "\n".join(_paths) +
+                "\nDo NOT invent other subjects or figures.\n"
+                "===================================\n"
+            )
+    if "_visual_constraint" in globals() and _figs:
+        try:
+            _visual_add = _visual_constraint(_figs) + "\n" + _visual_add
+        except Exception:
+            pass
+
     cleaned_content = clean_chunk(concept.content)
     quality = validate_chunk(cleaned_content)
 
@@ -76,13 +125,13 @@ def generate_turbo(concept: Concept, marks: int = 5) -> GeneratedQuestion:
         )
 
     chunk = cleaned_content[:1200]
-    prompt = TURBO_QUESTION_PROMPT.format(chunk=chunk, marks=marks)
+    prompt = _visual_add + TURBO_QUESTION_PROMPT.format(chunk=chunk, marks=marks)
 
     try:
         raw_response = get_llm().generate(
             prompt=prompt,
             options={
-                "num_predict": 120,          # Hard limit: ~60 words max
+                "num_predict": 200,          # Hard limit: ~60 words max
                 "temperature": 0.6,
                 "stop": TURBO_STOP_SEQUENCES # Critical stop sequences
             }

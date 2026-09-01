@@ -1,0 +1,28 @@
+{
+  "request_id": "d3757dc7-581",
+  "subject": "DBMS",
+  "model": "qwen2.5:14b",
+  "status": "failed",
+  "started_at": "2026-09-01T03:58:24.076247",
+  "finished_at": "2026-09-01T03:58:59.367460",
+  "fail_reason": "name 'self' is not defined",
+  "stages": [
+    {
+      "stage": "RequestContract",
+      "status": "PASS",
+      "time": "2026-09-01T03:58:24.077435",
+      "metrics": {
+        "subject": "DBMS",
+        "exam": "IAT1",
+        "model": "qwen2.5:14b"
+      }
+    },
+    {
+      "stage": "PipelineExecution",
+      "status": "FAIL",
+      "time": "2026-09-01T03:58:59.365985",
+      "message": "name 'self' is not defined",
+      "duration_ms": 34986.7
+    }
+  ]
+}

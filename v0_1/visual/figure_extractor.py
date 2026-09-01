@@ -123,6 +123,8 @@ def _extract_from_pdf(
     asset_dir:   Path,
     image_url_prefix: str,
 ) -> list[FigureCard]:
+    # AION hotfix: manifest writer expects file_path
+    file_path = path
     try:
         import fitz
     except ImportError:

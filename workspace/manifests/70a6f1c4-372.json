@@ -1,0 +1,17 @@
+{
+  "document_id": "70a6f1c4-372",
+  "created_at": "2026-09-01T10:59:04.931930+00:00",
+  "source": {
+    "path": "/home/AIML1/AIQ/AION/workspace/uploads/70a6f1c4-372/original.pdf",
+    "filename": "Module 1 IOT agri &health.pdf",
+    "mime_type": "application/pdf",
+    "size_bytes": 433524,
+    "sha256": "897e07666998a7c25364eb00040c1b6ed42de481f5fbb623fdfb549abb56639d",
+    "authoritative": true
+  },
+  "derived": {},
+  "extraction_status": "PENDING",
+  "extraction_report": null,
+  "status": "READY",
+  "status_changed_at": "2026-09-01T10:59:22.616500+00:00"
+}

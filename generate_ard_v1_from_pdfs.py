@@ -167,7 +167,7 @@ Output JSON format strictly:
                     "stream": False,
                     "options": {
                         "temperature": 0.7,
-                        "num_predict": 512,
+                        "num_predict": 200,
                     },
                 },
                 timeout=300,
