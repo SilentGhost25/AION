@@ -196,3 +196,10 @@
     @apply font-sans antialiased bg-background text-foreground;
   }
 }
+
+@media print {
+  .print\:hidden,
+  .no-print {
+    display: none !important;
+  }
+}

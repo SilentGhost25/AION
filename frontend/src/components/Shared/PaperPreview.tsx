@@ -97,7 +97,17 @@ export function PaperPreview({
     ...formData,
   };
 
-  const cos = courseOutcomes ?? DEFAULT_COS;
+  const [cos, setCos] = React.useState<CourseOutcome[]>(courseOutcomes ?? DEFAULT_COS);
+
+  React.useEffect(() => {
+    if (courseOutcomes) {
+      setCos(courseOutcomes);
+    }
+  }, [courseOutcomes]);
+
+  const updateCO = (code: string, newText: string) => {
+    setCos((prev: CourseOutcome[]) => prev.map((c: CourseOutcome) => c.code === code ? { ...c, text: newText } : c));
+  };
 
   // Normalise bloom — support both `bloom` and legacy `bloomLevel`
   const qs: PaperQuestion[] = questions.map(q => ({
@@ -180,8 +190,8 @@ export function PaperPreview({
               <div>Affiliated to <span style={{ color: "#c00", fontWeight: "bold" }}>VTU</span></div>
               <div>Approved by <span style={{ color: "#c00", fontWeight: "bold" }}>AICTE</span></div>
               <div>Accredited by <span style={{ color: "#c00", fontWeight: "bold" }}>NAAC</span> with A+ Grade</div>
-              <div>6 Programs Accredited by <span style={{ color: "#c00", fontWeight: "bold" }}>NBA</span></div>
-              <div>(CSE, ISE, ECE, EEE, MECH, CV)</div>
+              <div>4 Programs Accredited by <span style={{ color: "#c00", fontWeight: "bold" }}>NBA</span></div>
+              <div>(CSE, ISE, ECE, MECH)</div>
             </td>
 
             {/* IQAC logo */}
@@ -515,7 +525,17 @@ export function PaperPreview({
                 </td>
                 <td style={{ border: "1px solid black", fontSize: 10,
                              padding: "3px 8px", minHeight: 20 }}>
-                  {co.text}
+                  {editable ? (
+                    <input
+                      type="text"
+                      value={co.text}
+                      onChange={e => updateCO(co.code, e.target.value)}
+                      style={{ width: "100%", background: "transparent", border: "none", outline: "none" }}
+                      placeholder="Click to edit course outcome..."
+                    />
+                  ) : (
+                    co.text
+                  )}
                 </td>
               </tr>
             ))}
@@ -524,9 +544,9 @@ export function PaperPreview({
       </div>
 
       {/* ════════════════════════════════════════════════════════════════════
-          PERCENTAGE OF CO COVERAGE
+          PERCENTAGE OF CO COVERAGE (preview only, hidden in print/download)
       ════════════════════════════════════════════════════════════════════ */}
-      <div style={{ marginTop: 10 }}>
+      <div className="print:hidden no-print" style={{ marginTop: 10 }}>
         <div style={{ fontWeight: "bold", fontSize: 10, marginBottom: 2, paddingLeft: 8 }}>
           Percentage of CO Coverage
         </div>
@@ -556,9 +576,9 @@ export function PaperPreview({
       </div>
 
       {/* ════════════════════════════════════════════════════════════════════
-          PERCENTAGE OF SYLLABUS COVERAGE
+          PERCENTAGE OF SYLLABUS COVERAGE (preview only, hidden in print/download)
       ════════════════════════════════════════════════════════════════════ */}
-      <div style={{ marginTop: 10, marginBottom: 6 }}>
+      <div className="print:hidden no-print" style={{ marginTop: 10, marginBottom: 6 }}>
         <div style={{ fontWeight: "bold", fontSize: 10, marginBottom: 2 }}>
           Percentage of Syllabus coverage
         </div>

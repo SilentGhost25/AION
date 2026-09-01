@@ -76,6 +76,21 @@ export function Step3Preview({
     setPaper({ ...paper, questions: newQuestions })
   }
 
+  // Edit the text of a single Course Outcome (CO).
+  const updateCO = (index: number, newText: string) => {
+    const currentCOs = (courseOutcomes && courseOutcomes.length > 0)
+      ? [...courseOutcomes]
+      : [
+          "Understand fundamental concepts and theoretical foundations",
+          "Apply analytical methods and problem-solving techniques",
+          "Implement algorithms and system architectures",
+          "Analyze performance tradeoffs and design alternatives",
+          "Evaluate solution quality and system specifications",
+        ]
+    currentCOs[index] = newText
+    setPaper({ ...paper, courseOutcomes: currentCOs })
+  }
+
   return (
     <div className="max-w-[21cm] mx-auto animate-in fade-in pb-20 print:pb-0">
       
@@ -243,18 +258,29 @@ export function Step3Preview({
           <h3 className="font-bold text-sm text-black mb-2">Course Outcomes (COs): At the end of the Course, the Student will be able to:</h3>
           <table className="w-full border-collapse border border-black text-xs text-black">
             <tbody>
-              {courseOutcomes.map((co, i) => (
+              {((courseOutcomes && courseOutcomes.length > 0) ? courseOutcomes : [
+                "Understand fundamental concepts and theoretical foundations",
+                "Apply analytical methods and problem-solving techniques",
+                "Implement algorithms and system architectures",
+                "Analyze performance tradeoffs and design alternatives",
+                "Evaluate solution quality and system specifications",
+              ]).map((co, i) => (
                 <tr key={i}>
-                  <td className="border border-black p-1 font-bold w-[10%] text-center">CO{i+1}</td>
-                  <td className="border border-black p-1">{co}</td>
+                  <td className="border border-black p-1 font-bold w-[10%] text-center align-top">CO{i+1}</td>
+                  <td className="border border-black p-1">
+                    <AutoGrowTextarea
+                      value={co}
+                      onChange={v => updateCO(i, v)}
+                    />
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
 
-        {/* Coverage Tables side-by-side */}
-        <div className="flex gap-4 print-break-inside-avoid">
+        {/* Coverage Tables side-by-side — visible only in preview, removed on export/print */}
+        <div className="flex gap-4 print-break-inside-avoid print:hidden">
           <div className="flex-1">
             <h3 className="font-bold text-sm text-black mb-2 text-center">Percentage of CO Coverage</h3>
             <table className="w-full border-collapse border border-black text-xs text-black text-center">
@@ -538,5 +564,39 @@ function SegmentEditor({
         <span>{rawText}</span>
       )}
     </div>
+  )
+}
+
+function AutoGrowTextarea({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (v: string) => void
+}) {
+  const ref = React.useRef<HTMLTextAreaElement>(null)
+
+  const resize = () => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = "auto"
+    el.style.height = `${el.scrollHeight}px`
+  }
+
+  React.useLayoutEffect(() => {
+    resize()
+  }, [value])
+
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={e => {
+        onChange(e.target.value)
+        resize()
+      }}
+      rows={1}
+      className="w-full bg-transparent resize-none overflow-hidden focus:outline-none focus:bg-blue-50/40 focus:ring-1 focus:ring-blue-300 rounded-sm hover:bg-slate-50 print:hover:bg-transparent print:focus:bg-transparent print:ring-0 transition-colors leading-snug cursor-text"
+    />
   )
 }
