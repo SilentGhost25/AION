@@ -119,8 +119,8 @@ export function Step2Preview({
                 <p>Affiliated to <span className="text-red-600 font-semibold">VTU</span></p>
                 <p>Approved by <span className="text-red-600 font-semibold">AICTE</span></p>
                 <p>Accredited by <span className="text-red-600 font-semibold">NAAC</span> with <span className="text-red-600 font-semibold">A+</span> Grade</p>
-                <p>6 Programs Accredited by <span className="text-red-600 font-semibold">NBA</span></p>
-                <p>(CSE, ISE, ECE, EEE, MECH, CV)</p>
+                <p>4 Programs Accredited by <span className="text-red-600 font-semibold">NBA</span></p>
+                <p>(CSE, ISE, ECE, MECH)</p>
               </div>
               <div className="flex flex-col items-center">
                 <img src="/iqac-seal.jpg" alt="IQAC seal" className="w-12 h-12 object-contain" />
