@@ -142,58 +142,148 @@ try:
 except Exception:
     pass
 
-# 4. Domain Archetype Knowledge & Instruction Directives
-DOMAIN_PROFILES = {
-    "dbms": (
-        ["relational", "tuple", "dbms", "sql", "normalization", "bcnf", "closure", "attribute", "functional dependency", "schema", "table"],
-        r"""[DOMAIN DIRECTIVE: DATABASE SYSTEMS & RELATIONAL ALGEBRA]
+# 4. Minimal Subject Archetype Registry & Fail-Closed Directive Resolver
+SUBJECT_ARCHETYPES = {
+    "dbms": {
+        "aliases": ["dbms", "database", "database management", "relational database", "sql", "rdbms", "21cs53", "bis501", "bcs501", "dbms lab"],
+        "directive": r"""[DOMAIN DIRECTIVE: DATABASE SYSTEMS & RELATIONAL ALGEBRA]
 - Formulate precise query and schema analysis problems.
-- Use exact relational algebra operators in LaTeX: Selection \\sigma_{condition}(R), Projection \\pi_{attrs}(R), Join R \\bowtie_{cond} S.
+- Use exact relational algebra operators in LaTeX: Selection \sigma_{condition}(R), Projection \pi_{attrs}(R), Join R \bowtie_{cond} S.
 - For Normalization: Provide functional dependencies F = {A -> B, BC -> D} and ask to compute attribute closures (X+), candidate keys, or test for 3NF/BCNF.
 - Store expressions in "math_blocks" with proper [MATH:math_id] references."""
-    ),
-    "os_networks": (
-        ["scheduling", "turnaround", "paging", "tlb", "banker", "deadlock", "cidr", "subnet", "dijkstra", "tcp", "window", "crc", "packet"],
-        r"""[DOMAIN DIRECTIVE: OPERATING SYSTEMS & NETWORKS]
+    },
+    "cloud_bigdata": {
+        "aliases": ["cloud computing", "big data", "cloud computing & big data analytics", "bis701", "bcs701", "virtualization", "docker", "container", "hypervisor", "hadoop", "hdfs", "mapreduce", "yarn", "storage virtualization"],
+        "directive": r"""[DOMAIN DIRECTIVE: CLOUD COMPUTING & BIG DATA ANALYTICS]
+- Formulate concrete problems on cloud virtualization, hypervisors, container engines, or Big Data systems.
+- For Virtualization & Containers: Formulate problems on Type-1 vs Type-2 hypervisors, VM resource mapping/scheduling, storage virtualization pooling, Docker engine/daemon architectures, or container lifecycle commands.
+- For Big Data: Formulate MapReduce key-value dataflow problems, HDFS block distribution/fault tolerance calculations, or YARN container allocations.
+- STRICT CONSTRAINT: Do NOT formulate Relational Algebra queries or relational table schemas."""
+    },
+    "os_networks": {
+        "aliases": ["operating systems", "os", "computer networks", "networking", "21cs44", "21cs52", "bis403", "os lab", "cn lab", "networks lab", "network lab"],
+        "directive": r"""[DOMAIN DIRECTIVE: OPERATING SYSTEMS & NETWORKS]
 - For OS: Generate numerical scheduling problems (calculate Waiting Time / Turnaround Time for FCFS/SJF/Round-Robin tables), Paging/TLB address translation, or Banker's Algorithm safety vectors.
 - For Networks: Generate CIDR subnet calculation problems (find network ID, broadcast IP, usable hosts), Sliding Window throughput/efficiency calculations, or CRC checksum polynomials.
 - Structure input data in clear markdown tables and equations in math_blocks."""
-    ),
-    "ai_ml_data": (
-        ["gradient descent", "bayes", "confusion matrix", "f1-score", "backpropagation", "support vector"],
-        r"""[DOMAIN DIRECTIVE: AI, MACHINE LEARNING & DATA SCIENCE]
+    },
+    "ai_ml_data": {
+        "aliases": ["machine learning", "artificial intelligence", "ai", "ml", "aiml", "ai & ml", "ai/ml", "data science", "neural networks", "deep learning", "21cs71", "aiml lab", "ai lab", "ml lab"],
+        "directive": r"""[DOMAIN DIRECTIVE: AI, MACHINE LEARNING & DATA SCIENCE]
 - Formulate analytical problems: Calculate Posterior Probability P(A|B) using Bayes' Theorem, Confusion Matrix metrics (Accuracy, Precision, Recall, F1-Score), or Information Gain / Gini Impurity for Decision Trees.
 - For Optimization: Formulate single-step Gradient Descent updates w^{(t+1)} = w^{(t)} - \eta \nabla L(w).
 - Use clean LaTeX for matrices, vectors, and summation formulas."""
-    ),
-    "circuits_dsp": (
-        ["fourier", "laplace", "z-transform", "transfer function", "bode", "filter", "op-amp", "impedance", "kirchhoff", "modulation", "snr", "nyquist"],
-        r"""[DOMAIN DIRECTIVE: ELECTRICAL, ELECTRONICS & SIGNALS/DSP]
+    },
+    "circuits_dsp": {
+        "aliases": ["dsp", "digital signal processing", "signals and systems", "circuits", "analog electronics", "vlsi", "dsp lab", "vlsi lab"],
+        "directive": r"""[DOMAIN DIRECTIVE: ELECTRICAL, ELECTRONICS & SIGNALS/DSP]
 - Formulate numerical circuit and signal problems: Calculate frequency response H(j\omega), poles/zeros of Z-transforms, or RLC resonant frequencies \omega_0 = 1/\sqrt{LC}.
 - For Circuits: Calculate Node Voltages / Mesh Currents, Op-Amp closed-loop gain, or Thevenin Equivalent circuits with numerical resistor/voltage values.
 - Maintain standard SI units (\Omega, \mu F, mH, dB, Hz, rad/s) in equations."""
-    ),
-    "mechanics_physics": (
-        ["shear stress", "bending moment", "thermodynamics", "bernoulli", "carnot"],
-        r"""[DOMAIN DIRECTIVE: MECHANICAL, CIVIL & APPLIED PHYSICS]
-- Formulate computational engineering problems: Calculate normal stress \\sigma = F/A, strain \epsilon = \Delta L / L, Factor of Safety, or Beam Deflection moments.
-- For Thermodynamics: Calculate heat transfer Q = mc\Delta T, work done in polytropic expansion W = \frac{P_1 V_1 - P_2 V_2}{n - 1}, or Carnot cycle efficiency \eta = 1 - T_L/T_H.
+    },
+    "mechanics_physics": {
+        "aliases": ["mechanics", "thermodynamics", "fluid mechanics", "applied physics", "strength of materials"],
+        "directive": r"""[DOMAIN DIRECTIVE: MECHANICAL, CIVIL & APPLIED PHYSICS]
+- Formulate computational engineering problems: Calculate normal stress \sigma = F/A, strain \epsilon = \Delta L / L, Factor of Safety, or Beam Deflection moments.
+- For Thermodynamics: Calculate heat transfer Q = mc\Delta T, work done in polytropic expansion, or Carnot cycle efficiency.
 - Include all dimensional units (MPa, kN, J, W, m^3/s, K) in calculations."""
-    ),
-    "satcom_aero": (
-        ["orbit", "apogee", "perigee", "kepler", "satellite", "elevation", "slant", "azimuth", "hohmann", "thrust", "antenna", "friis", "link budget"],
-        r"""[DOMAIN DIRECTIVE: SATELLITE COMMUNICATIONS & ASTRODYNAMICS]
-- Formulate orbital and look-angle calculation problems: Keplerian orbital period T^2 = \frac{4\\pi^2 a^3}{\mu}, velocity in elliptical orbit v = \sqrt{\mu(2/r - 1/a)}, or eccentricity e = (r_a - r_p)/(r_a + r_p).
-- For Earth Stations: Calculate Elevation Angle \theta, Slant Range d, and Link Budget Carrier-to-Noise Ratio (C/N).
-- Use standard constants: \mu = 3.986 \times 10^5 \text{ km}^3/\text{s}^2, R_e = 6378\text{ km}, h_{geo} = 35786\text{ km}."""
-    ),
-    "pure_math": (
-        ["eigenvalue", "eigenvector", "integral", "derivative", "differential equation", "matrix", "vector calculus", "laplacian", "jacobian"],
-        r"""[DOMAIN DIRECTIVE: HIGHER MATHEMATICS & CALCULUS]
-- Formulate step-by-step mathematical problems: Solve 2nd-order ODEs, compute eigenvalues \det(A - \lambda I) = 0 and eigenvectors, or evaluate line/surface integrals via Green's/Stokes' theorem.
-- Include full LaTeX matrices, bounds, and differentials in math_blocks."""
-    )
+    },
+    "satcom_aero": {
+        "aliases": ["satellite communications", "astrodynamics", "orbital mechanics", "aerospace", "satcom"],
+        "directive": r"""[DOMAIN DIRECTIVE: SATELLITE COMMUNICATIONS & ASTRODYNAMICS]
+- Formulate orbital and look-angle calculation problems: Keplerian orbital period T^2 = \frac{4\pi^2 a^3}{\mu}, velocity in elliptical orbit, or eccentricity.
+- For Earth Stations: Calculate Elevation Angle \theta, Slant Range d, and Link Budget Carrier-to-Noise Ratio (C/N)."""
+    }
 }
+
+# Backward compatibility alias
+DOMAIN_PROFILES = {k: (v["aliases"], v["directive"]) for k, v in SUBJECT_ARCHETYPES.items()}
+
+# Common VTU Course Code direct lookup
+COURSE_CODE_MAP = {
+    # DBMS
+    "21cs53": "dbms", "18cs53": "dbms", "bis501": "dbms", "bcs501": "dbms", "21ise53": "dbms",
+    # Cloud & Big Data
+    "bis701": "cloud_bigdata", "bcs701": "cloud_bigdata", "21cs72": "cloud_bigdata", "18cs72": "cloud_bigdata",
+    # OS & Networks
+    "21cs44": "os_networks", "18cs44": "os_networks", "21cs52": "os_networks", "18cs52": "os_networks", "bis403": "os_networks",
+    # AI / ML
+    "21cs71": "ai_ml_data", "18cs71": "ai_ml_data", "21aiml": "ai_ml_data", "bcs601": "ai_ml_data",
+}
+
+def resolve_subject_archetype(subject_name: str = "", topic_text: str = "") -> Optional[str]:
+    """
+    Resolves subject archetype with FAIL-CLOSED behavior:
+    - Normalizes punctuation, hyphens, and whitespace for course codes (e.g. '21-CS-53' -> '21cs53')
+    - Uses strict word-boundary matching (r'\\b...\\b') to prevent false substring matches (e.g. 'os' in 'genomics' or 'ai' in 'sustainability')
+    - Matches multi-word specific phrases first before single-word shorthand
+    - Resolves ambiguity cleanly: if multiple distinct archetypes conflict, fails closed.
+    - If subject is unknown, mistyped, or not registered, returns None (zero injected directives).
+    """
+    if not subject_name and not topic_text:
+        return None
+
+    s_raw = (subject_name or "").lower().strip()
+    t_raw = (topic_text or "").lower().strip()
+
+    # 1. Exact Course Code or Collapsed Acronym Match (Highest Authority)
+    s_code = re.sub(r'[^a-z0-9]', '', s_raw)
+    if s_code:
+        for code, arch in COURSE_CODE_MAP.items():
+            if code == s_code or s_code.startswith(code):
+                return arch
+        # Match collapsed acronyms (e.g. 'A.I. / M.L.' -> 'aiml', 'D.B.M.S.' -> 'dbms', 'D.S.P.' -> 'dsp')
+        for arch_key, arch_data in SUBJECT_ARCHETYPES.items():
+            for alias in arch_data["aliases"]:
+                alias_code = re.sub(r'[^a-z0-9]', '', alias.lower())
+                if len(alias_code) >= 3 and s_code == alias_code:
+                    return arch_key
+
+    # 2. Match subject_name against aliases using strict word-boundary matching
+    s_norm = re.sub(r'[/_&,.\-]', ' ', s_raw)
+    s_norm = re.sub(r'\s+', ' ', s_norm).strip()
+
+    candidate_matches = []
+    for arch_key, arch_data in SUBJECT_ARCHETYPES.items():
+        for alias in arch_data["aliases"]:
+            alias_norm = re.sub(r'[/_&,.\-]', ' ', alias.lower()).strip()
+            alias_norm = re.sub(r'\s+', ' ', alias_norm)
+            pattern = r'\b' + re.escape(alias_norm) + r'\b'
+            if re.search(pattern, s_norm) or re.search(pattern, s_raw):
+                candidate_matches.append((len(alias_norm), arch_key, alias_norm))
+
+    if candidate_matches:
+        # Sort by alias length descending so longer, more specific matches take precedence
+        candidate_matches.sort(key=lambda x: x[0], reverse=True)
+        top_len, top_arch, top_alias = candidate_matches[0]
+        
+        # Check if there's a tie between two completely different archetypes
+        conflicting = [m[1] for m in candidate_matches if m[0] == top_len]
+        if len(set(conflicting)) > 1:
+            # Ambiguous conflict -> Fail-closed!
+            return None
+        return top_arch
+
+    # 3. Match explicit topic only if subject was not given or ambiguous
+    if t_raw:
+        t_norm = re.sub(r'[/_&,.\-]', ' ', t_raw)
+        t_norm = re.sub(r'\s+', ' ', t_norm).strip()
+        topic_matches = []
+        for arch_key, arch_data in SUBJECT_ARCHETYPES.items():
+            for alias in arch_data["aliases"]:
+                alias_norm = re.sub(r'[/_&,.\-]', ' ', alias.lower()).strip()
+                alias_norm = re.sub(r'\s+', ' ', alias_norm)
+                # Strict requirement: Topic alias must be at least 5 chars and match full word
+                if len(alias_norm) >= 5:
+                    pattern = r'\b' + re.escape(alias_norm) + r'\b'
+                    if re.search(pattern, t_norm) or re.search(pattern, t_raw):
+                        topic_matches.append((len(alias_norm), arch_key))
+        if topic_matches:
+            topic_matches.sort(key=lambda x: x[0], reverse=True)
+            return topic_matches[0][1]
+
+    # FAIL-CLOSED: if subject is unknown or not in registry, inject ZERO domain directives
+    return None
 
 # 5. Dynamic Caller with Multi-Domain Detection & Low Temperature
 def self_heal_ollama(ollama_url: str = "http://127.0.0.1:11434") -> bool:
@@ -295,23 +385,17 @@ for module_path in ["v0_1.llm", "core.generation.robust_llm_caller"]:
                     opts["top_p"] = 0.95
                     kwargs["options"] = opts
 
-                    p_lower = prompt.lower()
+                    topic_m = re.search(r'(?i)\btopic\s*:\s*([^\n]+)', prompt)
+                    topic_text = topic_m.group(1).strip() if topic_m else ""
+                    subject_name = kwargs.get("subject", "") or kwargs.get("subject_code", "") or getattr(sys.modules.get(__name__), "ACTIVE_SUBJECT", "")
+                    
+                    matched_arch = resolve_subject_archetype(subject_name, topic_text)
                     matched_directives = []
-                    # Never classify from Bloom verbs / generic exam wording
-                    _skip = ("recall how", "recall the", "list the", "define the", "explain how")
-                    best_domain, best_hits = None, 0
-                    for domain, (keywords, directive) in DOMAIN_PROFILES.items():
-                        hits = 0
-                        for k in keywords:
-                            if len(k) < 5:
-                                continue
-                            if re.search(r"\b" + re.escape(k.lower()) + r"\b", p_lower):
-                                hits += 1
-                        if hits > best_hits:
-                            best_hits, best_domain = hits, directive
-                    # Require at least 2 real keyword hits so OS papers don't get thermodynamics
-                    if best_hits >= 2:
-                        matched_directives.append(best_domain)
+                    if matched_arch and matched_arch in SUBJECT_ARCHETYPES:
+                        matched_directives.append(SUBJECT_ARCHETYPES[matched_arch]["directive"])
+                        print(f"[ARCHETYPE] Subject: '{subject_name}' | Topic: '{topic_text}' -> Matched: {matched_arch}. Injected directive.")
+                    else:
+                        print(f"[ARCHETYPE] Fail-closed: Subject '{subject_name}' | Topic '{topic_text}' not in registry. Injected 0 domain directives.")
 
                     if matched_directives:
                         header = (
@@ -646,17 +730,8 @@ Respond STRICTLY with a valid JSON block:
 """
             is_tech = True
             diag_type = "Technical Diagram"
-            summary = "Reference visualization for calculations."
-
-            gate_res = query_local_llm(eval_prompt, json_format=True)
-            if gate_res:
-                try:
-                    decision = json.loads(gate_res)
-                    is_tech = bool(decision.get("is_technical_diagram", True))
-                    diag_type = decision.get("diagram_type", "Technical Diagram")
-                    summary = decision.get("technical_summary", summary)
-                except Exception:
-                    pass
+            summary = caption or "Reference visualization."
+            # Fast pass: bypass local LLM query to keep diagram extraction instantaneous (0ms)
 
             if is_tech and diag_type != "Decorative/Icon":
                 anchors.append({
@@ -686,32 +761,7 @@ Respond STRICTLY with a valid JSON block:
 
 
 # --- 4. EXAM PROFILES & VTU TEMPLATE WRAPPER ---
-DOMAIN_PROFILES = {
-    "dbms": (
-        ["relational", "tuple", "dbms", "sql", "normalization", "bcnf", "closure", "attribute", "functional dependency"],
-        "Write precise query-writing problems using Relational Algebra operators in LaTeX: Selection \\sigma_{cond}(R), Projection \\pi_{attrs}(R), Join R \\bowtie_{cond} S."
-    ),
-    "os_networks": (
-        ["scheduling", "turnaround", "paging", "tlb", "banker", "cidr", "subnet", "dijkstra", "tcp", "crc"],
-        "Formulate waiting time scheduling tables, paging translation algorithms, or IP subnetting problems."
-    ),
-    "ai_ml_data": (
-        ["gradient descent", "bayes", "confusion matrix", "f1-score", "neural network"],
-        "Formulate Bayesian probability updates P(A|B), decision tree information gain, or gradient updates."
-    ),
-    "circuits_signals": (
-        ["fourier", "laplace", "z-transform", "transfer function", "bode", "filter", "op-amp", "impedance", "kirchhoff"],
-        "Formulate transfer function calculations, Z-transform poles, Kirchhoff's loop currents, or Op-Amp closed loop gain."
-    ),
-    "mechanics_physics": (
-        ["shear stress", "bending moment", "thermodynamics", "bernoulli", "carnot"],
-        "Formulate normal/shear stress computation \\sigma = F/A, Carnot efficiency, or fluid flow rate."
-    ),
-    "satcom_aero": (
-        ["orbit", "apogee", "perigee", "kepler", "elevation", "slant", "azimuth", "hohmann", "thrust", "link budget"],
-        "Formulate Keplerian orbit periods T^2 = \\frac{4\\pi^2 a^3}{\\mu}, look angles \\theta, or slant range d."
-    )
-}
+# (Uses unified SUBJECT_ARCHETYPES defined above)
 
 
 # --- 5. DYNAMIC CALLER HOOK ---
@@ -756,15 +806,9 @@ def _install_llm_hook():
                     pdf_path = os.path.join(_BASE_DIR, f"workspace/uploads/{file_id}/original.pdf")
                 anchors = extract_and_qualify_diagram_anchors(file_id, pdf_path)
 
+            # Discard image anchors before prompt assembly to eliminate image processing latency,
+            # while keeping formula and KaTeX block extraction below 100% active.
             active_anchor = None
-            for anc in anchors:
-                anc_words = set(anc.get("context", "").lower().split())
-                prompt_words = set(p_lower.split())
-                if len(anc_words.intersection(prompt_words)) > 8:
-                    active_anchor = anc
-                    break
-            if not active_anchor and anchors:
-                active_anchor = anchors[0]
             # Also attach extracted equations/math if available
             equations_ctx = []
             try:
@@ -804,14 +848,17 @@ def _install_llm_hook():
                 header += "If these equations are relevant, create NUMERICAL/DERIVATION questions using them. Put the key equations in 'math_blocks' with proper LaTeX and reference via [MATH:...] in question_text.\n"
 
 
+            topic_m = re.search(r'(?i)\btopic\s*:\s*([^\n]+)', prompt)
+            topic_text = topic_m.group(1).strip() if topic_m else ""
+            subject_name = kwargs.get("subject", "") or kwargs.get("subject_code", "") or getattr(sys.modules.get(__name__), "ACTIVE_SUBJECT", "")
+            
+            matched_arch = resolve_subject_archetype(subject_name, topic_text)
             matched_domains = []
-            best_domain, best_hits = None, 0
-            for domain, (keywords, instruction) in DOMAIN_PROFILES.items():
-                hits = sum(1 for k in keywords if len(k) >= 5 and re.search(r"\b" + re.escape(k.lower()) + r"\b", p_lower))
-                if hits > best_hits:
-                    best_hits, best_domain = hits, instruction
-            if best_hits >= 2:
-                matched_domains.append(best_domain)
+            if matched_arch and matched_arch in SUBJECT_ARCHETYPES:
+                matched_domains.append(SUBJECT_ARCHETYPES[matched_arch]["directive"])
+                logger.info(f"[ARCHETYPE] Subject: '{subject_name}' | Topic: '{topic_text}' -> Matched: {matched_arch}. Injected directive.")
+            else:
+                logger.info(f"[ARCHETYPE] Fail-closed: Subject '{subject_name}' | Topic '{topic_text}' not in registry. Injected 0 domain directives.")
 
             # --- Inject strict engineering exam template directives ---
             header = "\n=== [VTU EXAM PATTERN & DIAGRAM INJECTOR DIRECTIVE] ===\n"
@@ -832,9 +879,8 @@ def _install_llm_hook():
             if matched_domains:
                 header += "\n[SUBJECT-SPECIFIC INSTRUCTION]\n" + "\n".join(matched_domains) + "\n"
 
-            header += "\n[SCHEME OF EVALUATION DIRECTIVE]\n"
-            header += "Provide step-by-step rigorous LaTeX derivations inside standard bracket delimiters ($...$ and $$...$$).\n"
-            header += "Include a clean breakdown of component marks awarded for diagrams, equations, steps, and final responses.\n"
+            header += "\n[QUESTION CONCISENESS & NO-ANSWER-LEAKAGE GUIDELINE]\n"
+            header += "Aim for a concise question (typically 20 to 50 words). Do NOT include derivations, answers, or solutions in the question text. The student must solve the problem.\n"
             header += "========================================================================\n\n"
 
             return header + prompt

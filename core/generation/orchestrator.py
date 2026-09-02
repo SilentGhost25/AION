@@ -14,7 +14,7 @@ from core.validation.linter import run_linter
 LOG = logging.getLogger(__name__)
 
 def _repair_invalid_json_backslashes(raw: str) -> str:
-    """
+    r"""
     Repair model-produced JSON containing LaTeX/regex backslashes that are not
     valid JSON escapes.
 
@@ -178,6 +178,11 @@ def _build_recovery_hint(failure_history: List[str]) -> str:
             "\n\n[RECOVERY REQUIRED: MATH FORMAT]\n"
             "Math block latex was empty or had formatting issues. Ensure latex is non-empty and contains no corruption.\n"
             "REWRITE with corrected math_blocks.\n"
+        ),
+        "DOMAIN_INTEGRITY_VIOLATION": (
+            "\n\n[RECOVERY REQUIRED: STRICT DOMAIN GROUNDING]\n"
+            "Your previous question contained off-topic database syntax (SQL queries, relational algebra operators like \\bowtie, \\sigma, \\pi, or relational table schemas) that do NOT belong to this course topic.\n"
+            "REGENERATE A COMPLETELY NEW QUESTION formulated strictly on the concepts in the provided evidence. DO NOT mention SQL, tables, or relational algebra."
         ),
     }
 
@@ -857,11 +862,16 @@ class SlotOrchestrator:
                 candidate.status = "PASS_WITH_WARNING"
                 return candidate
             if attempt == MAX_ATTEMPTS or not failure.retryable:
-                # Never crash — accept the last candidate with a warning
                 LOG.warning(
                     f"[ORCHESTRATOR] Slot {attempt_slot.slot_id} exhausted after "
-                    f"{attempt} attempts ({failure_history}). Accepting with warning."
+                    f"{attempt} attempts ({failure_history})."
                 )
+                # Hard ceiling: if exhausted due to domain contamination, NEVER output contaminated candidate.
+                # Immediately substitute clean evidence-grounded template fallback.
+                if "DOMAIN_INTEGRITY_VIOLATION" in failure_history or getattr(failed_check, "code", "") == "DOMAIN_INTEGRITY_VIOLATION":
+                    LOG.warning(f"[ORCHESTRATOR] Domain integrity failed after {attempt} attempts. Substituting clean evidence template fallback.")
+                    return self._generate_template_fallback(attempt_slot, evidence_pack)
+
                 # If no candidate exists, use template fallback
                 candidate = locals().get('candidate') or getattr(self, '_last_candidate', None)
                 if candidate is None:
@@ -1112,22 +1122,18 @@ PREVIOUSLY GENERATED QUESTIONS (do NOT generate anything similar to these):
                 "Include exactly one math_blocks object with a unique block_id and "
                 "non-empty valid KaTeX latex. Reference that same block in "
                 "question_text using [MATH:block_id]. "
-                "The MathBlock must represent an actual formula or relational-algebra "
-                "expression supported by the evidence. Do not put SQL, PL/SQL, "
-                "procedural pseudocode, cursor loops, or ordinary source code into "
-                "the MathBlock.\n"
+                "The MathBlock must represent an actual mathematical expression or formula "
+                "supported by the evidence. Do not put general procedural pseudocode or "
+                "ordinary text into the MathBlock.\n"
             )
 
         # AION KATEX NOTATION SAFETY
         prompt += (
             "\n\n[KATEX NOTATION SAFETY]\n"
             "When Math Policy is REQUIRED, every math_blocks entry must contain "
-            "valid KaTeX-compatible LaTeX. Escape underscores in textual identifiers "
-            "(for example WORKS\\_ON rather than WORKS_ON), balance all braces, "
-            "and provide both arguments to \\frac. "
-            "Do not place SQL/program source code in math_blocks. SQL and programming "
-            "syntax belong directly in question_text; math_blocks are only for genuine "
-            "mathematical or relational-algebra notation.\n"
+            "valid KaTeX-compatible LaTeX. Escape underscores in variable identifiers, "
+            "balance all braces, and provide both arguments to \\frac. "
+            "Math_blocks are strictly for genuine mathematical notation and formulas.\n"
         )
 
         # AION SELF-CONTAINED QUESTION CONTRACT
@@ -1136,15 +1142,11 @@ PREVIOUSLY GENERATED QUESTIONS (do NOT generate anything similar to these):
             "Every generated examination question MUST be completely standalone. "
             "The student will see only the final question paper and will NOT have "
             "access to the evidence, notes, source document, previous examples, "
-            "or numbered queries from the source.\n"
-            "NEVER write references such as: 'Query 1', 'Query 2', 'Query 3', "
-            "'the above query', 'the given query', 'the given expression', "
-            "'the expression above', 'the SQL query provided', 'provided in the evidence', "
-            "'as shown in the notes', 'the previous query', 'the following query' "
-            "unless the complete referenced query/expression is reproduced directly "
-            "inside the same question_text.\n"
-            "If source material refers to a numbered query or example, state the specific question directly "
-            "with minimal necessary schema (e.g. table name and key columns). Never dump extensive background schemas, sample data, or solutions.\n"
+            "or numbered items from the source.\n"
+            "NEVER write references such as: 'Example 1', 'Figure 2', 'as shown in the notes', "
+            "'the given item', 'the previous problem', or 'provided in the evidence'. "
+            "State the specific question directly with all necessary input parameters inline. "
+            "Never dump extensive background narratives or solutions.\n"
             "Do not mention the evidence, uploaded material, source, notes, document, "
             "or textbook in the final question.\n"
         )
@@ -1154,8 +1156,7 @@ PREVIOUSLY GENERATED QUESTIONS (do NOT generate anything similar to these):
             "\n\n[STUDENT-FACING LANGUAGE RULE]\n"
             "The strings 'provided evidence', 'provided in the evidence', "
             "'source material', 'uploaded notes', 'uploaded document', "
-            "'from the notes', 'according to the notes', 'Query 1', 'Query 2', "
-            "'Query 3', 'previous query', and similar source-relative references "
+            "'from the notes', 'according to the notes', and similar source-relative references "
             "MUST NOT appear in question_text or instruction. "
             "Write the actual information needed by the student directly into the "
             "question instead.\n"
@@ -1163,10 +1164,10 @@ PREVIOUSLY GENERATED QUESTIONS (do NOT generate anything similar to these):
 
         # AION SELF-CONTAINED QUESTION RULE
         prompt += (
-            "\n\n[NO TEXTBOOK QUERY NUMBERS / FULL INLINING]\n"
-            "CRITICAL: Do NOT copy textbook/note labels such as 'Query 1', 'Query 2', 'Query 3', 'Example 4', 'Schema 1', or 'the given query'.\n"
+            "\n\n[NO TEXTBOOK REFERENCE LABELS / FULL INLINING]\n"
+            "CRITICAL: Do NOT copy textbook/note labels such as 'Example 1', 'Problem 2', or 'the given description'.\n"
             "A student taking the exam does NOT have the textbook in front of them.\n"
-            "If the question asks to rewrite, analyze, optimize, or trace a code snippet, query, algorithm, or expression, write out the complete statement inline inside the question text.\n"
+            "If the question asks to analyze, calculate, optimize, or evaluate a scenario or expression, state the scenario directly inline inside the question text.\n"
             "Never output raw placeholder text like 'Reference Equation: [MATH:calc_1]'. State the equation or problem statement directly.\n"
         )
 
@@ -1174,10 +1175,9 @@ PREVIOUSLY GENERATED QUESTIONS (do NOT generate anything similar to these):
             "\n\n[SELF-CONTAINED QUESTION RULE]\n"
             "Every question MUST be fully self-contained and answerable on its own. "
             "Do NOT reference other questions by number or label. "
-            "Never write phrases like 'Query 3', 'Question 2', 'the above query', "
-            "'the previous expression', 'rewrite Query N', or 'the given query'. "
-            "If the task involves rewriting or comparing an expression or code block, "
-            "include the full statement inline within the question text "
+            "Never write phrases like 'Question 2', 'the above item', 'the previous expression', or 'rewrite Question N'. "
+            "If the task involves comparing or calculating based on given parameters, "
+            "include all required parameters inline within the question text "
             "so the student does not need to look at another question. "
             "Do NOT include 'Reference Equation:' or 'Reference Formula:' labels.\n"
         )
@@ -1185,32 +1185,20 @@ PREVIOUSLY GENERATED QUESTIONS (do NOT generate anything similar to these):
         # AION UNIVERSAL APPLIED-QUESTION POLICY
         prompt += '''
 
-[APPLIED / PROGRAMMING / NUMERICAL QUESTION POLICY]
+[APPLIED / COMPUTATIONAL / ANALYTICAL QUESTION POLICY]
 Prefer an applied question whenever the supplied evidence supports one.
+Choose the question type strictly from the concepts, formulas, architectures, and algorithms explicitly present in the evidence.
 
-Choose the question type from the ACTUAL source content, not from a fixed subject name:
-- If the evidence contains programming language, SQL, query syntax, pseudocode, algorithms, commands, grammar, schemas, APIs, or executable notation: ask the student to WRITE, IMPLEMENT, CONSTRUCT, DEBUG, MODIFY, TRACE, or COMPLETE that syntax/program/query.
-- If the evidence contains genuinely solvable numeric parameters: create a NUMERICAL problem using only numeric values explicitly present in the evidence and ask the student to calculate/derive/compare the result. A formula or incidental digit alone is not sufficient reason to create a numerical problem.
-- If both are supported, a programming task may include a numerical computation.
-- If neither is supported by the evidence, do not fabricate an unrelated programming language, formula, or numerical domain.
 
-CRITICAL SUBJECT GROUNDING RULES:
-1. You MUST generate questions ONLY about concepts, terms, architectures, and processes that are EXPLICITLY PRESENT in the provided evidence chunks below.
-2. DO NOT invent schemas, tables, relations, SQL queries, Relational Algebra expressions, or database query problems UNLESS the evidence chunks explicitly contain those exact tables and operations.
-3. DO NOT cross-contaminate subjects. If the subject is Cloud Computing, Big Data, Virtualization, or Infrastructure, you MUST NOT generate any Relational Algebra, SQL, normalization, or query-derivation problems regardless of Bloom level or marks.
-4. For Bloom Level 4 (Analyse) on theoretical/infrastructure material, ask for: architectural comparisons, trade-off analysis, failure mode analysis, deployment case studies, or component differentiation. NEVER convert theory into query/math-solving problems.
-5. Subject-specific adaptation (ONLY when evidence supports it):
-   - Cloud/Big Data/Virtualization -> hypervisor types, container lifecycle, Docker commands, storage pooling, MapReduce flow, HDFS replication, YARN scheduling, PaaS/IaaS/SaaS comparison, deployment models
-   - DBMS (only if evidence contains actual schemas/tables) -> SQL, relational algebra, normalization
-   - AI/ML -> algorithm pseudocode, probability calculations
-   - Networks -> subnetting, routing, protocol analysis
-   - OS -> scheduling, page-replacement, synchronization
-- Mathematics/engineering evidence -> calculations using formulas that occur in the evidence.
+CRITICAL GROUNDING RULES:
+1. Formulate questions strictly on the concepts, terminology, algorithms, and processes present in the provided evidence.
+2. Do not introduce outside concepts, notation, or mechanisms not present in the evidence.
+3. Begin the question directly with the requested Bloom action verb.
+4. For Bloom Level 4 (Analyse), ask for architectural comparisons, trade-off analysis, failure mode analysis, or component differentiation based on the evidence.
 
 IMPORTANT OUTPUT CONTRACT:
-- Programming/SQL/code questions belong directly in question_text. They DO NOT require math_blocks merely because they contain syntax.
-- Use math_blocks only for genuine mathematical/formula expressions when required by the slot contract.
-- Every math_blocks entry must be a JSON object with non-empty block_id and latex strings; never return a raw string inside math_blocks.
+- Mathematical formulas belong in math_blocks when required by the slot contract.
+- Every math_blocks entry must be a JSON object with non-empty block_id and latex strings.
 - Never emit [MATH:id] unless a matching math_blocks entry exists.
 - Stay strictly grounded in the uploaded evidence.
 '''
@@ -1361,71 +1349,83 @@ IMPORTANT OUTPUT CONTRACT:
         elif isinstance(evidence_pack, str):
             text = evidence_pack
 
-        # Pick a meaningful sentence (20-200 chars, has a verb)
-        import re as _re
-        sentences = [s.strip() for s in _re.split(r'(?<=[.!?])\s+', text) if 20 < len(s.strip()) < 200]
-        # Prefer sentences with technical terms (capitalized words, numbers, symbols)
-        tech_score = lambda s: sum(1 for w in s.split() if w[0].isupper() or any(c.isdigit() for c in w) or any(c in w for c in '(){}[]=/<>'))
-        sentences.sort(key=tech_score, reverse=True)
-        topic_sentence = sentences[0] if sentences else (slot.topic or "the topic")
-
-        # Build a question that matches the Bloom level
-        verb = slot.bloom_verb or "Explain"
+        # 1. Resolve clean verb and marks
+        verb = (slot.bloom_verb or "Explain").strip().capitalize()
         marks = slot.marks or 5
-        difficulty = getattr(slot, "difficulty", "MEDIUM")
 
-        # Question templates by Bloom level — look like real exam questions
+        # 2. Resolve a clean, well-formed noun topic
+        raw_topic = (slot.topic or "").strip()
+        generic_markers = {"the topic", "general", "unit 1", "unit 2", "unit 3", "unit 4", "unit 5", "module 1", "module 2", "module 3", "module 4", "module 5"}
+        if not raw_topic or raw_topic.lower() in generic_markers:
+            import re as _re
+            sentences = [s.strip() for s in _re.split(r'(?<=[.!?])\s+', text) if len(s.strip()) > 15]
+            if sentences:
+                candidate_s = sentences[0]
+                # Strip leading chapter, section, or numbering prefixes
+                candidate_s = _re.sub(r'^(?:chapter|section|unit|module|\d+[\.\d]*)\s*[:\-]?\s*', '', candidate_s, flags=_re.IGNORECASE)
+                # Split before common verbs to extract the subject noun phrase cleanly
+                verb_split = _re.split(r'\b(?:is|are|was|were|defines|describes|provides|manages|allows|uses|operates|enables|consists|serves|implements|interacts)\b', candidate_s, flags=_re.IGNORECASE)
+                noun_part = verb_split[0].strip(' ,;:-.')
+                words = noun_part.split()
+                if 1 <= len(words) <= 7:
+                    raw_topic = " ".join(words)
+                else:
+                    raw_topic = " ".join(candidate_s.split()[:5]).strip(' ,;:-.')
+            if not raw_topic:
+                raw_topic = "the specified technical system"
+
+        # Clean trailing prepositions/conjunctions
+        import re as _re
+        clean_topic = _re.sub(r'\s+(?:and|or|of|in|to|with|for)\s*$', '', raw_topic, flags=_re.IGNORECASE).strip()
+        if not clean_topic:
+            clean_topic = "the specified technical system"
+
+        # 3. Determine Bloom level from slot
+        bloom_level = getattr(slot, "bloom_level", None) or getattr(slot, "bloom_operation", "L2")
+        if bloom_level not in ["L1", "L2", "L3", "L4", "L5", "L6"]:
+            op_map = {"remember": "L1", "understand": "L2", "apply": "L3", "analyze": "L4", "evaluate": "L5", "create": "L6"}
+            bloom_level = op_map.get(str(bloom_level).lower(), "L2")
+
+        # 4. Question templates by Bloom level — all strictly start with {verb} and use prepositional noun frames
         bloom_templates = {
             "L1": [
-                "State the definition of {topic} as described in the reference material. [{marks} Marks]",
-                "List the key components of {topic} and identify their roles. [{marks} Marks]",
-                "Define {topic} and state two conditions under which it applies. [{marks} Marks]",
+                "{verb} the fundamental definitions and primary components of {topic}. [{marks} Marks]",
+                "{verb} the essential characteristics and operational parameters of {topic}. [{marks} Marks]",
+                "{verb} the principal roles and structural elements associated with {topic}. [{marks} Marks]",
             ],
             "L2": [
-                "Explain how {topic} operates and describe the relationship between its constituent elements. [{marks} Marks]",
-                "Describe the mechanism of {topic} and illustrate with a suitable example from the reference material. [{marks} Marks]",
-                "Differentiate between the two approaches to {topic} and justify which is preferred in practical scenarios. [{marks} Marks]",
+                "{verb} the operational architecture of {topic}, detailing the interaction between its key components. [{marks} Marks]",
+                "{verb} the underlying working principles of {topic}, illustrating with an appropriate technical example. [{marks} Marks]",
+                "{verb} the core mechanisms and functional processes of {topic} as described in the technical specifications. [{marks} Marks]",
             ],
             "L3": [
-                "Apply the principles of {topic} to solve the following scenario: A system must handle {topic} under constrained conditions. Show all steps. [{marks} Marks]",
-                "Construct a solution for {topic} using the method described in the reference material. Justify each step. [{marks} Marks]",
-                "Demonstrate the application of {topic} by working through a complete example with given parameters. [{marks} Marks]",
+                "{verb} the implementation of {topic} in an engineering scenario, highlighting the key execution steps and parameter configurations. [{marks} Marks]",
+                "{verb} the practical application of {topic} to solve standard operational constraints in the system. [{marks} Marks]",
+                "{verb} the integration and deployment of {topic} to fulfill the performance requirements of the specified architecture. [{marks} Marks]",
             ],
             "L4": [
-                "Analyze the trade-offs involved in {topic} and evaluate which approach yields better performance under the given constraints. Provide quantitative justification. [{marks} Marks]",
-                "Examine the implications of {topic} on system reliability. Identify two failure modes and propose mitigations. [{marks} Marks]",
-                "Compare the efficiency of two methods for {topic} and determine which is optimal for the specified workload. [{marks} Marks]",
+                "{verb} the structural trade-offs and performance implications associated with {topic} under varying operational workloads. [{marks} Marks]",
+                "{verb} the efficiency and reliability characteristics of {topic}, distinguishing between its advantages and critical limitations. [{marks} Marks]",
+                "{verb} the behavioral differences and systemic impacts of alternative approaches to {topic}. [{marks} Marks]",
             ],
             "L5": [
-                "Evaluate the effectiveness of {topic} in a real-world deployment scenario. Critique two limitations and propose improvements. [{marks} Marks]",
-                "Assess the impact of {topic} on overall system performance. Justify your evaluation with at least two supporting arguments. [{marks} Marks]",
+                "{verb} the technical effectiveness and operational viability of {topic} in enterprise-scale deployment. [{marks} Marks]",
+                "{verb} the architectural trade-offs of {topic}, justifying selection criteria based on reliability, scalability, and resource overhead. [{marks} Marks]",
             ],
             "L6": [
-                "Design a complete solution incorporating {topic} that satisfies the following requirements. Document your design decisions. [{marks} Marks]",
-                "Propose an enhanced approach to {topic} that addresses the limitations identified in the reference material. Justify your design. [{marks} Marks]",
+                "{verb} a comprehensive technical design incorporating {topic} to address stringent system constraints. [{marks} Marks]",
+                "{verb} an optimized framework utilizing {topic} that overcomes conventional bottlenecks in the architecture. [{marks} Marks]",
             ],
         }
 
-        # Determine Bloom level from slot
-        bloom_level = getattr(slot, "bloom_operation", "L2")
-        if not bloom_level or bloom_level not in bloom_templates:
-            bloom_level = "L2"
-
         templates = bloom_templates.get(bloom_level, bloom_templates["L2"])
-        
-        # Pick a template (use hash of slot_id for deterministic but varied selection)
         import hashlib
         template_idx = int(hashlib.md5(slot.slot_id.encode()).hexdigest(), 16) % len(templates)
         template = templates[template_idx]
 
-        # Extract a short topic phrase from the evidence sentence (first 6-10 words)
-        topic_words = topic_sentence.split()[:10]
-        topic_phrase = " ".join(topic_words)
-        if len(topic_phrase) > 80:
-            topic_phrase = topic_phrase[:77] + "..."
-
         question_text = template.format(
-            topic=topic_phrase,
+            verb=verb,
+            topic=clean_topic,
             marks=marks,
         )
 

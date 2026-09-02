@@ -122,6 +122,9 @@ class AutoHealer:
             elif failure_code == "SIBLING_SIMILARITY":
                 return cls._fix_sibling_similarity(output, slot)
 
+            # Note: DOMAIN_INTEGRITY_VIOLATION requires full LLM regeneration with
+            # recovery hint rather than regex truncation which leaves broken grammar.
+
         except Exception as e:
             print(f"[AUTO-HEALER] Healing failed for {failure_code}: {e}")
 
@@ -310,3 +313,4 @@ class AutoHealer:
         output.question_text = output.question_text.rstrip(".") + directive
         print(f"[AUTO-HEALER] Fixed SIBLING_SIMILARITY — injected topic-shift angle")
         return output
+

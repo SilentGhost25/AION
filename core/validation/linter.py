@@ -386,6 +386,32 @@ def check_module_isolation(question: GeneratedQuestion, slot: QuestionSlot) -> C
     return CheckResult.pass_()
 
 
+def check_domain_integrity(text: str, slot: QuestionSlot) -> CheckResult:
+    """
+    Defense-in-depth: Rejects cross-domain query/schema contamination in non-DBMS subjects.
+    Prevents relational algebra operators or SQL queries from appearing in Cloud, OS, Circuits, etc.
+    """
+    topic_lower = getattr(slot, "topic", "").lower()
+    is_dbms = any(k in topic_lower for k in ("database", "dbms", "sql", "relational algebra", "normalization", "bcnf", "closure", "functional dependency"))
+    if not is_dbms:
+        # Off-topic patterns for non-DBMS topics
+        off_topic_patterns = [
+            (r'\\bowtie', "Relational Algebra Natural Join"),
+            (r'\\sigma_\{', "Relational Algebra Selection"),
+            (r'\\pi_\{', "Relational Algebra Projection"),
+            (r'(?i)\bselect\s+.+?\s+from\s+[a-z0-9_]+', "SQL SELECT Statement"),
+            (r'(?i)\bcreate\s+table\s+[a-z0-9_]+', "SQL DDL Statement"),
+        ]
+        for pat, desc in off_topic_patterns:
+            if re.search(pat, text):
+                return CheckResult.fail(
+                    "DOMAIN_INTEGRITY_VIOLATION",
+                    f"Off-topic database query or Relational Algebra expression ({desc}) detected in non-DBMS question.",
+                    action=RetryAction.REGENERATE
+                )
+    return CheckResult.pass_()
+
+
 def run_linter(
     output   : QuestionOutput,
     question : GeneratedQuestion,
@@ -414,6 +440,7 @@ def run_linter(
         "visual_policy"      : check_visual_policy(question, slot),
         "math_policy"        : check_math_policy(question, slot),
         "multi_slot"         : check_multi_slot_contamination(output.question_text),
+        "domain_integrity"   : check_domain_integrity(output.question_text, slot),
         "answerability"      : check_answerability(question, slot, evidence_text=evidence_text),
         "contract_integrity" : check_contract_integrity(question, slot),
         "evidence_binding"   : check_evidence_binding(question, slot),
