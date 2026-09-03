@@ -1067,9 +1067,13 @@ def generate_stream():
                 yield _sse("done", {"status": "FAILED"})
                 return
 
+            raw_mark_splits = body.get("mark_splits") or body.get("markSplits")
+            declared_splits = raw_mark_splits if isinstance(raw_mark_splits, list) else None
+
             result["modules"] = _enforce_marks(
                 result.get("modules", []),
-                _exam_type
+                exam_type=_exam_type,
+                declared_splits=declared_splits
             )
 
             # -- HARD CONTRACT GATE ---------------------------------------
@@ -1291,54 +1295,68 @@ def normalize_or_pair_structure(pair: list, is_ia: bool) -> list:
     return canonical
 
 
-def _enforce_marks(paper, *args, **kwargs):
-    if not paper or not isinstance(paper, dict):
-        return paper
-    import aion_patch
-    modules = paper.get("modules", [])
-    if not modules and "paper" in paper and isinstance(paper["paper"], dict):
-        modules = paper["paper"].get("modules", [])
+def _enforce_marks(modules_or_paper, exam_type: str = "IA", declared_splits: Optional[List[List[int]]] = None):
+    """
+    Ensures question and sub-question marks honor declared splits (e.g. [6, 4]),
+    symmetrizes OR alternative pairs, and conforms to standard VTU partitions.
+    """
+    if not modules_or_paper:
+        return modules_or_paper
 
-    for mod_idx, mod in enumerate(modules, 1):
-        if not isinstance(mod, dict): continue
+    if isinstance(modules_or_paper, dict):
+        modules = modules_or_paper.get("modules", [])
+    elif isinstance(modules_or_paper, list):
+        modules = modules_or_paper
+    else:
+        return modules_or_paper
+
+    is_ia = str(exam_type).upper() in ("IA", "IAT1", "IAT2", "IAT3", "MID")
+    expected_q_marks = 10 if is_ia else 20
+
+    for mod_idx, mod in enumerate(modules):
+        if not isinstance(mod, dict):
+            continue
         questions = mod.get("questions", [])
-        dyn_split = (getattr(aion_patch, "get_module_partition", lambda idx: None)(mod_idx))
-        for q in questions:
-            if not isinstance(q, dict): continue
-            subs = q.get("sub_questions", []) or q.get("subQuestions", [])
-            target_marks = q.get("marks", q.get("total_marks", 10))
-            
-            if dyn_split and sum(dyn_split) == target_marks and len(dyn_split) == len(subs):
-                active_split = list(dyn_split)
-            else:
-                # Preserve existing generated sub-question marks if valid
-                existing_marks = [sq.get("marks") for sq in subs if isinstance(sq, dict) and "marks" in sq]
-                if existing_marks and len(existing_marks) == len(subs) and sum(existing_marks) == target_marks:
-                    active_split = existing_marks
-                elif len(subs) == 2:
-                    # Derive fairly if no user split
-                    base = target_marks // len(subs)
-                    rem  = target_marks % len(subs)
-                    active_split = [base + (1 if i < rem else 0) for i in range(len(subs))]
-                    if sum(active_split) != target_marks:
-                        active_split = [target_marks // len(subs)] * len(subs)
-                elif len(subs) == 3:
-                    active_split = [4, 3, 3] if target_marks == 10 else [8, 6, 6]
-                else:
-                    active_split = [target_marks]
+        if not isinstance(questions, list):
+            continue
 
-            if len(subs) > 0:
-                for idx, sq in enumerate(subs):
-                    if idx < len(active_split):
-                        sq["marks"] = active_split[idx]
-                    else:
-                        sq["marks"] = 0
+        # Group questions in this module into OR pairs (Q1/Q2, Q3/Q4, etc.)
+        pairs: Dict[int, List[dict]] = {}
+        for idx, q in enumerate(questions):
+            p_key = idx // 2
+            pairs.setdefault(p_key, []).append(q)
+
+        for p_key, pair_qs in pairs.items():
+            first_q = pair_qs[0]
+            subs = first_q.get("sub_questions", []) or first_q.get("subQuestions", [])
+            n_subs = max(1, len(subs))
+
+            # 1. User/Contract declared split if provided, matching length, and correctly summing to target
+            candidate_declared = declared_splits[mod_idx] if (declared_splits and mod_idx < len(declared_splits)) else None
+            if candidate_declared and isinstance(candidate_declared, (list, tuple)) and len(candidate_declared) == n_subs and sum(int(x) for x in candidate_declared) == expected_q_marks:
+                active_split = [int(x) for x in candidate_declared]
+            # 2. Existing valid marks from generator if they sum to target
+            elif subs and all(isinstance(sq.get("marks"), (int, float)) for sq in subs) and sum(int(sq["marks"]) for sq in subs) == expected_q_marks:
+                active_split = [int(sq["marks"]) for sq in subs]
+            # 3. Canonical VTU standard partitions
+            elif n_subs == 2:
+                active_split = [6, 4] if is_ia else [10, 10]
+            elif n_subs == 3:
+                active_split = [4, 3, 3] if is_ia else [8, 6, 6]
+            elif n_subs == 4:
+                active_split = [3, 3, 2, 2] if is_ia else [5, 5, 5, 5]
+            else:
+                active_split = [expected_q_marks]
+
+            # Apply identical split to all questions in the OR pair
+            for q in pair_qs:
+                q_subs = q.get("sub_questions", []) or q.get("subQuestions", [])
+                for idx, sq in enumerate(q_subs):
+                    sq["marks"] = active_split[idx] if idx < len(active_split) else 0
                 q["marks"] = sum(active_split)
                 q["total_marks"] = sum(active_split)
-            else:
-                q["marks"] = target_marks
-                q["total_marks"] = target_marks
-    return paper
+
+    return modules_or_paper
 
 
 
@@ -1877,6 +1895,111 @@ def document_diagnostics(document_id):
     pipe = ProductionPipeline()
     diag = pipe.get_diagnostics(document_id)
     return jsonify(diag), 200
+
+
+@app.route("/api/export/docx", methods=["POST"])
+def export_docx():
+    """
+    Exports a GeneratedPaper object into a styled .docx document.
+    """
+    from flask import send_file
+    from v0_1.docx_export import generate_docx_from_paper
+
+    body = request.get_json(silent=True) or {}
+    try:
+        docx_buffer = generate_docx_from_paper(body)
+        
+        config = body.get("config") or {}
+        subject_code = config.get("subjectCode") or body.get("subject_code") or "VTU"
+        exam_type = config.get("examType") or body.get("exam_type") or "IA"
+        filename = f"{subject_code}_{exam_type}_QuestionPaper.docx"
+
+        return send_file(
+            docx_buffer,
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            as_attachment=True,
+            download_name=filename,
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to export docx: {str(e)}"}), 500
+
+
+@app.route("/api/regenerate-slot", methods=["POST"])
+@app.route("/api/v1/slot/regenerate", methods=["POST"])
+def regenerate_single_slot():
+    """
+    Targeted slot regeneration endpoint.
+    Regenerates a single question or subquestion using SlotOrchestrator without re-running whole extraction.
+    """
+    body = request.get_json(silent=True) or {}
+    
+    bloom_level = str(body.get("bloom_level") or body.get("bloom") or "L3").upper()
+    bloom_verb = str(body.get("bloom_verb") or body.get("verb") or "").strip()
+    if not bloom_verb:
+        defaults = {"L1": "Define", "L2": "Explain", "L3": "Calculate", "L4": "Analyze", "L5": "Evaluate", "L6": "Design"}
+        bloom_verb = defaults.get(bloom_level, "Explain")
+
+    marks = int(body.get("marks") or 6)
+    q_type = str(body.get("question_type") or ("NUMERICAL" if marks >= 6 and bloom_level in ("L3", "L4") else "THEORY")).upper()
+    topic = str(body.get("topic") or "Core Technical Concepts").strip()
+    evidence_text = str(body.get("evidence_text") or body.get("context") or topic).strip()
+    sub_label = str(body.get("sub_label") or body.get("label") or "a").strip()
+    q_no = int(body.get("question_number") or body.get("qNo") or 1)
+    mod_id = int(body.get("module_index") or body.get("module") or 1)
+    co = str(body.get("co") or f"CO{min(mod_id, 5)}")
+
+    from core.contracts.question_slot import QuestionSlot
+    from core.contracts.budgets import AnswerBudget, QuestionBudget
+    from core.contracts.task_signature import TaskSignature
+    from core.generation.orchestrator import SlotOrchestrator
+
+    slot = QuestionSlot(
+        slot_id=f"slot_mod{mod_id}_q{q_no}_{sub_label}",
+        question_no=q_no,
+        sub_label=sub_label,
+        or_pair_id=f"pair_{mod_id}",
+        is_alternative=False,
+        module_id=mod_id,
+        marks=marks,
+        bloom_level=bloom_level,
+        bloom_verb=bloom_verb,
+        bloom_operation=bloom_level,
+        co=co,
+        difficulty=str(body.get("difficulty") or "MEDIUM").upper(),
+        question_type=q_type,
+        topic=topic,
+        evidence_ids=("manual_regenerate",),
+        answer_budget=AnswerBudget.from_marks_and_bloom(marks, bloom_level),
+        question_budget=QuestionBudget.from_bloom(bloom_level, marks),
+        task_signature=TaskSignature.from_bloom_marks_type(bloom_level, marks, q_type)
+    )
+
+    try:
+        orch = SlotOrchestrator()
+        result_q = orch.generate(slot, evidence_pack={"text": evidence_text})
+        q_text = getattr(result_q, "question_text", "") or "Explain the key principles."
+        
+        return jsonify({
+            "status": "success",
+            "subQuestion": {
+                "label": sub_label,
+                "text": q_text,
+                "marks": marks,
+                "co": co,
+                "bloom": bloom_level,
+                "rbt": bloom_level,
+                "question_type": q_type,
+            }
+        }), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
 
 # -------------------------------------------------------------

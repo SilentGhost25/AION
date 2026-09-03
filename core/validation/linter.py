@@ -218,21 +218,34 @@ def check_no_meta_language(text: str) -> CheckResult:
                 action=RetryAction.REGENERATE
             )
     # Detect internal prompt variables and slot IDs leaking into the question text
-    if re.search(r'\b(?:module_\d+|Q\d+_[a-c]|slot_[a-zA-Z0-9_]+)\b', text, re.IGNORECASE):
+    if re.search(r'\b(?:module_\d+(?:_[a-zA-Z0-9_]+)?|Q\d+_[a-zA-Z0-9_]+|slot_[a-zA-Z0-9_]+)\b', text, re.IGNORECASE):
         return CheckResult.fail(
             "PROMPT_SCAFFOLDING_LEAK",
             "Internal slot ID or module identifier leaked into question text.",
+            action=RetryAction.REGENERATE
+        )
+    # Detect markdown table pipe fragments (e.g. "| 14 Overall Data | 32 |")
+    if re.search(r'\|\s*\d+[^|\n]+?\|\s*\d+\s*\|', text) or re.search(r'\|\s*\d+\s*\|', text):
+        return CheckResult.fail(
+            "ANSWERABILITY_FAILURE",
+            "Question contains raw table fragment or pipe-delimited data row.",
             action=RetryAction.REGENERATE
         )
     return CheckResult.pass_()
 
 
 def check_unicode_integrity(text: str) -> CheckResult:
-    """Rejects corrupted characters or null bytes."""
+    """Rejects corrupted characters, null bytes, or unclosed math references."""
     if "\ufffd" in text or "\x00" in text:
         return CheckResult.critical(
             "UNICODE_FAILURE",
             "Text contains corrupted replacement or null characters."
+        )
+    if "[MATH:" in text and text.count("[MATH:") > text.count("]"):
+        return CheckResult.fail(
+            "MATH_CORRUPTED",
+            "Question contains unclosed [MATH:...] tag.",
+            action=RetryAction.REGENERATE
         )
     return CheckResult.pass_()
 

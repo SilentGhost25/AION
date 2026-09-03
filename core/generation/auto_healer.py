@@ -173,7 +173,20 @@ class AutoHealer:
                 qt = f"{verb} {qt}"
         output.question_text = qt
 
-        print(f"[AUTO-HEALER] Fixed BLOOM_VERB_NOT_AT_START -> starts with '{verb}'")
+        # Sync bloom_level metadata to match the healed verb / slot contract
+        if hasattr(output, "bloom_level"):
+            from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
+            slot_level = getattr(slot, "bloom_level", None)
+            if slot_level:
+                output.bloom_level = slot_level
+            else:
+                v_lower = verb.lower()
+                for lvl, verbs in BLOOM_VERB_LEVEL_MAP.items():
+                    if v_lower in verbs:
+                        output.bloom_level = lvl
+                        break
+
+        print(f"[AUTO-HEALER] Fixed BLOOM_VERB_NOT_AT_START -> starts with '{verb}' (level: {getattr(output, 'bloom_level', 'unknown')})")
         return output
 
     @classmethod

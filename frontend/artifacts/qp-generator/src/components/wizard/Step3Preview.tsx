@@ -1,11 +1,11 @@
-import React from "react"
+import React, { useState } from "react"
 import { GeneratedPaper } from "@workspace/api-client-react"
 import { QuestionWithSubs, SubQuestion } from "./Step2Rules"
 import { Button } from "@/components/ui/button"
 import { KaTeXRenderer } from "@/components/QuestionRenderer"
 import { normalizeSegments } from "@/components/normalizeSegments"
 import { MathText } from "@/components/MathText"
-import { ArrowLeft, Printer, AlertCircle } from "lucide-react"
+import { ArrowLeft, Printer, AlertCircle, FileDown, Loader2 } from "lucide-react"
 
 export function Step3Preview({ 
   paper, 
@@ -18,6 +18,7 @@ export function Step3Preview({
 }) {
   const { config, questions, courseOutcomes } = paper
   const isSEE = config.examType === 'SEE'
+  const [isExportingDocx, setIsExportingDocx] = useState(false)
 
   const allQs: any[] = [];
   (questions as any[])?.forEach((q: any) => {
@@ -64,6 +65,36 @@ export function Step3Preview({
     window.print()
   }
 
+  const handleExportDocx = async () => {
+    try {
+      setIsExportingDocx(true)
+      const res = await fetch('/api/export/docx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(paper),
+      })
+      if (!res.ok) {
+        throw new Error(`Export failed: ${res.statusText}`)
+      }
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const subCode = config?.subjectCode || 'VTU'
+      const examType = config?.examType || 'IA'
+      a.download = `${subCode}_${examType}_QuestionPaper.docx`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (err) {
+      console.error('DOCX export error:', err)
+      alert('Failed to export DOCX document. Please check console for details.')
+    } finally {
+      setIsExportingDocx(false)
+    }
+  }
+
   // Edit the text of a single sub-question within a question block.
   const updateSubText = (qNo: number, subIndex: number, newText: string) => {
     const newQuestions = (questions as QuestionWithSubs[]).map(q => {
@@ -76,10 +107,11 @@ export function Step3Preview({
     setPaper({ ...paper, questions: newQuestions })
   }
 
-<<<<<<< Updated upstream
   // Edit the text of a single Course Outcome (CO).
   const updateCO = (index: number, newText: string) => {
-    const currentCOs = (courseOutcomes && courseOutcomes.length > 0)
+    const currentCOs = (paper.courseOutcomes && paper.courseOutcomes.length > 0)
+      ? [...paper.courseOutcomes]
+      : (courseOutcomes && courseOutcomes.length > 0)
       ? [...courseOutcomes]
       : [
           "Understand fundamental concepts and theoretical foundations",
@@ -90,14 +122,6 @@ export function Step3Preview({
         ]
     currentCOs[index] = newText
     setPaper({ ...paper, courseOutcomes: currentCOs })
-=======
-  // Editable Course Outcomes
-  const updateCO = (coIndex: number, newText: string) => {
-    const newCOs = (paper.courseOutcomes || []).map((co, i) =>
-      i === coIndex ? newText : co
-    )
-    setPaper({ ...paper, courseOutcomes: newCOs })
->>>>>>> Stashed changes
   }
 
   return (
@@ -112,6 +136,14 @@ export function Step3Preview({
         <div className="flex gap-3">
           <Button variant="outline" onClick={onBack}>
             <ArrowLeft className="mr-2 h-4 w-4" /> Back to Editor
+          </Button>
+          <Button variant="outline" onClick={handleExportDocx} disabled={isExportingDocx}>
+            {isExportingDocx ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <FileDown className="mr-2 h-4 w-4 text-blue-600" />
+            )}
+            {isExportingDocx ? "Generating DOCX..." : "Export DOCX"}
           </Button>
           <Button onClick={handlePrint}>
             <Printer className="mr-2 h-4 w-4" /> Export PDF
@@ -267,7 +299,6 @@ export function Step3Preview({
           <h3 className="font-bold text-sm text-black mb-2">Course Outcomes (COs): At the end of the Course, the Student will be able to:</h3>
           <table className="w-full border-collapse border border-black text-xs text-black">
             <tbody>
-<<<<<<< Updated upstream
               {((courseOutcomes && courseOutcomes.length > 0) ? courseOutcomes : [
                 "Understand fundamental concepts and theoretical foundations",
                 "Apply analytical methods and problem-solving techniques",
@@ -281,17 +312,6 @@ export function Step3Preview({
                     <AutoGrowTextarea
                       value={co}
                       onChange={v => updateCO(i, v)}
-=======
-              {(courseOutcomes || []).map((co, i) => (
-                <tr key={i}>
-                  <td className="border border-black p-1 font-bold w-[10%] text-center">CO{i+1}</td>
-                  <td className="border border-black p-1">
-                    <textarea
-                      value={co}
-                      onChange={(e) => updateCO(i, e.target.value)}
-                      className="w-full bg-transparent resize-none focus:outline-none min-h-[28px] hover:bg-slate-50 print:hover:bg-transparent print:resize-none transition-colors"
-                      rows={1}
->>>>>>> Stashed changes
                     />
                   </td>
                 </tr>
@@ -300,11 +320,7 @@ export function Step3Preview({
           </table>
         </div>
 
-<<<<<<< Updated upstream
         {/* Coverage Tables side-by-side — visible only in preview, removed on export/print */}
-=======
-        {/* Coverage Tables side-by-side */}
->>>>>>> Stashed changes
         <div className="flex gap-4 print-break-inside-avoid print:hidden">
           <div className="flex-1">
             <h3 className="font-bold text-sm text-black mb-2 text-center">Percentage of CO Coverage</h3>

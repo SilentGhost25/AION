@@ -317,6 +317,18 @@ class SlotOrchestrator:
                         }
                     elif _dr in (False, "", None):
                         data["diagram_request"] = None
+                    elif isinstance(_dr, str):
+                        _s = _dr.strip()
+                        if _s.lower() in ("none", "null", "false", "no", ""):
+                            data["diagram_request"] = None
+                        else:
+                            data["diagram_request"] = {
+                                "diagram_type": "conceptual",
+                                "description": f"Diagram illustrating {_s}.",
+                                "label": _s,
+                                "elements": [],
+                                "relations": [],
+                            }
                     elif isinstance(_dr, dict):
                         if "diagram_type" not in _dr:
                             _dr["diagram_type"] = _dr.get("type") or _dr.get("kind") or "conceptual"
@@ -524,10 +536,24 @@ class SlotOrchestrator:
                         data['diagram_request'] = {
                             'diagram_type': 'conceptual',
                             'description': 'Relevant diagram from subject material.',
-                            'label': 'Figure'
+                            'label': 'Figure',
+                            'elements': [],
+                            'relations': [],
                         }
                     elif _dr in (False, '', None):
                         data['diagram_request'] = None
+                    elif isinstance(_dr, str):
+                        _s = _dr.strip()
+                        if _s.lower() in ('none', 'null', 'false', 'no', ''):
+                            data['diagram_request'] = None
+                        else:
+                            data['diagram_request'] = {
+                                'diagram_type': 'conceptual',
+                                'description': f'Diagram illustrating {_s}.',
+                                'label': _s,
+                                'elements': [],
+                                'relations': [],
+                            }
                     elif isinstance(_dr, dict):
                         if 'diagram_type' not in _dr:
                             _dr['diagram_type'] = _dr.get('type') or _dr.get('kind') or 'conceptual'
@@ -535,6 +561,8 @@ class SlotOrchestrator:
                             _dr['description'] = 'Relevant diagram from subject material.'
                         if 'label' not in _dr:
                             _dr['label'] = _dr.get('title') or 'Figure'
+                        _dr.setdefault('elements', [])
+                        _dr.setdefault('relations', [])
                 
                     # 3. Synchronize math_blocks with question_text
                     if not attempt_slot.math_required:
@@ -866,6 +894,41 @@ class SlotOrchestrator:
             self.session_log.append(failure.__dict__)
             LOG.warning(f"[ORCHESTRATOR] Slot {attempt_slot.slot_id} Attempt {attempt} failed linter check: {failed_check.code} - {failed_check.message}")
             
+            # --- AUTO-HEALER: Test programmatic healing immediately before LLM retry ---
+            if failed_check.code in (
+                "BLOOM_VERB_NOT_AT_START", "DISALLOWED_SECONDARY_TASK",
+                "ANSWER_LEAK", "META_LANGUAGE", "INSUFFICIENT_DECLARED_DIMENSIONS"
+            ):
+                try:
+                    from core.generation.auto_healer import AutoHealer
+                    healed_output = AutoHealer.heal(
+                        failure_code=failed_check.code,
+                        output=output,
+                        slot=attempt_slot,
+                        failure_message=failed_check.message,
+                    )
+                    if healed_output:
+                        healed_candidate = GeneratedQuestion(healed_output, attempt_slot)
+                        healed_report = run_linter(
+                            healed_output, healed_candidate, attempt_slot, contract,
+                            evidence_text=evidence_text, sibling_texts=sibling_texts
+                        )
+                        if healed_report.passed:
+                            LOG.info(f"[ORCHESTRATOR] AutoHealer immediately resolved {failed_check.code} on attempt {attempt} — accepting candidate without LLM re-call.")
+                            healed_candidate.status = "VALIDATED"
+                            healed_candidate.question_text = self._sanitize_question_text(healed_candidate.question_text)
+                            if hasattr(healed_candidate, "instruction"):
+                                healed_candidate.instruction = self._sanitize_question_text(healed_candidate.instruction)
+                            if not hasattr(self, "_generated_texts_this_pair"):
+                                self._generated_texts_this_pair = []
+                            self._generated_texts_this_pair.append(healed_candidate.question_text)
+                            if not hasattr(self, "_all_generated_texts"):
+                                self._all_generated_texts = []
+                            self._all_generated_texts.append(healed_candidate.question_text)
+                            return healed_candidate
+                except Exception as _heal_imm_err:
+                    LOG.debug(f"[AUTO-HEALER] Immediate healing skipped: {_heal_imm_err}")
+
             # Never look up GenerationFailureCode.MATH_FAILURE (not on the enum).
             _linter_code = str(getattr(failed_check, 'code', '') or '')
             if (failure.code == GenerationFailureCode.MATH_FAILURE or _linter_code == 'MATH_RENDER_FAILURE') and attempt >= 2:
@@ -890,18 +953,42 @@ class SlotOrchestrator:
                 )
                 _q_txt = getattr(candidate, 'question_text', '') if candidate else ''
                 import re as _re
-                _has_defect = (
+                
+                # Check for content violations that require hard template fallback
+                _content_defects = (
                     "DOMAIN_INTEGRITY_VIOLATION" in failure_history
                     or "PROMPT_SCAFFOLDING_LEAK" in failure_history
-                    or "BLOOM_VERB_NOT_AT_START" in failure_history
                     or "SIBLING_SIMILARITY" in failure_history
                     or "ANSWERABILITY_FAILURE" in failure_history
                     or bool(_re.search(r'\bmodule_\d+_Q\d+', _q_txt))
                     or not _q_txt
                 )
-                if _has_defect or candidate is None:
+                if _content_defects or candidate is None:
                     LOG.warning(f"[ORCHESTRATOR] Slot exhausted with unrecovered quality defects ({failure_history}). Substituting clean evidence template fallback.")
                     return self._generate_template_fallback(attempt_slot, evidence_pack)
+
+                # Formatting-only defect on exhaustion (e.g. BLOOM_VERB_NOT_AT_START) -> force-salvage with AutoHealer
+                if "BLOOM_VERB_NOT_AT_START" in failure_history and output:
+                    try:
+                        from core.generation.auto_healer import AutoHealer
+                        salvaged_output = AutoHealer.heal("BLOOM_VERB_NOT_AT_START", output, attempt_slot, failed_check.message)
+                        if salvaged_output:
+                            candidate = GeneratedQuestion(salvaged_output, attempt_slot)
+                            LOG.info(f"[ORCHESTRATOR] Force-salvaged Bloom verb on exhaustion for slot {attempt_slot.slot_id}.")
+                    except Exception as _salvage_err:
+                        LOG.warning(f"[ORCHESTRATOR] Final Bloom verb salvage skipped: {_salvage_err}")
+
+                try:
+                    if hasattr(candidate, 'math_blocks') and candidate.math_blocks:
+                        candidate.math_blocks = []
+                    if hasattr(candidate, 'question_text'):
+                        candidate.question_text = self._sanitize_question_text(self._strip_math_markers(candidate.question_text))
+                    if hasattr(candidate, 'instruction'):
+                        candidate.instruction = self._sanitize_question_text(candidate.instruction)
+                except Exception as e:
+                    LOG.warning(f"[ORCHESTRATOR] Could not clean candidate: {e}")
+                candidate.status = "PASS_WITH_WARNING"
+                return candidate
 
                 try:
                     if hasattr(candidate, 'math_blocks') and candidate.math_blocks:
@@ -973,10 +1060,13 @@ class SlotOrchestrator:
         if not sec_verb:
             sec_verb = "List" if slot.bloom_verb.lower() != "list" else "Define"
 
+        # Ground the example topic dynamically on the slot's actual domain
+        import re as _re_fmt
+        clean_ex_topic = slot.topic if (slot.topic and not _re_fmt.match(r'^module_\d+', slot.topic.lower())) else "the primary system architecture"
         if min_dims > 1:
-            example_text = f"{slot.bloom_verb} how Binary Search Trees operate and {sec_verb.lower()} how they maintain sorted values."
+            example_text = f"{slot.bloom_verb} how {clean_ex_topic} operates and {sec_verb.lower()} its key architectural properties."
         else:
-            example_text = f"{slot.bloom_verb} how Binary Search Trees operate."
+            example_text = f"{slot.bloom_verb} the foundational principles of {clean_ex_topic}."
 
         math_example = (
             '[{"block_id":"calc_1","latex":"x^2 + y^2","display_mode":true}]'
@@ -1002,6 +1092,7 @@ Min Clauses: {min_dims} (requires at least {min_dims} distinct parts split by 'a
 CRITICAL INSTRUCTIONS FOR QUESTION QUALITY:
 1. QUESTION LENGTH GUIDELINE: Keep the question concise, direct, and focused (ideally around 20 to 50 words, avoiding unnecessary textbook filler, conversational preambles, or paragraph-long context dumps). Begin directly with the required Bloom action verb.
 2. ABSOLUTE PROHIBITION ON ANSWER LEAKAGE: NEVER reveal the answer, solution, derivation, or result in the question text. The student must solve the problem. Provide only the task and necessary inputs; never explain why or what the result is.
+3. COMPLETENESS & GRAMMATICAL INTEGRITY: Every question MUST be a complete, grammatically sound sentence that can stand alone. Do NOT truncate mid-sentence. Do NOT include table fragments (e.g. '| 14 Overall Data |'), raw pipe characters, or dangling phrases.
 
 EVIDENCE:
 {evidence_text}
@@ -1010,7 +1101,7 @@ MATH ARTIFACTS:
 {math_artifacts}
 
 EXAMPLE OF A VALID OUTPUT FORMAT:
-If the Topic was "Binary Search Trees", Bloom Verb was "{slot.bloom_verb}", and Min Clauses was {min_dims}, a valid output would be:
+If the Topic was "{clean_ex_topic}", Bloom Verb was "{slot.bloom_verb}", and Min Clauses was {min_dims}, a valid output would be:
 {{
   "instruction": "{example_text}",
   "question_text": "{example_text}",
@@ -1382,29 +1473,40 @@ IMPORTANT OUTPUT CONTRACT:
         # 2. Resolve a clean, well-formed noun topic
         raw_topic = (slot.topic or "").strip()
         generic_markers = {"the topic", "general", "unit 1", "unit 2", "unit 3", "unit 4", "unit 5", "module 1", "module 2", "module 3", "module 4", "module 5"}
+        import re as _re
+
+        # If raw_topic has markdown table characters or pipes, strip them
+        raw_topic = _re.sub(r'\|[0-9\s]*\|?', ' ', raw_topic)
+        raw_topic = _re.sub(r'[\t\r\n|]+', ' ', raw_topic).strip()
+
         if not raw_topic or raw_topic.lower() in generic_markers or _re.match(r'^module_\d+', raw_topic.lower()):
-            import re as _re
-            sentences = [s.strip() for s in _re.split(r'(?<=[.!?])\s+', text) if len(s.strip()) > 15]
+            # Filter out table lines, pipe characters, and short fragments
+            clean_lines = [
+                l.strip() for l in text.splitlines()
+                if l.strip() and not l.strip().startswith('|') and '|' not in l and len(l.strip()) > 20
+            ]
+            clean_text = " ".join(clean_lines)
+            sentences = [s.strip() for s in _re.split(r'(?<=[.!?])\s+', clean_text) if len(s.strip()) > 15]
             if sentences:
                 candidate_s = sentences[0]
                 # Strip leading chapter, section, or numbering prefixes
                 candidate_s = _re.sub(r'^(?:chapter|section|unit|module|\d+[\.\d]*)\s*[:\-]?\s*', '', candidate_s, flags=_re.IGNORECASE)
                 # Split before common verbs to extract the subject noun phrase cleanly
                 verb_split = _re.split(r'\b(?:is|are|was|were|defines|describes|provides|manages|allows|uses|operates|enables|consists|serves|implements|interacts)\b', candidate_s, flags=_re.IGNORECASE)
-                noun_part = verb_split[0].strip(' ,;:-.')
-                words = noun_part.split()
+                noun_part = verb_split[0].strip(' ,;:-.|')
+                words = [w for w in noun_part.split() if not _re.match(r'^\d+$', w)]
                 if 1 <= len(words) <= 7:
                     raw_topic = " ".join(words)
                 else:
-                    raw_topic = " ".join(candidate_s.split()[:5]).strip(' ,;:-.')
+                    raw_topic = " ".join(candidate_s.split()[:5]).strip(' ,;:-.|')
             if not raw_topic:
-                raw_topic = "the specified technical system"
+                raw_topic = "the core architectural concepts"
 
-        # Clean trailing prepositions/conjunctions
-        import re as _re
-        clean_topic = _re.sub(r'\s+(?:and|or|of|in|to|with|for)\s*$', '', raw_topic, flags=_re.IGNORECASE).strip()
+        # Clean trailing prepositions/conjunctions and pipe noise
+        raw_topic = _re.sub(r'\|+', ' ', raw_topic)
+        clean_topic = _re.sub(r'\s+(?:and|or|of|in|to|with|for)\s*$', '', raw_topic, flags=_re.IGNORECASE).strip(' ,;:-.|')
         if not clean_topic:
-            clean_topic = "the specified technical system"
+            clean_topic = "the core architectural concepts"
 
         # 3. Determine Bloom level from slot
         bloom_level = getattr(slot, "bloom_level", None) or getattr(slot, "bloom_operation", "L2")
@@ -1412,35 +1514,35 @@ IMPORTANT OUTPUT CONTRACT:
             op_map = {"remember": "L1", "understand": "L2", "apply": "L3", "analyze": "L4", "evaluate": "L5", "create": "L6"}
             bloom_level = op_map.get(str(bloom_level).lower(), "L2")
 
-        # 4. Question templates by Bloom level — all strictly start with {verb} and use prepositional noun frames
+        # 4. Question templates by Bloom level — clean natural language without leaked mark brackets
         bloom_templates = {
             "L1": [
-                "{verb} the fundamental definitions and primary components of {topic}. [{marks} Marks]",
-                "{verb} the essential characteristics and operational parameters of {topic}. [{marks} Marks]",
-                "{verb} the principal roles and structural elements associated with {topic}. [{marks} Marks]",
+                "{verb} the fundamental definitions and primary components of {topic}.",
+                "{verb} the essential characteristics and operational parameters of {topic}.",
+                "{verb} the principal roles and structural elements associated with {topic}.",
             ],
             "L2": [
-                "{verb} the operational architecture of {topic}, detailing the interaction between its key components. [{marks} Marks]",
-                "{verb} the underlying working principles of {topic}, illustrating with an appropriate technical example. [{marks} Marks]",
-                "{verb} the core mechanisms and functional processes of {topic} as described in the technical specifications. [{marks} Marks]",
+                "{verb} the operational architecture of {topic}, detailing the interaction between its key components.",
+                "{verb} the underlying working principles of {topic}, illustrating with an appropriate technical example.",
+                "{verb} the core mechanisms and functional processes of {topic} as described in the technical specifications.",
             ],
             "L3": [
-                "{verb} the implementation of {topic} in an engineering scenario, highlighting the key execution steps and parameter configurations. [{marks} Marks]",
-                "{verb} the practical application of {topic} to solve standard operational constraints in the system. [{marks} Marks]",
-                "{verb} the integration and deployment of {topic} to fulfill the performance requirements of the specified architecture. [{marks} Marks]",
+                "{verb} the implementation of {topic} in an engineering scenario, highlighting key execution steps and parameter configurations.",
+                "{verb} the practical application of {topic} to solve standard operational constraints in the system.",
+                "{verb} the integration and deployment of {topic} to fulfill performance requirements of the specified architecture.",
             ],
             "L4": [
-                "{verb} the structural trade-offs and performance implications associated with {topic} under varying operational workloads. [{marks} Marks]",
-                "{verb} the efficiency and reliability characteristics of {topic}, distinguishing between its advantages and critical limitations. [{marks} Marks]",
-                "{verb} the behavioral differences and systemic impacts of alternative approaches to {topic}. [{marks} Marks]",
+                "{verb} the structural trade-offs and performance implications associated with {topic} under varying operational workloads.",
+                "{verb} the efficiency and reliability characteristics of {topic}, distinguishing between its advantages and critical limitations.",
+                "{verb} the behavioral differences and systemic impacts of alternative approaches to {topic}.",
             ],
             "L5": [
-                "{verb} the technical effectiveness and operational viability of {topic} in enterprise-scale deployment. [{marks} Marks]",
-                "{verb} the architectural trade-offs of {topic}, justifying selection criteria based on reliability, scalability, and resource overhead. [{marks} Marks]",
+                "{verb} the technical effectiveness and operational viability of {topic} in enterprise-scale deployment.",
+                "{verb} the architectural trade-offs of {topic}, justifying selection criteria based on reliability, scalability, and resource overhead.",
             ],
             "L6": [
-                "{verb} a comprehensive technical design incorporating {topic} to address stringent system constraints. [{marks} Marks]",
-                "{verb} an optimized framework utilizing {topic} that overcomes conventional bottlenecks in the architecture. [{marks} Marks]",
+                "{verb} a comprehensive technical design incorporating {topic} to address stringent system constraints.",
+                "{verb} an optimized framework utilizing {topic} that overcomes conventional bottlenecks in the architecture.",
             ],
         }
 
@@ -1452,7 +1554,6 @@ IMPORTANT OUTPUT CONTRACT:
         question_text = template.format(
             verb=verb,
             topic=clean_topic,
-            marks=marks,
         )
 
         output = QuestionOutput(
