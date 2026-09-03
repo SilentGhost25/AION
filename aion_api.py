@@ -19,6 +19,7 @@ URL:    http://localhost:8100
 
 import os
 import sys
+import re
 import json
 import uuid
 import threading
@@ -733,8 +734,57 @@ def generate_stream():
     file_path = gen_req.file_path
     notes_text_override = None
 
+    module_files = body.get("module_files") or body.get("moduleFiles") or {}
+    if isinstance(module_files, dict) and module_files:
+        module_files_int = {}
+        for k, v in module_files.items():
+            try:
+                module_files_int[int(k)] = str(v)
+            except (ValueError, TypeError):
+                pass
+    else:
+        module_files_int = {}
+
+    # --- Explicit Module Slot Mapping (handles sparse uploads like Module 5 only) ---
+    if module_files_int:
+        from core.artifacts.store import ArtifactStore
+        from core.artifacts.lifecycle import GenerationGuard
+        store = ArtifactStore()
+        combined_parts = []
+        
+        raw_notes = gen_req.notes_text or body.get("notes_text") or ""
+        existing_module_notes = {}
+        if "Module " in raw_notes:
+            mod_splits = re.split(r"(?:=== )?Module\s+(\d+)[:\s]", raw_notes)
+            if len(mod_splits) > 1:
+                for idx in range(1, len(mod_splits), 2):
+                    try:
+                        m_num = int(mod_splits[idx])
+                        m_txt = mod_splits[idx + 1].strip()
+                        existing_module_notes[m_num] = m_txt
+                    except (IndexError, ValueError):
+                        pass
+
+        for m_idx in range(1, 6):
+            fid = module_files_int.get(m_idx)
+            if fid:
+                manifest = store.get(fid)
+                if manifest:
+                    text = get_document_text(fid, store=store)
+                    filename = getattr(manifest.source, "filename", f"Module_{m_idx}")
+                    combined_parts.append(f"Module {m_idx}: {filename}\n{text}")
+                else:
+                    n_txt = existing_module_notes.get(m_idx) or f"Concepts and analytical principles for Module {m_idx} of {gen_req.subject}"
+                    combined_parts.append(f"Module {m_idx}: {gen_req.subject} - Part {m_idx}\n{n_txt}")
+            else:
+                n_txt = existing_module_notes.get(m_idx) or f"Concepts and analytical principles for Module {m_idx} of {gen_req.subject}"
+                combined_parts.append(f"Module {m_idx}: {gen_req.subject} - Part {m_idx}\n{n_txt}")
+
+        notes_text_override = "\n\n".join(combined_parts)
+        print(f"[MODULE-MAPPING] Synthesized explicit module slots {list(module_files_int.keys())} into combined notes ({len(notes_text_override)} chars)", flush=True)
+
     # --- Multi-file synthesis (runs when file_ids has 2+ entries) ---
-    if gen_req.file_ids and len(gen_req.file_ids) > 1:
+    elif gen_req.file_ids and len(gen_req.file_ids) > 1:
         from core.artifacts.store import ArtifactStore
         from core.artifacts.lifecycle import GenerationGuard
         store = ArtifactStore()

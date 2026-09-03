@@ -833,24 +833,33 @@ def run_pipeline(
             partition = partitions_for_questions[mq_idx - 1]
             planned_sub_types = planned_types_by_question[mq_idx - 1]
 
+            best_chunk_obj = None
+            selected_chunks = []
+
             if mapper and module_chunks:
                 prefer_img = (mq_idx == 1)
-                best_tc    = mapper.get_best_chunk_for_question(
+                top_tcs = mapper.get_top_n_chunks_for_question(
                     module_id      = module_id,
+                    n              = len(partition),
                     prefer_image   = prefer_img,
                     used_chunk_ids = used_chunk_ids,
                     target_bloom   = bloom,
                 )
-                if best_tc:
-                    used_chunk_ids.add(best_tc.id)
-                    selected_chunks = [best_tc.text] * len(partition)
-                    best_chunk_obj  = best_tc
-                else:
-                    selected_chunks = [random.choice(module_chunks_text)] * len(partition)
-                    best_chunk_obj  = None
-            else:
-                selected_chunks = [random.choice(module_chunks_text)] * len(partition)
-                best_chunk_obj = None
+                if top_tcs:
+                    for tc in top_tcs:
+                        used_chunk_ids.add(tc.id)
+                        selected_chunks.append(tc.text)
+                    best_chunk_obj = top_tcs[0]
+
+            # Fallback if mapper not present or returned fewer chunks
+            while len(selected_chunks) < len(partition):
+                avail_texts = [t for t in module_chunks_text if t not in selected_chunks]
+                if not avail_texts:
+                    avail_texts = module_chunks_text
+                # Stride across module text to sample from start/middle/end of module content
+                stride_idx = (mq_idx * len(partition) + len(selected_chunks)) % max(1, len(avail_texts))
+                selected_chunks.append(avail_texts[stride_idx])
+
 
             futures.append(
                 executor.submit(

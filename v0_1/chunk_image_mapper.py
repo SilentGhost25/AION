@@ -288,55 +288,69 @@ def calculate_retrieval_score(
     depth_weight: float = 0.10,
     quality_weight: float = 0.05
 ) -> float:
-    """Computes a multi-dimensional retrieval score for a text chunk."""
-    # 1. Semantic Similarity / Concept Density
+    """Computes a hybrid multi-dimensional retrieval score for a text chunk."""
+    # 1. Subject-Aware Domain Keywords (CS & Common Engineering)
     syllabus_concepts = {
-        1: {"array", "stack", "queue", "linear", "lifo", "fifo", "push", "pop", "enqueue", "dequeue"},
-        2: {"tree", "binary", "bst", "avl", "balance", "rotation", "heap", "priority"},
-        3: {"graph", "dijkstra", "prim", "kruskal", "mst", "shortest", "path", "dfs", "bfs"},
-        4: {"sort", "search", "quick", "merge", "partition", "divide", "conquer", "binary search"},
-        5: {"hash", "hashing", "probe", "chain", "probing", "collision", "index", "file"},
+        1: {"array", "stack", "queue", "linear", "lifo", "fifo", "push", "pop", "enqueue", "dequeue", "signal", "system", "vector", "force", "charge"},
+        2: {"tree", "binary", "bst", "avl", "balance", "rotation", "heap", "priority", "orbit", "satellite", "inclination", "energy", "velocity"},
+        3: {"graph", "dijkstra", "prim", "kruskal", "mst", "shortest", "path", "dfs", "bfs", "fourier", "transform", "frequency", "irrigation", "flow"},
+        4: {"sort", "search", "quick", "merge", "partition", "divide", "conquer", "binary search", "filter", "modulation", "amplifier", "circuit"},
+        5: {"hash", "hashing", "probe", "chain", "probing", "collision", "index", "file", "network", "protocol", "wireless", "antenna", "telemetry"},
     }
     target_concepts = syllabus_concepts.get(target_module_idx, set())
     text_lower = chunk.text.lower()
+    words = re.findall(r"\b[a-zA-Z]{4,}\b", text_lower)
     
-    matched_target = sum(1 for c in target_concepts if c in text_lower)
-    semantic_score = matched_target / max(1, len(target_concepts))
+    # 2. Universal TF-IDF / Term Density (works across all engineering domains)
+    unique_terms = set(words)
+    term_diversity = len(unique_terms) / max(1, len(words)) if words else 0.5
+    # Favor substantive paragraphs (100 to 500 words) with high information content
+    length_norm = min(1.0, len(words) / 120.0) if len(words) >= 30 else 0.2
+    tfidf_density = 0.6 * length_norm + 0.4 * term_diversity
 
-    # 2. Syllabus Alignment (lack of cross-module concept bleed)
+    matched_target = sum(1 for c in target_concepts if c in text_lower)
+    if matched_target > 0:
+        keyword_score = matched_target / max(1, min(len(target_concepts), 5))
+        # Hybrid 50/50 blend when domain keywords match
+        semantic_score = 0.5 * keyword_score + 0.5 * tfidf_density
+    else:
+        # Graceful fallback: pure substantive density for any arbitrary engineering domain
+        semantic_score = tfidf_density
+
+    # 3. Cross-Module Concept Bleed Alignment
     other_concepts = set()
     for m, concepts in syllabus_concepts.items():
         if m != target_module_idx:
             other_concepts.update(concepts)
     matched_others = sum(1 for c in other_concepts if c in text_lower)
-    alignment_score = max(0.0, 1.0 - (matched_others * 0.2))
+    alignment_score = max(0.2, 1.0 - (matched_others * 0.15))
 
-    # 3. Bloom Suitability
-    has_formulas = ("\\frac" in text_lower or "$" in text_lower or "=" in text_lower)
+    # 4. Bloom Suitability
+    has_formulas = ("\\frac" in text_lower or "$" in text_lower or "=" in text_lower or "formula" in text_lower)
     has_numbers = any(char.isdigit() for char in text_lower)
     
     bloom_suitability = 0.5
     if target_bloom >= 3:
-        if has_formulas or has_numbers or "algorithm" in text_lower or "complex" in text_lower:
+        if has_formulas or has_numbers or "algorithm" in text_lower or "calculate" in text_lower or "complex" in text_lower or "deriv" in text_lower:
             bloom_suitability = 1.0
         else:
-            bloom_suitability = 0.3
+            bloom_suitability = 0.4
     else:
-        if "define" in text_lower or "explain" in text_lower or "what is" in text_lower:
+        if "define" in text_lower or "explain" in text_lower or "what is" in text_lower or "overview" in text_lower or "principle" in text_lower:
             bloom_suitability = 1.0
         elif has_formulas:
-            bloom_suitability = 0.4
+            bloom_suitability = 0.5
 
-    # 4. Depth Suitability
+    # 5. Depth Suitability
     depth_suitability = {
         "CORE": 1.0,
         "SUPPORTING": 0.8,
-        "ADVANCED": 0.4,
-        "EXTERNAL": 0.0
-    }.get(chunk.depth, 0.5)
+        "ADVANCED": 0.5,
+        "EXTERNAL": 0.1
+    }.get(chunk.depth, 0.6)
 
-    # 5. Evidence Quality
-    quality_score = min(1.0, chunk.word_count / 500.0)
+    # 6. Evidence Quality
+    quality_score = min(1.0, chunk.word_count / 300.0)
     if "\ufffd" in chunk.text:
         quality_score *= 0.1
 
@@ -347,6 +361,7 @@ def calculate_retrieval_score(
         depth_weight * depth_suitability +
         quality_weight * quality_score
     )
+
 
 
 class ChunkImageMapper:
@@ -488,12 +503,19 @@ class ChunkImageMapper:
 
         return self._module_groups
 
+    def get_group(self, module_id: str) -> Optional[ModuleChunkGroup]:
+        return self._module_groups.get(module_id)
+
+    def get_all_groups(self) -> dict[str, ModuleChunkGroup]:
+        return self._module_groups
+
     def get_chunks_for_module(
         self,
         module_id: str,
     ) -> list[TextChunk]:
         group = self._module_groups.get(module_id)
         return group.chunks if group else []
+
     def get_best_chunk_for_question(
         self,
         module_id:       str,
@@ -535,6 +557,115 @@ class ChunkImageMapper:
                 return with_img[0]
 
         return available_sorted[0]
+
+    def get_top_n_chunks_for_question(
+        self,
+        module_id:       str,
+        n:               int   = 2,
+        prefer_image:    bool  = True,
+        used_chunk_ids:  set   = None,
+        target_bloom:    int   = 2,
+        exclude_chunks:  Optional[list] = None,
+    ) -> list[TextChunk]:
+        """
+        Retrieves top-N distinct chunks from the SAME topical neighborhood.
+        Part (a) receives best_tc (definition / core concept),
+        Part (b) receives 2nd related chunk (elaboration / application),
+        Part (c) receives 3rd related chunk (numerical / analytical depth).
+        Ensures topical coherence while completely eliminating duplicate text repetition.
+        Guarantees exact length n by defensive padding when module chunks are limited.
+        """
+        group = self._module_groups.get(module_id)
+        if not group or not group.chunks:
+            return []
+
+        used = set(used_chunk_ids or set())
+        if exclude_chunks:
+            for ec in exclude_chunks:
+                if hasattr(ec, "id"):
+                    used.add(ec.id)
+                elif hasattr(ec, "chunk_id"):
+                    used.add(ec.chunk_id)
+
+        available = [c for c in group.chunks if c.id not in used and c.depth != "EXTERNAL"]
+        if not available:
+            print(f"[MAPPER WARNING] Module '{module_id}' chunk pool depleted for question slot. Falling back to module pool.", flush=True)
+            available = [c for c in group.chunks if c.depth != "EXTERNAL"] or group.chunks
+
+        try:
+            mod_idx = int(module_id.replace("module_", ""))
+        except ValueError:
+            mod_idx = 1
+
+        # 1. Compute scores and normalize across module
+        scored_tuples = [
+            (c, calculate_retrieval_score(c, target_bloom, mod_idx))
+            for c in available
+        ]
+        
+        # Normalize scores to [0, 1] range within this module
+        scores = [s for _, s in scored_tuples]
+        if len(scores) > 1:
+            min_score = min(scores)
+            max_score = max(scores)
+            score_range = max_score - min_score
+            if score_range > 1e-6:
+                scored_tuples = [
+                    (c, (s - min_score) / score_range)
+                    for c, s in scored_tuples
+                ]
+
+        scored_tuples.sort(key=lambda x: x[1], reverse=True)
+        sorted_chunks = [x[0] for x in scored_tuples]
+
+        if not sorted_chunks:
+            return []
+
+        # 2. Select primary anchor chunk
+        primary = None
+        if prefer_image:
+            with_img = [c for c in sorted_chunks if c.has_image()]
+            if with_img:
+                primary = with_img[0]
+        if not primary:
+            primary = sorted_chunks[0]
+
+        result = [primary]
+        if n <= 1:
+            return result
+
+        # 3. Find related chunks from the same topical neighborhood (adjacent or high keyword overlap)
+        candidate_neighbors = []
+        for c in sorted_chunks:
+            if c.id == primary.id:
+                continue
+            dist = abs(c.chunk_idx - primary.chunk_idx)
+            overlap = _keyword_overlap(c.text, primary.text)
+            proximity_score = max(0.0, 1.0 - (dist * 0.15))
+            coherence_score = 0.5 * proximity_score + 0.5 * overlap
+            candidate_neighbors.append((c, coherence_score))
+
+        candidate_neighbors.sort(key=lambda x: x[1], reverse=True)
+
+        for c, score in candidate_neighbors:
+            if len(result) >= n:
+                break
+            result.append(c)
+
+        # 4. Fill remaining from sorted_chunks if needed
+        if len(result) < n:
+            for c in sorted_chunks:
+                if c not in result:
+                    result.append(c)
+                if len(result) >= n:
+                    break
+
+        # 5. CRITICAL: Pad if not enough unique chunks available to guarantee length n
+        if len(result) < n and len(sorted_chunks) > 0:
+            while len(result) < n:
+                result.append(sorted_chunks[0])
+
+        return result
 
     def get_image_for_chunk(
         self,

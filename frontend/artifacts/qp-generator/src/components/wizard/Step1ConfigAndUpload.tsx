@@ -167,9 +167,10 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
       }
       const combinedNotes = moduleTexts.join("\n\n")
 
-      // 2. Upload reference files
+      // 2. Upload reference files mapped to their explicit module indices (1..5)
       let fileIds: string[] = []
       let primaryFileId: string | undefined = undefined
+      const moduleFileMap: Record<number, string> = {}
 
       if (distinctFiles.length > 0) {
         for (const { file, moduleIdx } of distinctFiles) {
@@ -187,6 +188,7 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
             return null
           }
           fileIds.push(fid)
+          moduleFileMap[moduleIdx + 1] = fid
         }
         primaryFileId = fileIds[0]
       } else {
@@ -206,6 +208,8 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
         fileId: primaryFileId,
         file_ids: fileIds.length > 1 ? fileIds : undefined,
         fileIds: fileIds.length > 1 ? fileIds : undefined,
+        module_files: Object.keys(moduleFileMap).length > 0 ? moduleFileMap : undefined,
+        moduleFiles: Object.keys(moduleFileMap).length > 0 ? moduleFileMap : undefined,
         subject: config.subjectName || "Subject",
         department: (config as any).department || "Computer Science & Engineering",
         semester: (config as any).semester || 5,

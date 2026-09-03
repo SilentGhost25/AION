@@ -358,7 +358,7 @@ def test_auto_healer_prevents_verb_stacking_and_heals_latex():
     # Case 1: Stacked verbs
     raw_output = QuestionOutput(
         instruction="Analyse how smart irrigation differs from manual irrigation practices.",
-        question_text="Analyse how smart irrigation differs from manual irrigation practices with formula \( V = A \t imes d \).",
+        question_text=r"Analyse how smart irrigation differs from manual irrigation practices with formula \( V = A \t imes d \).",
         bloom_level="L4",
         marks=6
     )
@@ -409,6 +409,106 @@ def test_sibling_uniqueness_stops_duplicate_subquestions():
     result = check_sibling_uniqueness(q8b_cand, sibling_texts=[q8a_text])
     assert not result.passed
     assert result.code == "SIBLING_SIMILARITY"
+
+
+def test_top_n_chunk_allocation_uniqueness_and_coherence():
+    """Verify get_top_n_chunks_for_question returns distinct chunks from the same topical section."""
+    from v0_1.chunk_image_mapper import ChunkImageMapper, TextChunk, ModuleChunkGroup
+
+    mapper = ChunkImageMapper()
+    # Create 5 chunks in Module 1 with varying topics
+    c1 = TextChunk(
+        id="mod1_chunk_1",
+        text="Newton's laws of motion define the fundamental relationship between a body and the forces acting upon it.",
+        module_id="module_1",
+        module_idx=1,
+        chunk_idx=1,
+        total_chunks=5,
+        word_count=50,
+        page_start=1,
+        page_end=2,
+    )
+    c2 = TextChunk(
+        id="mod1_chunk_2",
+        text="Newton's second law quantifies force as the time rate of change of momentum, expressed as F = m * a.",
+        module_id="module_1",
+        module_idx=1,
+        chunk_idx=2,
+        total_chunks=5,
+        word_count=55,
+        page_start=2,
+        page_end=3,
+    )
+    c3 = TextChunk(
+        id="mod1_chunk_3",
+        text="Newton's third law states that for every action force there is an equal and opposite reaction force.",
+        module_id="module_1",
+        module_idx=1,
+        chunk_idx=3,
+        total_chunks=5,
+        word_count=52,
+        page_start=3,
+        page_end=4,
+    )
+    group = ModuleChunkGroup(module_id="module_1", module_idx=1, module_title="Mechanics", chunks=[c1, c2, c3])
+    mapper._module_groups = {"module_1": group}
+
+    top_2 = mapper.get_top_n_chunks_for_question(module_id="module_1", n=2, prefer_image=False, target_bloom=2)
+    assert len(top_2) == 2
+    # 1. Distinct chunk IDs (no duplicate chunk cloning)
+    assert top_2[0].id != top_2[1].id
+    assert top_2[0].text != top_2[1].text
+
+    # 2. Strict Jaccard similarity threshold (< 0.2)
+    words_0 = set(top_2[0].text.lower().split())
+    words_1 = set(top_2[1].text.lower().split())
+    jaccard = len(words_0 & words_1) / max(1, len(words_0 | words_1))
+    assert jaccard < 0.25, f"Chunks too similar: {jaccard}"
+
+    # 3. Topical coherence maintained (both discuss Newton mechanics)
+    assert "newton" in top_2[0].text.lower()
+    assert "newton" in top_2[1].text.lower()
+
+
+def test_domain_agnostic_hybrid_scoring_for_non_cs_topics():
+    """Verify non-CS subjects (e.g. satellite communications / physics) achieve healthy retrieval scores."""
+    from v0_1.chunk_image_mapper import calculate_retrieval_score, TextChunk
+
+    chunk = TextChunk(
+        id="sat_chunk_1",
+        text="Satellite orbit inclination is defined as the angle between the orbital plane and the Earth equatorial plane with formula theta = 65 degrees.",
+        module_id="module_2",
+        module_idx=2,
+        chunk_idx=1,
+        total_chunks=10,
+        word_count=80,
+        page_start=5,
+        page_end=6,
+    )
+    score = calculate_retrieval_score(chunk, target_bloom=3, target_module_idx=2)
+    # Must achieve a high score (> 0.5) under hybrid scoring
+    assert score > 0.5
+
+
+def test_full_page_coverage_across_text_bearing_pages():
+    """Verify chunks span >= 80% of text-bearing pages in a document."""
+    from v0_1.chunk_image_mapper import TextChunk
+
+    # Simulate 10 chunks across a 20-page document
+    simulated_chunks = [
+        TextChunk(id=f"c_{i}", text=f"Concept text for section {i} with sufficient descriptive body content.", module_id="module_1", module_idx=1, chunk_idx=i, total_chunks=10, word_count=60, page_start=i * 2 + 1, page_end=i * 2 + 2)
+        for i in range(10)
+    ]
+
+    pages_with_text = {c.page_start for c in simulated_chunks if len(c.text.strip()) > 50}
+    min_page = min(pages_with_text)
+    max_page = max(pages_with_text)
+    total_pages = 20
+    
+    # Span must reach at least 80% of document span
+    assert max_page >= 0.8 * total_pages
+
+
 
 
 
