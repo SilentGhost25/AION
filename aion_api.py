@@ -26,6 +26,7 @@ import time
 import traceback
 from pathlib import Path
 from datetime import datetime
+from typing import Optional, List, Dict, Any, Tuple
 import requests
 
 # -- Path setup ------------------------------------------------
@@ -700,6 +701,19 @@ def _sse(event: str, data: dict) -> str:
 # Generate — SSE stream
 # -------------------------------------------------------------
 
+def get_document_text(doc_id: str, store: Optional[Any] = None) -> str:
+    from core.artifacts.store import ArtifactStore
+    from core.extraction.gateway import ExtractionGateway
+    store = store or ArtifactStore()
+    manifest = store.get(doc_id)
+    derived_path = manifest.get_derived_text()
+    if derived_path and os.path.exists(derived_path):
+        with open(derived_path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read()
+    artifact = ExtractionGateway.extract(manifest.source.path, document_id=doc_id)
+    return getattr(artifact, "text", "") or ""
+
+
 # -------------------------------------------------------------
 # Generate — SSE stream
 # -------------------------------------------------------------
@@ -717,7 +731,46 @@ def generate_stream():
 
     # Resolve file path
     file_path = gen_req.file_path
-    if gen_req.file_id:
+    notes_text_override = None
+
+    # --- Multi-file synthesis (runs when file_ids has 2+ entries) ---
+    if gen_req.file_ids and len(gen_req.file_ids) > 1:
+        from core.artifacts.store import ArtifactStore
+        from core.artifacts.lifecycle import GenerationGuard
+        store = ArtifactStore()
+        combined_parts = []
+        for i, fid in enumerate(gen_req.file_ids):
+            manifest = store.get(fid)
+            if not manifest:
+                raise ValueError(f"file_ids[{i}] '{fid}' not found in ArtifactStore")
+            guard = GenerationGuard.check(fid, store=store)
+            if not guard.allowed:
+                raise ValueError(f"Module {i+1} ('{fid}') is not READY: {guard.message}")
+            text = get_document_text(fid, store=store)
+            word_count = len(text.split())
+            if word_count < 50:
+                filename = getattr(manifest.source, "filename", fid)
+                raise ValueError(
+                    f"Module {i+1} ('{filename}') has only {word_count} extracted words — "
+                    f"below the 50-word minimum for reliable segmentation."
+                )
+            filename = getattr(manifest.source, "filename", f"module_{i+1}")
+            combined_parts.append(f"Module {i+1}: {filename}\n{text}")
+        notes_text_override = "\n\n".join(combined_parts)
+        print(f"[MULTI-FILE] Synthesized {len(gen_req.file_ids)} modules into combined notes ({len(notes_text_override)} chars)", flush=True)
+        print(f"[MULTI-FILE] Synthesized {len(gen_req.file_ids)} modules as text-only. "
+              f"Image/figure extraction is skipped for multi-file requests — "
+              f"original PDF diagrams will not appear in this paper.", flush=True)
+
+    if notes_text_override:
+        notes_dir = ROOT / "workspace" / "uploads"
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        notes_file = notes_dir / f"synthesized_multi_{trace.request_id}.txt"
+        with open(notes_file, "w", encoding="utf-8") as f:
+            f.write(notes_text_override)
+        file_path = str(notes_file)
+        gen_req.file_path = file_path
+    elif gen_req.file_id:
         doc = doc_registry.get(gen_req.file_id)
         record = file_registry.get(gen_req.file_id)
         if doc:
@@ -1074,20 +1127,28 @@ def generate_stream():
             print(f"[STREAM DEBUG] About to yield paper_ready. result has {len(result.get('modules', []))} modules", flush=True)
             paper_payload = {
                 "paper": result,
+                "result": result,
+                "data": result,
+                **(result if isinstance(result, dict) else {}),
                 "question_count": total_subquestions,
                 "canonical_hash": canonical_hash
             }
             print(f"[STREAM DEBUG] paper_payload keys: {list(paper_payload.keys())}", flush=True)
             yield _sse("paper_ready", paper_payload)
+            yield f"data: {json.dumps(paper_payload)}\n\n"
             print(f"[STREAM DEBUG] paper_ready event yielded successfully", flush=True)
 
             done_payload = {
                 "status": "SUCCESS",
+                "paper": result,
+                "result": result,
+                "data": result,
                 "paper_id": result.get("id", "unknown"),
                 "question_count": total_subquestions,
                 "canonical_hash": canonical_hash
             }
             yield _sse("done", done_payload)
+            yield f"data: {json.dumps(done_payload)}\n\n"
             print(f"[STREAM DEBUG] done event yielded successfully", flush=True)
             result_sent = True
 

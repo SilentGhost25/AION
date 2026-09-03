@@ -1219,7 +1219,11 @@ def _generate_main_question(
                 co=_blueprint_co,
                 difficulty=difficulty.upper(),
                 question_type=q_type,
-                topic=f"{slot_id} ({chunk_obj.depth})" if chunk_obj else slot_id,
+                topic=(
+                    str(chunk_obj.topic) if (chunk_obj and getattr(chunk_obj, "topic", None) and not re.match(r'^module_\d+', str(chunk_obj.topic)))
+                    else (str(chunk_obj.concept_tags[0]) if (chunk_obj and getattr(chunk_obj, "concept_tags", None) and chunk_obj.concept_tags)
+                    else next((re.sub(r'^[#*\-\s\d\.]+', '', _l).strip() for _l in str(chunk).splitlines() if 4 <= len(re.sub(r'^[#*\-\s\d\.]+', '', _l).strip()) <= 60 and not re.match(r'^(module_\d+|Q\d+|\[|\()', _l.strip(), re.I)), f"Module {_mod_num} Core Topics"))
+                ),
                 evidence_ids=(chunk_obj.id,) if chunk_obj else ("chunk_legacy",),
                 answer_budget=answer_budget,
                 question_budget=question_budget,

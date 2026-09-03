@@ -39,6 +39,7 @@ class GenerationRequest:
         notes_text:  Optional[str],
         department:  str,
         semester:    int,
+        file_ids:    Optional[List[str]] = None,
     ) -> None:
         self.subject    = subject
         self.exam_type  = exam_type
@@ -46,6 +47,7 @@ class GenerationRequest:
         self.model      = model
         self.mode       = mode
         self.file_id    = file_id
+        self.file_ids   = file_ids
         self.file_path  = file_path
         self.notes_text = notes_text
         self.department = department
@@ -57,6 +59,12 @@ class GenerationRequest:
     def from_dict(cls, body: Dict[str, Any]) -> "GenerationRequest":
         from core.config.production_model import get_production_model  # lazy import
 
+        file_ids_raw = body.get("file_ids") or body.get("fileIds")
+        if isinstance(file_ids_raw, list):
+            file_ids = [str(fid).strip() for fid in file_ids_raw if str(fid).strip()]
+        else:
+            file_ids = None
+
         return cls(
             subject    = (body.get("subject")    or "Unknown").strip(),
             exam_type  = (body.get("exam_type")  or body.get("examType") or "IA").strip(),
@@ -64,6 +72,7 @@ class GenerationRequest:
             model      = (body.get("model")      or get_production_model()).strip(),
             mode       = (body.get("mode")       or "turbo").strip(),
             file_id    = body.get("file_id")     or body.get("fileId"),
+            file_ids   = file_ids,
             file_path  = body.get("file_path"),
             notes_text = body.get("notes_text")  or body.get("notesText"),
             department = (body.get("department") or "Engineering").strip(),

@@ -218,6 +218,7 @@ async function generateFromAION(
         const decoder = new TextDecoder()
         let   buffer  = ""
         let   result  = ""
+        let   currentEvent = ""
 
         while (true) {
           const { done, value } = await reader.read()
@@ -227,7 +228,6 @@ async function generateFromAION(
           const lines = buffer.split("\n")
           buffer = lines.pop() ?? ""
 
-          let currentEvent = ""
           for (const line of lines) {
             const trimmed = line.trim()
 

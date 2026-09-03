@@ -29,6 +29,7 @@ class GenerationRequest:
     grounding_mode:         str            = "strict"     # strict, permissive
     allow_external_sources: bool           = False
     file_id:                Optional[str]  = None
+    file_ids:               Optional[List[str]] = None
     file_path:              Optional[str]  = None
     notes_text:             Optional[str]  = None
     raw_payload:            Dict[str, Any] = field(default_factory=dict)
@@ -126,6 +127,11 @@ class GenerationRequest:
 
         # -- File ID / Path ----------
         file_id = raw.get("file_id") or raw.get("fileId")
+        file_ids_raw = raw.get("file_ids") or raw.get("fileIds")
+        if isinstance(file_ids_raw, list):
+            file_ids = [str(fid).strip() for fid in file_ids_raw if str(fid).strip()]
+        else:
+            file_ids = None
         file_path = raw.get("file_path") or raw.get("filePath")
         notes_text = raw.get("notes_text") or raw.get("notesText") or raw.get("context")
 
@@ -141,6 +147,7 @@ class GenerationRequest:
             model                  = str(model).strip(),
             visual_mode            = visual_mode,
             file_id                = file_id,
+            file_ids               = file_ids,
             file_path              = file_path,
             notes_text             = notes_text,
             raw_payload            = raw

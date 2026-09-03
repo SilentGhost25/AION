@@ -234,6 +234,18 @@ class SlotOrchestrator:
         import re
         return re.sub(r'\[MATH:[^\]]+\]', '', text).strip()
 
+    def _sanitize_question_text(self, text: str) -> str:
+        """Removes internal slot identifiers or prompt scaffolding leaked into question text."""
+        if not text:
+            return ""
+        import re
+        text = re.sub(r'\bmodule_\d+_Q\d+_[a-z]\b', '', text)
+        text = re.sub(r'\bmodule_\d+_Q\d+\b', '', text)
+        text = re.sub(r'\b(?:according to|for|in)\s+\[?[a-zA-Z0-9_]*slot_[a-zA-Z0-9_]+\]?', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'\s{2,}', ' ', text).strip()
+        text = re.sub(r'\s+(?:for|according to|in)\s*([.?!]|$)', r'\1', text, flags=re.IGNORECASE)
+        return text
+
     def generate(self, slot: QuestionSlot, evidence_pack, excluded_concepts: Set[str] = None) -> GeneratedQuestion:
         # Reset per-slot state (NOT per-request — global dedup persists across the paper)
 
@@ -823,6 +835,9 @@ class SlotOrchestrator:
                 if not hasattr(self, "_generated_texts_this_pair"):
                     self._generated_texts_this_pair = []
                 if hasattr(candidate, "question_text") and candidate.question_text:
+                    candidate.question_text = self._sanitize_question_text(candidate.question_text)
+                    if hasattr(candidate, "instruction"):
+                        candidate.instruction = self._sanitize_question_text(candidate.instruction)
                     self._generated_texts_this_pair.append(candidate.question_text)
                     # Global registry for cross-module dedup
                     if not hasattr(self, "_all_generated_texts"):
@@ -858,31 +873,43 @@ class SlotOrchestrator:
                 candidate.status = 'PASS_WITH_WARNING'
                 return candidate
             if failure.code == GenerationFailureCode.ANSWERABILITY_FAILURE and attempt >= 2:
-                LOG.warning(f"[ORCHESTRATOR] ANSWERABILITY_FAILURE on attempt {attempt} — relaxing groundedness threshold to allow completion.")
-                candidate.status = "PASS_WITH_WARNING"
-                return candidate
+                _q_txt = getattr(candidate, 'question_text', '')
+                import re as _re
+                if not _re.search(r'\bmodule_\d+_Q\d+', _q_txt) and not "DOMAIN_INTEGRITY_VIOLATION" in failure_history:
+                    LOG.warning(f"[ORCHESTRATOR] ANSWERABILITY_FAILURE on attempt {attempt} — relaxing groundedness threshold to allow completion.")
+                    candidate.status = "PASS_WITH_WARNING"
+                    candidate.question_text = self._sanitize_question_text(candidate.question_text)
+                    if hasattr(candidate, 'instruction'):
+                        candidate.instruction = self._sanitize_question_text(candidate.instruction)
+                    return candidate
+
             if attempt == MAX_ATTEMPTS or not failure.retryable:
                 LOG.warning(
                     f"[ORCHESTRATOR] Slot {attempt_slot.slot_id} exhausted after "
                     f"{attempt} attempts ({failure_history})."
                 )
-                # Hard ceiling: if exhausted due to domain contamination, NEVER output contaminated candidate.
-                # Immediately substitute clean evidence-grounded template fallback.
-                if "DOMAIN_INTEGRITY_VIOLATION" in failure_history or getattr(failed_check, "code", "") == "DOMAIN_INTEGRITY_VIOLATION":
-                    LOG.warning(f"[ORCHESTRATOR] Domain integrity failed after {attempt} attempts. Substituting clean evidence template fallback.")
+                _q_txt = getattr(candidate, 'question_text', '') if candidate else ''
+                import re as _re
+                _has_defect = (
+                    "DOMAIN_INTEGRITY_VIOLATION" in failure_history
+                    or "PROMPT_SCAFFOLDING_LEAK" in failure_history
+                    or "BLOOM_VERB_NOT_AT_START" in failure_history
+                    or "SIBLING_SIMILARITY" in failure_history
+                    or "ANSWERABILITY_FAILURE" in failure_history
+                    or bool(_re.search(r'\bmodule_\d+_Q\d+', _q_txt))
+                    or not _q_txt
+                )
+                if _has_defect or candidate is None:
+                    LOG.warning(f"[ORCHESTRATOR] Slot exhausted with unrecovered quality defects ({failure_history}). Substituting clean evidence template fallback.")
                     return self._generate_template_fallback(attempt_slot, evidence_pack)
 
-                # If no candidate exists, use template fallback
-                candidate = locals().get('candidate') or getattr(self, '_last_candidate', None)
-                if candidate is None:
-                    return self._generate_template_fallback(attempt_slot, evidence_pack)
                 try:
                     if hasattr(candidate, 'math_blocks') and candidate.math_blocks:
                         candidate.math_blocks = []
                     if hasattr(candidate, 'question_text'):
-                        candidate.question_text = self._strip_math_markers(candidate.question_text)
+                        candidate.question_text = self._sanitize_question_text(self._strip_math_markers(candidate.question_text))
                     if hasattr(candidate, 'instruction'):
-                        candidate.instruction = candidate.question_text
+                        candidate.instruction = self._sanitize_question_text(candidate.instruction)
                 except Exception as e:
                     LOG.warning(f"[ORCHESTRATOR] Could not clean candidate: {e}")
                 candidate.status = "PASS_WITH_WARNING"
@@ -1021,14 +1048,13 @@ PREVIOUSLY GENERATED QUESTIONS (do NOT generate anything similar to these):
             if _slot_m >= 4 or _slot_b >= 3 or any(k in _slot_id_str for k in ('Q1', 'Q3', '_a')):
                 prompt += (
                     "\n\n[HIGH PRIORITY QUESTION TYPE DIRECTIVE]\n"
-                    "Ensure variety across the paper by formulating this question as EITHER a Numerical Problem OR a Programming / Implementation Problem whenever applicable to the topic:\n"
-                    "1. NUMERICAL CALCULATION FORMAT:\n"
-                    "   - Provide explicit, realistic numeric givens (e.g., state probabilities [e.g., P=0.7, 0.3], utility values [e.g., U=100, -50], agent lifetime time-steps [e.g., 1000 steps], reward per clean square [+1], action penalties [-1]).\n"
-                    "   - Ask the student to compute the expected utility, total agent performance score, optimal action choice, or transition cost step-by-step.\n"
-                    "2. PROGRAMMING / PYTHON IMPLEMENTATION FORMAT:\n"
-                    "   - Ask the student to write a Python function, class, or algorithmic simulation for the concept (e.g., 'Write a Python class for a Simple Reflex Agent with condition-action rules...', 'Implement a Python simulation of the 2-state Vacuum World environment and calculate its total score...', 'Write a Python program to evaluate expected utility given an action-state payoff matrix...').\n"
-                    "   - Specify function/class names, input parameters, and expected return values.\n"
-                    "STRICT CONSTRAINT: Ground all numerical values and code strictly in the provided subject notes (agents, PEAS, decision theory, vacuum world, reflex/goal/utility architectures). Do NOT invent unrelated physics or circuit formulas.\n"
+                    "Ensure variety across the paper by formulating this question as EITHER an Applied Problem-Solving Task OR a Concrete System/Implementation Task whenever supported by the evidence:\n"
+                    "1. APPLIED PROBLEM-SOLVING / CALCULATION FORMAT:\n"
+                    "   - If the evidence provides numerical metrics, formulas, or parameters, formulate a multi-step calculation or problem-solving task.\n"
+                    "   - Provide realistic givens derived strictly from the evidence and ask the student to compute or evaluate the result.\n"
+                    "2. PRACTICAL / IMPLEMENTATION FORMAT:\n"
+                    "   - Ask the student to design, implement, configure, or construct the solution for the concept based strictly on the evidence.\n"
+                    "STRICT CONSTRAINT: Ground all terms, parameters, and notation strictly in the provided evidence. NEVER cite internal prompt variables, question slot identifiers (e.g., do NOT mention 'module_X' or 'slot_X'), or unrelated external domains.\n"
                 )
         except Exception:
             pass
@@ -1356,7 +1382,7 @@ IMPORTANT OUTPUT CONTRACT:
         # 2. Resolve a clean, well-formed noun topic
         raw_topic = (slot.topic or "").strip()
         generic_markers = {"the topic", "general", "unit 1", "unit 2", "unit 3", "unit 4", "unit 5", "module 1", "module 2", "module 3", "module 4", "module 5"}
-        if not raw_topic or raw_topic.lower() in generic_markers:
+        if not raw_topic or raw_topic.lower() in generic_markers or _re.match(r'^module_\d+', raw_topic.lower()):
             import re as _re
             sentences = [s.strip() for s in _re.split(r'(?<=[.!?])\s+', text) if len(s.strip()) > 15]
             if sentences:

@@ -217,6 +217,13 @@ def check_no_meta_language(text: str) -> CheckResult:
                 f"Meta-language reference detected: '{p}'",
                 action=RetryAction.REGENERATE
             )
+    # Detect internal prompt variables and slot IDs leaking into the question text
+    if re.search(r'\b(?:module_\d+|Q\d+_[a-c]|slot_[a-zA-Z0-9_]+)\b', text, re.IGNORECASE):
+        return CheckResult.fail(
+            "PROMPT_SCAFFOLDING_LEAK",
+            "Internal slot ID or module identifier leaked into question text.",
+            action=RetryAction.REGENERATE
+        )
     return CheckResult.pass_()
 
 

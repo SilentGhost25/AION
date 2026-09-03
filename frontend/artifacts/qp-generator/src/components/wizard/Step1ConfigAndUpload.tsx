@@ -143,24 +143,69 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
     setPipelineError(null)
     setCurrentStage("connecting")
     try {
-      const combinedNotes = sections
-        .map((s, i) => `=== Module ${Math.floor(i / 2) + 1} Question ${i + 1} ===\n${s.notesText}`)
-        .join("\n\n")
+      // 1. Collect distinct files mapped by module index
+      const distinctFiles: { file: File; moduleIdx: number }[] = []
+      const seenNames = new Set<string>()
+      for (let i = 0; i < 5; i++) {
+        const qIdxA = i * 2
+        const qIdxB = i * 2 + 1
+        const f = rawFiles[qIdxA] || rawFiles[qIdxB]
+        if (f && !seenNames.has(f.name)) {
+          seenNames.add(f.name)
+          distinctFiles.push({ file: f, moduleIdx: i })
+        }
+      }
 
-      const uploadedFile = rawFiles.find(f => f !== null)
-      let uploadRes: any
-      if (uploadedFile) {
-        uploadRes = await aionAPI.upload(uploadedFile, config.subjectName || "Subject", "notes")
+      // Build structured notes with confirmed Strategy 1 module headers
+      const moduleTexts: string[] = []
+      for (let i = 0; i < 5; i++) {
+        const qIdxA = i * 2
+        const qIdxB = i * 2 + 1
+        const rawText = sections[qIdxA]?.notesText?.trim() || sections[qIdxB]?.notesText?.trim() || ""
+        const header = `Module ${i + 1}: ${config.subjectName || "Untitled"} - Part ${i + 1}`
+        moduleTexts.push(`${header}\n${rawText}`)
+      }
+      const combinedNotes = moduleTexts.join("\n\n")
+
+      // 2. Upload reference files
+      let fileIds: string[] = []
+      let primaryFileId: string | undefined = undefined
+
+      if (distinctFiles.length > 0) {
+        for (const { file, moduleIdx } of distinctFiles) {
+          toast.info(`Uploading Module ${moduleIdx + 1}: ${file.name}...`)
+          const uploadRes = await aionAPI.upload(file, config.subjectName || "Subject", "notes")
+          const fid = uploadRes.id || uploadRes.document_id
+          if (!fid) {
+            setPipelineError({
+              code: "UPLOAD_FAILED",
+              stage: "upload",
+              message: `Failed to upload Module ${moduleIdx + 1} (${file.name}).`,
+              recoverable: true,
+            })
+            setIsGenerating(false)
+            return null
+          }
+          fileIds.push(fid)
+        }
+        primaryFileId = fileIds[0]
       } else {
         const blob = new Blob([combinedNotes], { type: "text/plain" })
-        const file = new File([blob], `${config.subjectCode || 'syllabus'}_notes.txt`, { type: "text/plain" })
-        uploadRes = await aionAPI.upload(file, config.subjectName || "Subject", "notes")
+        const file = new File(
+          [blob],
+          `${(config.subjectCode || "syllabus").replace(/\s+/g, "_")}_notes.txt`,
+          { type: "text/plain" }
+        )
+        const uploadRes = await aionAPI.upload(file, config.subjectName || "Subject", "notes")
+        primaryFileId = uploadRes.id || uploadRes.document_id
+        if (primaryFileId) fileIds.push(primaryFileId)
       }
-      const fileId = uploadRes.id || uploadRes.document_id
 
       const response = await aionAPI.generateStream({
-        file_id: fileId,
-        fileId: fileId,
+        file_id: primaryFileId,
+        fileId: primaryFileId,
+        file_ids: fileIds.length > 1 ? fileIds : undefined,
+        fileIds: fileIds.length > 1 ? fileIds : undefined,
         subject: config.subjectName || "Subject",
         department: (config as any).department || "Computer Science & Engineering",
         semester: (config as any).semester || 5,
@@ -184,6 +229,7 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
       const decoder = new TextDecoder()
       let buffer = ""
       let formattedResult: any = null
+      let currentEvent = ""
 
       while (true) {
         const { done, value } = await reader.read()
@@ -192,7 +238,6 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
         const lines = buffer.split("\n")
         buffer = lines.pop() ?? ""
 
-        let currentEvent = ""
         for (const line of lines) {
           const trimmed = line.trim()
           if (trimmed.startsWith("event:")) {
@@ -326,6 +371,7 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
     if (paper) {
       toast.success("Question paper generated successfully!")
       onSuccess(paper)
+      return
     }
     setPipelineError(null)
     setShowDebug(false)
@@ -383,6 +429,7 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
       let buffer = ""
       let formattedResult: any = null
       let terminalReceived = false
+      let currentEvent = ""
 
       while (true) {
         const { done, value } = await reader.read()
@@ -392,7 +439,6 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
         const lines = buffer.split("\n")
         buffer = lines.pop() ?? ""
 
-        let currentEvent = ""
         for (const line of lines) {
           const trimmed = line.trim()
           if (trimmed.startsWith("event:")) {
