@@ -344,4 +344,72 @@ def test_corruption_patterns_and_fallback_grounding():
     assert fallback_q.question_text.startswith("Analyze")
 
 
+def test_auto_healer_prevents_verb_stacking_and_heals_latex():
+    """Verify AutoHealer does not double-stack verbs (e.g. 'Apply Analyse...') and heals tab-corrupted LaTeX."""
+    from core.generation.auto_healer import AutoHealer
+    from core.generation.output_schema import QuestionOutput
+
+    class MockSlot:
+        bloom_verb = "Apply"
+        bloom_level = "L3"
+        slot_id = "slot_test"
+
+    slot = MockSlot()
+    # Case 1: Stacked verbs
+    raw_output = QuestionOutput(
+        instruction="Analyse how smart irrigation differs from manual irrigation practices.",
+        question_text="Analyse how smart irrigation differs from manual irrigation practices with formula \( V = A \t imes d \).",
+        bloom_level="L4",
+        marks=6
+    )
+    healed = AutoHealer.heal("BLOOM_VERB_NOT_AT_START", raw_output, slot)
+    assert healed.question_text.startswith("Apply")
+    assert not healed.question_text.startswith("Apply Analyse")
+    assert r"\times" in healed.question_text
+    assert "\t imes" not in healed.question_text
+
+
+def test_sibling_uniqueness_stops_duplicate_subquestions():
+    """Verify check_sibling_uniqueness catches near-duplicate questions on the same concept."""
+    from core.validation.linter import check_sibling_uniqueness
+    from core.generation.output_schema import QuestionOutput
+    from core.contracts.question import GeneratedQuestion
+    from core.contracts.question_slot import QuestionSlot
+    from core.contracts.budgets import AnswerBudget, QuestionBudget
+    from core.contracts.task_signature import TaskSignature
+
+    slot = QuestionSlot(
+        slot_id="slot_mod1_q8_b",
+        question_no=8,
+        sub_label="b",
+        or_pair_id="pair_4",
+        is_alternative=True,
+        module_id=4,
+        marks=4,
+        bloom_level="L1",
+        bloom_verb="Identify",
+        bloom_operation="REMEMBER",
+        co="CO1",
+        difficulty="EASY",
+        question_type="THEORY",
+        topic="Satellite Inclination",
+        evidence_ids=("chunk_4",),
+        answer_budget=AnswerBudget.from_marks_and_bloom(4, "L1"),
+        question_budget=QuestionBudget.from_bloom("L1", 4),
+        task_signature=TaskSignature.from_bloom_marks_type("L1", 4, "THEORY")
+    )
+    q8a_text = "A satellite is in an orbit with an inclination of 65 degrees. Illustrate whether this orbit is direct or retrograde, and explain."
+    q8b_output = QuestionOutput(
+        instruction="A satellite has an inclination angle of 65 degrees. Identify whether this orbit is direct or retrograde and explain your reasoning.",
+        question_text="A satellite has an inclination angle of 65 degrees. Identify whether this orbit is direct or retrograde and explain your reasoning.",
+        marks=4
+    )
+    q8b_cand = GeneratedQuestion(output=q8b_output, slot=slot)
+
+    result = check_sibling_uniqueness(q8b_cand, sibling_texts=[q8a_text])
+    assert not result.passed
+    assert result.code == "SIBLING_SIMILARITY"
+
+
+
 

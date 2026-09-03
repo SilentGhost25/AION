@@ -1,7 +1,8 @@
 import { useState, useLayoutEffect, useRef } from "react"
 import { GeneratedPaper, GeneratedQuestion } from "@workspace/api-client-react"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Printer, RefreshCw, LayoutGrid } from "lucide-react"
+import { MathText } from "@/components/MathText"
+import { ArrowLeft, Printer, RefreshCw, LayoutGrid, FileDown, Loader2 } from "lucide-react"
 import { Spinner } from "@/components/ui/spinner"
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,7 @@ export function Step2Preview({
   const [selectedPaperIdx, setSelectedPaperIdx] = useState(0)
   const [viewMode, setViewMode] = useState<"single" | "compare">("single")
   const [isRegenerating, setIsRegenerating] = useState(false)
+  const [isExportingDocx, setIsExportingDocx] = useState(false)
 
   const handleRegenerate = async () => {
     if (!onRegenerate) return
@@ -65,6 +67,36 @@ export function Step2Preview({
 
   const handlePrint = () => {
     window.print()
+  }
+
+  const handleExportDocx = async () => {
+    try {
+      setIsExportingDocx(true)
+      const res = await fetch('/api/export/docx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(paper),
+      })
+      if (!res.ok) {
+        throw new Error(`Export failed: ${res.statusText}`)
+      }
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const subjectCode = config.subjectCode || 'VTU'
+      const examType = config.examType || 'IA'
+      a.download = `${subjectCode}_${examType}_QuestionPaper.docx`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Failed to export docx:', err)
+      alert('Failed to export Word document. Please try again.')
+    } finally {
+      setIsExportingDocx(false)
+    }
   }
 
   // Edit the text of a single sub-question within a question block.
@@ -106,6 +138,17 @@ export function Step2Preview({
         <div className="flex gap-3">
           <Button variant="outline" onClick={onBack}>
             <ArrowLeft className="mr-2 h-4 w-4" /> Back to Editor
+          </Button>
+          <Button variant="outline" onClick={handleExportDocx} disabled={isExportingDocx}>
+            {isExportingDocx ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Exporting...
+              </>
+            ) : (
+              <>
+                <FileDown className="mr-2 h-4 w-4 text-blue-600" /> Export DOCX
+              </>
+            )}
           </Button>
           <Button onClick={handlePrint}>
             <Printer className="mr-2 h-4 w-4" /> Export PDF
@@ -308,8 +351,7 @@ export function Step2Preview({
 }
 
 /**
- * A textarea that auto-grows to fit its content so large questions are never
- * clipped. Height is recomputed on every value change and on mount.
+ * A textarea that auto-grows to fit its content and renders KaTeX math when not actively editing.
  */
 function AutoGrowTextarea({
   value,
@@ -318,6 +360,7 @@ function AutoGrowTextarea({
   value: string
   onChange: (v: string) => void
 }) {
+  const [isEditing, setIsEditing] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
 
   const resize = () => {
@@ -327,22 +370,35 @@ function AutoGrowTextarea({
     el.style.height = `${el.scrollHeight}px`
   }
 
-  // Resize on mount and whenever the value changes (e.g. backend fills it in).
   useLayoutEffect(() => {
-    resize()
-  }, [value])
+    if (isEditing) resize()
+  }, [value, isEditing])
+
+  if (isEditing) {
+    return (
+      <textarea
+        ref={ref}
+        value={value}
+        autoFocus
+        onBlur={() => setIsEditing(false)}
+        onChange={e => {
+          onChange(e.target.value)
+          resize()
+        }}
+        rows={1}
+        className="w-full bg-blue-50/40 resize-none overflow-hidden focus:outline-none ring-1 ring-blue-400 rounded-sm p-1 leading-snug cursor-text text-sm"
+      />
+    )
+  }
 
   return (
-    <textarea
-      ref={ref}
-      value={value}
-      onChange={e => {
-        onChange(e.target.value)
-        resize()
-      }}
-      rows={1}
-      className="w-full bg-transparent resize-none overflow-hidden focus:outline-none focus:bg-blue-50/40 focus:ring-1 focus:ring-blue-300 rounded-sm hover:bg-slate-50 print:hover:bg-transparent print:focus:bg-transparent print:ring-0 transition-colors leading-snug cursor-text"
-    />
+    <div
+      onClick={() => setIsEditing(true)}
+      className="w-full cursor-text hover:bg-slate-50/80 rounded p-0.5 leading-snug text-sm print:hover:bg-transparent print:p-0 transition-colors"
+      title="Click to edit text"
+    >
+      <MathText text={value} />
+    </div>
   )
 }
 

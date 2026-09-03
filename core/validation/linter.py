@@ -28,10 +28,16 @@ if TYPE_CHECKING:
     from core.generation.output_schema import QuestionOutput
     from core.contracts.question import GeneratedQuestion
 
+STOPWORDS = {
+    "the", "and", "for", "with", "that", "this", "from", "are", "its", "which",
+    "how", "what", "why", "based", "including", "using", "into", "their", "such",
+    "each", "other", "when", "where", "have", "been", "given", "value", "these",
+}
+
 def _jaccard_similarity(a: str, b: str) -> float:
-    """Simple word-level Jaccard similarity between two strings."""
-    set_a = set(re.findall(r"\b[a-zA-Z]{3,}\b", a.lower()))
-    set_b = set(re.findall(r"\b[a-zA-Z]{3,}\b", b.lower()))
+    """Meaningful word-level Jaccard similarity excluding common grammatical stopwords."""
+    set_a = {w for w in re.findall(r"\b[a-zA-Z0-9]{3,}\b", a.lower()) if w not in STOPWORDS}
+    set_b = {w for w in re.findall(r"\b[a-zA-Z0-9]{3,}\b", b.lower()) if w not in STOPWORDS}
     if not set_a or not set_b:
         return 0.0
     return len(set_a & set_b) / len(set_a | set_b)
@@ -40,22 +46,24 @@ def _jaccard_similarity(a: str, b: str) -> float:
 def check_sibling_uniqueness(
     question: "GeneratedQuestion",
     sibling_texts: list,
-    threshold: float = 0.65,
+    threshold: float = 0.48,
 ) -> "CheckResult":
     """
     Rejects a question if it is too similar to any sibling
     sub-question or OR alternative already generated.
-    Similarity is measured by Jaccard overlap on meaningful words.
+    Similarity is measured by Jaccard overlap on meaningful content words.
     """
     q_text = question.question_text.lower()
     for i, sib in enumerate(sibling_texts):
+        if not sib or not isinstance(sib, str):
+            continue
         sim = _jaccard_similarity(q_text, sib.lower())
         if sim >= threshold:
             return CheckResult.fail(
                 "SIBLING_SIMILARITY",
-                f"Question is too similar to sibling slot {i+1} "
-                f"(Jaccard={sim:.2f} >= threshold={threshold}). "
-                f"Generate a conceptually distinct question.",
+                f"Question is conceptually too similar to previously generated question {i+1} "
+                f"(Content Jaccard={sim:.2f} >= threshold={threshold}). "
+                f"Generate a distinct topic/problem.",
                 action=RetryAction.REGENERATE,
             )
     return CheckResult.pass_()

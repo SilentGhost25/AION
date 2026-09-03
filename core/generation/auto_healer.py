@@ -134,44 +134,51 @@ class AutoHealer:
 
     @classmethod
     def _fix_bloom_verb_start(cls, output, slot) -> "QuestionOutput":
-        """Rewrites instruction and question_text to start with the correct Bloom verb."""
-        verb = slot.bloom_verb
+        """Rewrites instruction and question_text to start with the correct Bloom verb cleanly without double-verb stacking."""
+        verb = slot.bloom_verb.strip().capitalize()
 
-        # Fix instruction
-        instr = output.instruction.strip()
-        words = instr.split()
-        if words and words[0].lower().rstrip(".,;:") != verb.lower():
-            # Remove first word if it is a wrong verb, prepend correct one
-            first = words[0].lower().rstrip(".,;:")
-            bloom_verbs = {
-                "define", "list", "identify", "state", "explain", "describe",
-                "summarize", "discuss", "calculate", "determine", "solve",
-                "apply", "analyze", "compare", "differentiate", "examine",
-                "evaluate", "justify", "assess", "critique", "design",
-                "propose", "formulate", "develop", "name", "recall",
-                "construct", "illustrate", "demonstrate",
-            }
-            if first in bloom_verbs:
-                words[0] = verb
-                instr = " ".join(words)
+        ALL_ACTION_VERBS = {
+            "define", "list", "identify", "state", "explain", "describe",
+            "summarize", "summarise", "discuss", "calculate", "determine", "solve",
+            "apply", "analyze", "analyse", "compare", "differentiate", "examine",
+            "evaluate", "justify", "assess", "critique", "design",
+            "propose", "formulate", "develop", "name", "recall",
+            "construct", "illustrate", "demonstrate", "interpret", "classify",
+            "show", "derive", "estimate", "compute", "sketch", "outline",
+        }
+
+        def _clean_text_with_verb(text: str) -> str:
+            if not text:
+                return f"{verb} the principles and architecture of the topic."
+            text = text.strip()
+            
+            # Collapse double/stacked leading action verbs (e.g. "Apply Analyse...", "Recall Apply...")
+            text = re.sub(
+                r'^(?:(?:' + '|'.join(ALL_ACTION_VERBS) + r')\b[\s,;:]*)+',
+                '',
+                text,
+                flags=re.IGNORECASE
+            ).strip()
+
+            # Clean awkward "how ... operates" if preceded by Solve/Calculate/Determine
+            if verb.lower() in ("solve", "calculate", "determine", "compute"):
+                text = re.sub(r'^(?:how\s+)?(.+?)\s+operates(?:\s+and)?', r'the parameters of \1 and', text, flags=re.IGNORECASE)
+
+            # Prepend clean single verb
+            if text:
+                text = f"{verb} {text[0].lower() + text[1:] if len(text) > 1 else text.lower()}"
             else:
-                instr = f"{verb} {instr}"
+                text = f"{verb} the principles and applications of the subject matter."
 
-        output.instruction = instr
+            # Fix LaTeX tab-corrupted patterns
+            text = re.sub(r'[\t ]+imes\b', r'\\times ', text)
+            text = re.sub(r'[\t ]+ext\{', r'\\text{', text)
+            text = re.sub(r'[\t ]+heta\b', r'\\theta ', text)
+            text = re.sub(r'[\t ]+au\b', r'\\tau ', text)
+            return text.strip()
 
-        # Fix question_text similarly
-        qt = output.question_text.strip()
-        qt_words = qt.split()
-        if qt_words and qt_words[0].lower().rstrip(".,;:") != verb.lower():
-            first_qt = qt_words[0].lower().rstrip(".,;:")
-            if first_qt in {"define", "list", "explain", "calculate", "analyze",
-                            "evaluate", "design", "name", "describe", "discuss",
-                            "construct", "determine", "compare", "justify"}:
-                qt_words[0] = verb
-                qt = " ".join(qt_words)
-            else:
-                qt = f"{verb} {qt}"
-        output.question_text = qt
+        output.instruction = _clean_text_with_verb(output.instruction)
+        output.question_text = _clean_text_with_verb(output.question_text)
 
         # Sync bloom_level metadata to match the healed verb / slot contract
         if hasattr(output, "bloom_level"):

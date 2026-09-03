@@ -235,13 +235,20 @@ class SlotOrchestrator:
         return re.sub(r'\[MATH:[^\]]+\]', '', text).strip()
 
     def _sanitize_question_text(self, text: str) -> str:
-        """Removes internal slot identifiers or prompt scaffolding leaked into question text."""
+        """Removes internal slot identifiers or prompt scaffolding leaked into question text, and heals LaTeX tab escapes."""
         if not text:
             return ""
         import re
         text = re.sub(r'\bmodule_\d+_Q\d+_[a-z]\b', '', text)
         text = re.sub(r'\bmodule_\d+_Q\d+\b', '', text)
         text = re.sub(r'\b(?:according to|for|in)\s+\[?[a-zA-Z0-9_]*slot_[a-zA-Z0-9_]+\]?', '', text, flags=re.IGNORECASE)
+        # Fix tab-corrupted LaTeX keywords
+        text = re.sub(r'[\t ]+imes\b', r'\\times ', text)
+        text = re.sub(r'[\t ]+ext\{', r'\\text{', text)
+        text = re.sub(r'[\t ]+heta\b', r'\\theta ', text)
+        text = re.sub(r'[\t ]+au\b', r'\\tau ', text)
+        text = re.sub(r'[\t ]+frac\{', r'\\frac{', text)
+        text = re.sub(r'[\t ]+sqrt\{', r'\\sqrt{', text)
         text = re.sub(r'\s{2,}', ' ', text).strip()
         text = re.sub(r'\s+(?:for|according to|in)\s*([.?!]|$)', r'\1', text, flags=re.IGNORECASE)
         return text
@@ -1060,20 +1067,19 @@ class SlotOrchestrator:
         if not sec_verb:
             sec_verb = "List" if slot.bloom_verb.lower() != "list" else "Define"
 
-        # Ground the example topic dynamically on the slot's actual domain
+        # Ground the example topic dynamically on the slot's actual domain with varied phrasing
         import re as _re_fmt
         clean_ex_topic = slot.topic if (slot.topic and not _re_fmt.match(r'^module_\d+', slot.topic.lower())) else "the primary system architecture"
         if min_dims > 1:
-            example_text = f"{slot.bloom_verb} how {clean_ex_topic} operates and {sec_verb.lower()} its key architectural properties."
+            example_text = f"{slot.bloom_verb} the foundational principles of {clean_ex_topic} and {sec_verb.lower()} its key architectural properties."
         else:
-            example_text = f"{slot.bloom_verb} the foundational principles of {clean_ex_topic}."
+            example_text = f"{slot.bloom_verb} the core operational characteristics of {clean_ex_topic}."
 
         math_example = (
             '[{"block_id":"calc_1","latex":"x^2 + y^2","display_mode":true}]'
             if slot.math_required
             else "[]"
         )
-
 
         # Build exclusion list from previously generated questions (last 10)
         _prev_texts = list(getattr(self, "_all_generated_texts", []))[-10:]
@@ -1093,6 +1099,12 @@ CRITICAL INSTRUCTIONS FOR QUESTION QUALITY:
 1. QUESTION LENGTH GUIDELINE: Keep the question concise, direct, and focused (ideally around 20 to 50 words, avoiding unnecessary textbook filler, conversational preambles, or paragraph-long context dumps). Begin directly with the required Bloom action verb.
 2. ABSOLUTE PROHIBITION ON ANSWER LEAKAGE: NEVER reveal the answer, solution, derivation, or result in the question text. The student must solve the problem. Provide only the task and necessary inputs; never explain why or what the result is.
 3. COMPLETENESS & GRAMMATICAL INTEGRITY: Every question MUST be a complete, grammatically sound sentence that can stand alone. Do NOT truncate mid-sentence. Do NOT include table fragments (e.g. '| 14 Overall Data |'), raw pipe characters, or dangling phrases.
+4. SYNTACTIC VARIETY (AVOID REPETITIVE 'HOW' QUESTIONS): Do NOT format every question as '{slot.bloom_verb} how [topic] operates...'. Formulate varied, natural questions such as:
+   - '{slot.bloom_verb} the principles and key characteristics of [topic]...'
+   - '{slot.bloom_verb} the differences between [concept A] and [concept B]...'
+   - '{slot.bloom_verb} the architectural trade-offs in deploying [topic]...'
+   - '{slot.bloom_verb} the mathematical relationship governing [topic]...'
+   NEVER start numerical or calculation questions with 'Solve how...' or 'Calculate how...'. Use direct problem statements.
 
 EVIDENCE:
 {evidence_text}
