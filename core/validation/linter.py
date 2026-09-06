@@ -43,6 +43,15 @@ def _jaccard_similarity(a: str, b: str) -> float:
     return len(set_a & set_b) / len(set_a | set_b)
 
 
+def _extract_normalized_prefix(text: str, n_words: int = 4) -> str:
+    """Extracts the first n normalized words of a question for syntactic stem collision detection."""
+    cleaned = re.sub(r'^[#*\-\s\d\.\(\)\[\]a-zA-Z]{1,4}\s*[\)\:\.]\s*', '', text)
+    words = re.findall(r"\b[a-zA-Z]+\b", cleaned.lower())
+    if len(words) >= n_words:
+        return " ".join(words[:n_words])
+    return " ".join(words)
+
+
 def check_sibling_uniqueness(
     question: "GeneratedQuestion",
     sibling_texts: list,
@@ -51,12 +60,29 @@ def check_sibling_uniqueness(
     """
     Rejects a question if it is too similar to any sibling
     sub-question or OR alternative already generated.
-    Similarity is measured by Jaccard overlap on meaningful content words.
+    Similarity is measured by:
+    1. Leading 4-word syntactic prefix collision.
+    2. Jaccard overlap on meaningful content words.
     """
     q_text = question.question_text.lower()
+    q_prefix = _extract_normalized_prefix(q_text, 4)
+
     for i, sib in enumerate(sibling_texts):
         if not sib or not isinstance(sib, str):
             continue
+
+        # 1. Syntactic prefix collision check
+        if len(q_prefix.split()) >= 4:
+            sib_prefix = _extract_normalized_prefix(sib, 4)
+            if q_prefix == sib_prefix:
+                return CheckResult.fail(
+                    "SIBLING_SIMILARITY",
+                    f"Question shares identical syntactic opening phrase '{q_prefix}...' with sibling question {i+1}. "
+                    f"Vary the sentence structure and question archetype.",
+                    action=RetryAction.REGENERATE,
+                )
+
+        # 2. Content Jaccard overlap check
         sim = _jaccard_similarity(q_text, sib.lower())
         if sim >= threshold:
             return CheckResult.fail(

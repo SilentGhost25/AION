@@ -410,6 +410,86 @@ def test_sibling_uniqueness_stops_duplicate_subquestions():
     assert not result.passed
     assert result.code == "SIBLING_SIMILARITY"
 
+    # Case 2: Test 4-word syntactic prefix collision rejection even with different domain nouns
+    prefix_output = QuestionOutput(
+        instruction="Explain the foundational principles of satellite telemetry transmission.",
+        question_text="Explain the foundational principles of satellite telemetry transmission.",
+        marks=4
+    )
+    prefix_cand = GeneratedQuestion(output=prefix_output, slot=slot)
+    sibling_prefix_text = "Explain the foundational principles of orbital payload deployment."
+    res_prefix = check_sibling_uniqueness(prefix_cand, sibling_texts=[sibling_prefix_text])
+    assert not res_prefix.passed
+    assert res_prefix.code == "SIBLING_SIMILARITY"
+    assert "identical syntactic opening phrase" in res_prefix.message
+
+
+def test_archetype_palette_round_robin_rotation():
+    """Verify SlotOrchestrator cycles through diverse question archetypes in few-shot prompts."""
+    from core.generation.orchestrator import SlotOrchestrator
+    from core.contracts.question_slot import QuestionSlot
+    from core.contracts.budgets import AnswerBudget, QuestionBudget
+    from core.contracts.task_signature import TaskSignature
+
+    orch = SlotOrchestrator()
+    examples_generated = []
+
+    for i in range(4):
+        slot = QuestionSlot(
+            slot_id=f"slot_mod1_q{i+1}_a",
+            question_no=i+1,
+            sub_label="a",
+            or_pair_id=f"pair_{i+1}",
+            is_alternative=False,
+            module_id=1,
+            marks=6,
+            bloom_level="L2",
+            bloom_verb="Explain",
+            bloom_operation="UNDERSTAND",
+            co="CO1",
+            difficulty="MEDIUM",
+            question_type="THEORY",
+            topic=f"Topic {i+1}",
+            evidence_ids=(f"chunk_{i+1}",),
+            answer_budget=AnswerBudget.from_marks_and_bloom(6, "L2"),
+            question_budget=QuestionBudget.from_bloom("L2", 6),
+            task_signature=TaskSignature.from_bloom_marks_type("L2", 6, "THEORY")
+        )
+        prompt = orch._format_prompt(slot, "Evidence text here...", "")
+        examples_generated.append(prompt)
+
+    # Verify universal theory archetype rotation across sequential slots
+    assert "fundamental principles governing Topic 1" in examples_generated[0]
+    assert "key distinctions and perspectives in Topic 2" in examples_generated[1]
+    assert "structural framework and provisions of Topic 3" in examples_generated[2]
+    assert "role and function of Topic 4" in examples_generated[3]
+    # Verify prohibition on clichés is included
+    assert "PROHIBITION ON FORMULAIC CLICHÉS" in examples_generated[0]
+
+    # Verify Numerical slot receives calculation-appropriate prompt framing
+    num_slot = QuestionSlot(
+        slot_id="slot_mod1_q5_a",
+        question_no=5,
+        sub_label="a",
+        or_pair_id="pair_5",
+        is_alternative=False,
+        module_id=1,
+        marks=6,
+        bloom_level="L3",
+        bloom_verb="Calculate",
+        bloom_operation="CALCULATE",
+        co="CO2",
+        difficulty="HARD",
+        question_type="NUMERICAL",
+        topic="Free Space Path Loss",
+        evidence_ids=("chunk_5",),
+        answer_budget=AnswerBudget.from_marks_and_bloom(6, "L3"),
+        question_budget=QuestionBudget.from_bloom("L3", 6),
+        task_signature=TaskSignature.from_bloom_marks_type("L3", 6, "NUMERICAL")
+    )
+    num_prompt = orch._format_prompt(num_slot, "Calculate loss with freq=4GHz, dist=36000km.", "")
+    assert ("governing parameters of Free Space Path Loss" in num_prompt or "mathematical relationship in Free Space Path Loss" in num_prompt or "numerical output" in num_prompt or "quantitative result" in num_prompt or "output value" in num_prompt)
+
 
 def test_top_n_chunk_allocation_uniqueness_and_coherence():
     """Verify get_top_n_chunks_for_question returns distinct chunks from the same topical section."""
@@ -509,7 +589,13 @@ def test_full_page_coverage_across_text_bearing_pages():
     assert max_page >= 0.8 * total_pages
 
 
-
-
-
-
+def test_eased_difficulty_policy_shifts_6m_to_easy_tier():
+    """Verify eased difficulty policy shifts 6M questions into CO2/L2-L3 easy/moderate tier across all modules."""
+    from v0_1.difficulty_policy import resolve_co_bl_from_marks, EASE_PAPER_DIFFICULTY
+    assert EASE_PAPER_DIFFICULTY is True
+    co, bloom = resolve_co_bl_from_marks(module_idx=1, marks=6, total_parts=2, planned_type="APPLICATION")
+    assert co == "CO2" and bloom == 3
+    co5, bloom5 = resolve_co_bl_from_marks(module_idx=5, marks=6, total_parts=2, planned_type="APPLICATION")
+    assert co5 == "CO2" and bloom5 == 3
+    co_hard, bloom_hard = resolve_co_bl_from_marks(module_idx=3, marks=10, total_parts=1)
+    assert co_hard == "CO3" and bloom_hard == 4

@@ -227,6 +227,7 @@ class SlotOrchestrator:
         self.marks_split = marks_split  # User-specified marks partitions
         self.session_log: List[Dict[str, Any]] = []
         self._all_generated_texts: List[str] = []
+        self._archetype_counter: int = 0
 
 
     def _strip_math_markers(self, text: str) -> str:
@@ -1070,10 +1071,71 @@ class SlotOrchestrator:
         # Ground the example topic dynamically on the slot's actual domain with varied phrasing
         import re as _re_fmt
         clean_ex_topic = slot.topic if (slot.topic and not _re_fmt.match(r'^module_\d+', slot.topic.lower())) else "the primary system architecture"
-        if min_dims > 1:
-            example_text = f"{slot.bloom_verb} the foundational principles of {clean_ex_topic} and {sec_verb.lower()} its key architectural properties."
+
+        # Stateful Round-Robin Archetype Rotation across sequential slots
+        archetype_idx = getattr(self, "_archetype_counter", 0) % 4
+        self._archetype_counter = getattr(self, "_archetype_counter", 0) + 1
+
+        _qtype = str(getattr(slot, "question_type", "THEORY")).upper()
+
+        if _qtype == "NUMERICAL":
+            if min_dims > 1:
+                if archetype_idx == 0:
+                    example_text = f"{slot.bloom_verb} the governing parameters of {clean_ex_topic} and {sec_verb.lower()} the resulting output value."
+                elif archetype_idx == 1:
+                    example_text = f"{slot.bloom_verb} the mathematical relationship in {clean_ex_topic} and {sec_verb.lower()} the final metric."
+                elif archetype_idx == 2:
+                    example_text = f"{slot.bloom_verb} the required unknown value for {clean_ex_topic} and {sec_verb.lower()} the system response."
+                else:
+                    example_text = f"{slot.bloom_verb} the performance metrics associated with {clean_ex_topic} and {sec_verb.lower()} the calculated results."
+            else:
+                if archetype_idx == 0:
+                    example_text = f"{slot.bloom_verb} the unknown parameter of {clean_ex_topic} given the input values."
+                elif archetype_idx == 1:
+                    example_text = f"{slot.bloom_verb} the numerical output for {clean_ex_topic} using the governing equations."
+                elif archetype_idx == 2:
+                    example_text = f"{slot.bloom_verb} the required values in {clean_ex_topic} based on the specified parameters."
+                else:
+                    example_text = f"{slot.bloom_verb} the quantitative result for {clean_ex_topic}."
+        elif _qtype == "APPLICATION":
+            if min_dims > 1:
+                if archetype_idx == 0:
+                    example_text = f"{slot.bloom_verb} a practical scenario utilizing {clean_ex_topic} and {sec_verb.lower()} its implementation requirements."
+                elif archetype_idx == 1:
+                    example_text = f"{slot.bloom_verb} the configuration of {clean_ex_topic} in real-world contexts and {sec_verb.lower()} how it compares to standard alternatives."
+                elif archetype_idx == 2:
+                    example_text = f"{slot.bloom_verb} the practical workflow for {clean_ex_topic} and {sec_verb.lower()} the critical factors determining deployment success."
+                else:
+                    example_text = f"{slot.bloom_verb} the application of {clean_ex_topic} under specified conditions and {sec_verb.lower()} the expected outcomes."
+            else:
+                if archetype_idx == 0:
+                    example_text = f"{slot.bloom_verb} how {clean_ex_topic} is implemented in practical scenarios."
+                elif archetype_idx == 1:
+                    example_text = f"{slot.bloom_verb} the practical advantages and operational constraints of {clean_ex_topic}."
+                elif archetype_idx == 2:
+                    example_text = f"{slot.bloom_verb} the execution steps necessary for {clean_ex_topic}."
+                else:
+                    example_text = f"{slot.bloom_verb} the deployment considerations associated with {clean_ex_topic}."
         else:
-            example_text = f"{slot.bloom_verb} the core operational characteristics of {clean_ex_topic}."
+            # Universal Conceptual / Theory archetypes (natural across STEM, Law, Ethics, Management)
+            if min_dims > 1:
+                if archetype_idx == 0:
+                    example_text = f"{slot.bloom_verb} the fundamental principles governing {clean_ex_topic} and {sec_verb.lower()} the role of its primary aspects."
+                elif archetype_idx == 1:
+                    example_text = f"{slot.bloom_verb} the key distinctions and perspectives in {clean_ex_topic} and {sec_verb.lower()} how they compare to alternative views."
+                elif archetype_idx == 2:
+                    example_text = f"{slot.bloom_verb} the structural framework and provisions of {clean_ex_topic} and {sec_verb.lower()} their significance."
+                else:
+                    example_text = f"{slot.bloom_verb} the role and function of {clean_ex_topic} and {sec_verb.lower()} its underlying framework."
+            else:
+                if archetype_idx == 0:
+                    example_text = f"{slot.bloom_verb} the fundamental concepts and significance of {clean_ex_topic}."
+                elif archetype_idx == 1:
+                    example_text = f"{slot.bloom_verb} the primary scope and key provisions associated with {clean_ex_topic}."
+                elif archetype_idx == 2:
+                    example_text = f"{slot.bloom_verb} the governing principles of {clean_ex_topic} in modern practice."
+                else:
+                    example_text = f"{slot.bloom_verb} the core elements essential for {clean_ex_topic}."
 
         math_example = (
             '[{"block_id":"calc_1","latex":"x^2 + y^2","display_mode":true}]'
@@ -1105,6 +1167,7 @@ CRITICAL INSTRUCTIONS FOR QUESTION QUALITY:
    - '{slot.bloom_verb} the architectural trade-offs in deploying [topic]...'
    - '{slot.bloom_verb} the mathematical relationship governing [topic]...'
    NEVER start numerical or calculation questions with 'Solve how...' or 'Calculate how...'. Use direct problem statements.
+5. PROHIBITION ON FORMULAIC CLICHÉS: Do NOT reuse the exact same opening phrase across questions (e.g. avoid repeatedly writing '{slot.bloom_verb} the foundational principles of...'). Use varied, natural pedagogical phrasing suited to the topic.
 
 EVIDENCE:
 {evidence_text}

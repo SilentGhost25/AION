@@ -119,7 +119,7 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
     newSections[q1] = { ...newSections[q1], notesText: `[File: ${file.name}]` }
     newSections[q2] = { ...newSections[q2], notesText: `[File: ${file.name}]` }
     setSections(newSections)
-    toast.info(`${file.name} attached to Module ${moduleIdx + 1}`)
+    toast.info(`${file.name} attached to Set ${moduleIdx + 1}`)
   }
 
   const updateSubCount = (qIdx: number, count: number) => {
@@ -174,14 +174,14 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
 
       if (distinctFiles.length > 0) {
         for (const { file, moduleIdx } of distinctFiles) {
-          toast.info(`Uploading Module ${moduleIdx + 1}: ${file.name}...`)
+          toast.info(`Uploading Set ${moduleIdx + 1}: ${file.name}...`)
           const uploadRes = await aionAPI.upload(file, config.subjectName || "Subject", "notes")
           const fid = uploadRes.id || uploadRes.document_id
           if (!fid) {
             setPipelineError({
               code: "UPLOAD_FAILED",
               stage: "upload",
-              message: `Failed to upload Module ${moduleIdx + 1} (${file.name}).`,
+              message: `Failed to upload Set ${moduleIdx + 1} (${file.name}).`,
               recoverable: true,
             })
             setIsGenerating(false)
@@ -760,7 +760,7 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
               <Card key={mIdx} className="shadow-sm border-slate-200 overflow-hidden">
                 <div className="bg-slate-50 border-b px-5 py-3 flex items-center justify-between">
                   <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-                    Module {mIdx + 1} Reference Material
+                    Set {mIdx + 1} Reference Material
                   </h3>
                   {hasC && (
                     <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">
@@ -788,7 +788,7 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
                       ) : (
                         <>
                           <UploadCloud className="mr-2 h-5 w-5" />
-                          Upload PDF, TXT, or DOCX for Module {mIdx + 1}
+                          Upload PDF, TXT, or DOCX for Set {mIdx + 1}
                         </>
                       )}
                     </Button>
