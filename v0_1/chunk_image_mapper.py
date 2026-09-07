@@ -96,50 +96,150 @@ _HEADING_RE      = re.compile(
 )
 
 
-def classify_chunk_depth(text: str, target_module_idx: int) -> str:
-    """Classifies chunk depth into CORE, SUPPORTING, ADVANCED, or EXTERNAL based on semantic alignment."""
+_STRUCTURAL_NOISE_PATTERNS = [
+    re.compile(r"^\s*\d+\s*$", re.M),
+    re.compile(r"^\s*page\s+\d+\s+of\s+\d+\s*$", re.I | re.M),
+    re.compile(r"^\s*table\s+of\s+contents\b", re.I | re.M),
+    re.compile(r"^\s*all\s+rights\s+reserved\b", re.I | re.M),
+    re.compile(r"^\s*copyright\s+©?\s*\d{4}\b", re.I | re.M),
+    re.compile(r"^\s*downloaded\s+from\b", re.I | re.M),
+    re.compile(r"^\s*isbn[:\s]*[0-9\-]{10,17}\b", re.I | re.M),
+]
+
+
+def _is_structural_noise(text: str) -> bool:
+    """Check if chunk is page noise, TOC, or boilerplate, not academic content."""
+    stripped = text.strip()
+    if not stripped:
+        return True
+    words = stripped.split()
+    if len(words) < 25:
+        for pat in _STRUCTURAL_NOISE_PATTERNS:
+            if pat.search(stripped):
+                return True
+        if re.match(r"^(?:chapter|module|unit)\s*\d+\s*$", stripped, re.I):
+            return True
+    lines = [l.strip() for l in stripped.splitlines() if l.strip()]
+    if lines and len(lines) >= 3:
+        ref_lines = sum(1 for l in lines if re.match(r"^\[\d+\]\s+[A-Z]", l))
+        if ref_lines / len(lines) > 0.6:
+            return True
+    return False
+
+
+def _is_legitimate_domain_content(text: str) -> bool:
+    """Check if chunk contains legitimate academic, technical, or analytical prose."""
+    words = text.split()
+    if len(words) < 20:
+        return False
+    # Formulas, LaTeX or equations
+    has_equations = any(sym in text for sym in ("=", "\\frac", "\\sum", "\\int", "√", "×", "±", "→", "$"))
+    # Broad multi-department engineering vocabulary
     text_lower = text.lower()
-    
-    # Standard VTU Computer Science syllabus module concept mapping
-    syllabus_concepts = {
-        1: {"array", "stack", "queue", "linear", "lifo", "fifo", "push", "pop", "enqueue", "dequeue"},
-        2: {"tree", "binary", "bst", "avl", "balance", "rotation", "heap", "priority"},
-        3: {"graph", "dijkstra", "prim", "kruskal", "mst", "shortest", "path", "dfs", "bfs"},
-        4: {"sort", "search", "quick", "merge", "partition", "divide", "conquer", "binary search"},
-        5: {"hash", "hashing", "probe", "chain", "probing", "collision", "index", "file"},
-    }
+    domain_terms = (
+        "principle", "function", "system", "process", "analysis", "structure",
+        "method", "model", "equation", "property", "parameter", "component",
+        "operation", "design", "performance", "effect", "theory", "condition",
+        "state", "force", "energy", "circuit", "voltage", "algorithm", "stress",
+        "frequency", "flow", "material", "network", "control", "response",
+        "current", "resistor", "capacitor", "lathe", "machine", "signal",
+        "power", "torque", "velocity", "pressure", "temperature", "fluid"
+    )
+    has_academic_density = any(term in text_lower for term in domain_terms)
+    return has_academic_density or has_equations or len(words) >= 40
 
-    # Get target module concepts
-    target_concepts = syllabus_concepts.get(target_module_idx, set())
-    other_concepts = set()
-    for m, concepts in syllabus_concepts.items():
-        if m != target_module_idx:
-            other_concepts.update(concepts)
 
-    # 1. Check for cross-module external bleed
-    matched_others = [c for c in other_concepts if c in text_lower]
-    matched_target = [c for c in target_concepts if c in text_lower]
-    
-    if len(matched_others) > len(matched_target) + 1:
+def classify_chunk_depth(text: str, target_module_idx: int = 1) -> str:
+    """
+    Classifies chunk depth into CORE, SUPPORTING, ADVANCED, or EXTERNAL.
+    Safely filters structural noise as EXTERNAL while preserving legitimate
+    academic content across all engineering disciplines.
+    """
+    if _is_structural_noise(text):
         return "EXTERNAL"
 
-    # 2. Check for advanced technical detail / appendix / specific implementation
+    text_lower = text.lower()
+
+    # 1. Advanced technical detail / appendix / rigorous proof
     advanced_terms = {
-        "appendix", "advanced", "further reading", "proof", "derivation",
-        "implementation details", "optimization", "complex", "specific parameter",
-        "register values", "byte offset", "rfc number"
+        "appendix", "detailed proof", "derivation of", "mathematical formulation",
+        "complex optimization", "asymptotic behavior", "register specification"
     }
     if any(term in text_lower for term in advanced_terms):
         return "ADVANCED"
 
-    # 3. CORE: Explicitly contains target syllabus concept keywords
-    if any(concept in text_lower for concept in target_concepts):
-        supporting_terms = {"example", "application", "illustration", "case study", "scenario", "practical"}
-        if any(term in text_lower for term in supporting_terms):
-            return "SUPPORTING"
+    # 2. Supporting context / examples / applications
+    supporting_terms = {
+        "example", "application", "illustration", "case study",
+        "practical scenario", "historical context", "overview"
+    }
+    if any(term in text_lower for term in supporting_terms):
+        return "SUPPORTING"
+
+    # 3. Legitimate substantive domain content -> CORE
+    if _is_legitimate_domain_content(text):
         return "CORE"
 
     return "SUPPORTING"
+
+
+def _extract_technical_terms(text: str) -> list[str]:
+    """Extract candidate technical terms and keyphrases from chunk text."""
+    candidates = []
+    # 1. Capitalized multi-word phrases (e.g. Zener Diode, Keplerian Orbit)
+    caps = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b", text)
+    candidates.extend(caps)
+    # 2. Technical acronyms (e.g. MOSFET, EIRP, PWM, RPM)
+    acronyms = re.findall(r"\b[A-Z]{2,6}\b", text)
+    candidates.extend([a for a in acronyms if a not in ("AND", "THE", "FOR", "NOT", "ALL", "FROM", "WITH")])
+    # 3. Capitalized single terms (e.g. Zener, Docker, Linux, Fourier)
+    single_caps = re.findall(r"\b[A-Z][a-z]{3,}\b", text)
+    candidates.extend([s for s in single_caps if s.lower() not in ("this", "that", "these", "there", "their", "when", "where", "with", "from")])
+    # 4. Frequent domain terms (length >= 4)
+    words = re.findall(r"\b[a-zA-Z]{4,}\b", text.lower())
+    freq = {}
+    stopwords = {
+        "which", "there", "their", "about", "would", "these", "other", "could",
+        "first", "after", "where", "being", "under", "using", "provides", "used",
+        "while", "into", "over", "such", "than", "then", "have", "each"
+    }
+    for w in words:
+        if w not in stopwords:
+            freq[w] = freq.get(w, 0) + 1
+    sorted_words = sorted(freq.keys(), key=lambda w: freq[w], reverse=True)
+    candidates.extend(sorted_words)
+    return candidates
+
+
+def _is_relevant_to_topic(keyword: str, topic: str) -> bool:
+    """Filter candidate keyword for relevance to slot topic and general domain substance."""
+    kw_lower = keyword.lower().strip()
+    top_lower = topic.lower().strip()
+    if not kw_lower or len(kw_lower) < 3:
+        return False
+    generic_words = {"explain", "describe", "define", "question", "chapter", "module", "figure", "section"}
+    if kw_lower in generic_words:
+        return False
+    topic_words = set(re.findall(r"\b[a-z]{3,}\b", top_lower)) - {"module", "core", "topics", "part"}
+    if topic_words and any(tw in kw_lower or kw_lower in tw for tw in topic_words):
+        return True
+    return len(kw_lower) >= 4
+
+
+def extract_domain_keywords(text: str, topic: str = "") -> tuple[str, ...]:
+    """Extract top 3-5 relevant domain keywords from text chunk."""
+    candidates = _extract_technical_terms(text)
+    seen = set()
+    relevant = []
+    for c in candidates:
+        c_clean = c.strip()
+        c_low = c_clean.lower()
+        if c_low not in seen and _is_relevant_to_topic(c_clean, topic):
+            seen.add(c_low)
+            relevant.append(c_clean)
+        if len(relevant) >= 5:
+            break
+    return tuple(relevant)
 
 
 def split_module_into_chunks(
@@ -296,43 +396,24 @@ def calculate_retrieval_score(
         depth_weight = 0.15       # Prefer CORE over ADVANCED more strongly for easy tier
         semantic_weight = 0.30    # Reduced proportionally to keep sum balanced around ~1.0
 
-    # 1. Subject-Aware Domain Keywords (CS & Common Engineering)
-    syllabus_concepts = {
-        1: {"array", "stack", "queue", "linear", "lifo", "fifo", "push", "pop", "enqueue", "dequeue", "signal", "system", "vector", "force", "charge"},
-        2: {"tree", "binary", "bst", "avl", "balance", "rotation", "heap", "priority", "orbit", "satellite", "inclination", "energy", "velocity"},
-        3: {"graph", "dijkstra", "prim", "kruskal", "mst", "shortest", "path", "dfs", "bfs", "fourier", "transform", "frequency", "irrigation", "flow"},
-        4: {"sort", "search", "quick", "merge", "partition", "divide", "conquer", "binary search", "filter", "modulation", "amplifier", "circuit"},
-        5: {"hash", "hashing", "probe", "chain", "probing", "collision", "index", "file", "network", "protocol", "wireless", "antenna", "telemetry"},
-    }
-    target_concepts = syllabus_concepts.get(target_module_idx, set())
+    # 1. Universal TF-IDF / Term Density & Academic Depth (works across all engineering disciplines)
     text_lower = chunk.text.lower()
     words = re.findall(r"\b[a-zA-Z]{4,}\b", text_lower)
-    
-    # 2. Universal TF-IDF / Term Density (works across all engineering domains)
     unique_terms = set(words)
     term_diversity = len(unique_terms) / max(1, len(words)) if words else 0.5
     # Favor substantive paragraphs (100 to 500 words) with high information content
     length_norm = min(1.0, len(words) / 120.0) if len(words) >= 30 else 0.2
-    tfidf_density = 0.6 * length_norm + 0.4 * term_diversity
+    semantic_score = 0.6 * length_norm + 0.4 * term_diversity
 
-    matched_target = sum(1 for c in target_concepts if c in text_lower)
-    if matched_target > 0:
-        keyword_score = matched_target / max(1, min(len(target_concepts), 5))
-        # Hybrid 50/50 blend when domain keywords match
-        semantic_score = 0.5 * keyword_score + 0.5 * tfidf_density
+    # 2. Structural & Academic Grounding
+    if _is_legitimate_domain_content(chunk.text):
+        alignment_score = 1.0
+    elif _is_structural_noise(chunk.text):
+        alignment_score = 0.1
     else:
-        # Graceful fallback: pure substantive density for any arbitrary engineering domain
-        semantic_score = tfidf_density
+        alignment_score = 0.75
 
-    # 3. Cross-Module Concept Bleed Alignment
-    other_concepts = set()
-    for m, concepts in syllabus_concepts.items():
-        if m != target_module_idx:
-            other_concepts.update(concepts)
-    matched_others = sum(1 for c in other_concepts if c in text_lower)
-    alignment_score = max(0.2, 1.0 - (matched_others * 0.15))
-
-    # 4. Bloom Suitability
+    # 3. Bloom Suitability
     has_formulas = ("\\frac" in text_lower or "$" in text_lower or "=" in text_lower or "formula" in text_lower)
     has_numbers = any(char.isdigit() for char in text_lower)
     
@@ -348,7 +429,7 @@ def calculate_retrieval_score(
         elif has_formulas:
             bloom_suitability = 0.5
 
-    # 5. Depth Suitability
+    # 4. Depth Suitability
     depth_suitability = {
         "CORE": 1.0,
         "SUPPORTING": 0.8,
@@ -356,7 +437,7 @@ def calculate_retrieval_score(
         "EXTERNAL": 0.1
     }.get(chunk.depth, 0.6)
 
-    # 6. Evidence Quality
+    # 5. Evidence Quality
     quality_score = min(1.0, chunk.word_count / 300.0)
     if "\ufffd" in chunk.text:
         quality_score *= 0.1
@@ -540,10 +621,13 @@ class ChunkImageMapper:
         if not available:
             return None
 
-        # Exclude chunks categorized as EXTERNAL
-        available = [c for c in available if c.depth != "EXTERNAL"]
-        if not available:
-            return None
+        # Exclude chunks categorized as EXTERNAL, with safe non-noise fallback
+        non_ext = [c for c in available if c.depth != "EXTERNAL"]
+        if non_ext:
+            available = non_ext
+        else:
+            fallback_chunks = [c for c in available if not _is_structural_noise(c.text)]
+            available = fallback_chunks if fallback_chunks else available
 
         try:
             mod_idx = int(module_id.replace("module_", ""))
@@ -596,8 +680,10 @@ class ChunkImageMapper:
 
         available = [c for c in group.chunks if c.id not in used and c.depth != "EXTERNAL"]
         if not available:
+            available = [c for c in group.chunks if c.id not in used and not _is_structural_noise(c.text)]
+        if not available:
             print(f"[MAPPER WARNING] Module '{module_id}' chunk pool depleted for question slot. Falling back to module pool.", flush=True)
-            available = [c for c in group.chunks if c.depth != "EXTERNAL"] or group.chunks
+            available = [c for c in group.chunks if not _is_structural_noise(c.text)] or group.chunks
 
         try:
             mod_idx = int(module_id.replace("module_", ""))

@@ -1146,9 +1146,19 @@ class SlotOrchestrator:
         # Build exclusion list from previously generated questions (last 10)
         _prev_texts = list(getattr(self, "_all_generated_texts", []))[-10:]
         previously_generated = "\n".join(f"- {t[:120]}" for t in _prev_texts) if _prev_texts else "(none — this is the first question)"
+
+        kw_tuple = getattr(slot, "keywords", ()) or ()
+        kw_line = f"Keywords: {', '.join(kw_tuple)}\n" if kw_tuple else ""
+        kw_directive = (
+            f"\n\n[MANDATORY DOMAIN KEYWORD GROUNDING]\n"
+            f"You MUST ground the question directly in the following key concepts/terminology: {', '.join(kw_tuple)}.\n"
+            f"Ensure the question directly tests the cognitive operation '{slot.bloom_operation}' ({slot.bloom_level}) aligned with Course Outcome {slot.co}, starting with the required Bloom verb '{slot.bloom_verb}'."
+        ) if kw_tuple else ""
+
         prompt = f"""Generate ONE examination sub-question matching this contract:
 Topic: {slot.topic}
-Bloom Verb: {slot.bloom_verb} (primary operation: {slot.bloom_operation})
+Course Outcome (CO): {slot.co}
+{kw_line}Bloom Verb: {slot.bloom_verb} (primary operation: {slot.bloom_operation}, level: {slot.bloom_level})
 Marks: {slot.marks}
 Difficulty: {slot.difficulty}
 Question Type: {slot.question_type}
@@ -1202,6 +1212,9 @@ PREVIOUSLY GENERATED QUESTIONS (do NOT generate anything similar to these):
             prompt += "Focus on practical engineering application scenarios derived from the evidence."
         else:
             prompt += "Focus on core theory, conceptual understanding, definitions, or descriptive explanations."
+
+        if kw_directive:
+            prompt += kw_directive
 
         if extra_hints:
             prompt += f"\n\nADDITIONAL RECOVERY INSTRUCTIONS:\n{extra_hints}"

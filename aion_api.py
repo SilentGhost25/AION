@@ -711,6 +711,10 @@ def get_document_text(doc_id: str, store: Optional[Any] = None) -> str:
     if derived_path and os.path.exists(derived_path):
         with open(derived_path, "r", encoding="utf-8", errors="replace") as f:
             return f.read()
+    if manifest.source.path and Path(manifest.source.path).suffix.lower() in (".txt", ".md"):
+        if os.path.exists(manifest.source.path):
+            with open(manifest.source.path, "r", encoding="utf-8", errors="replace") as f:
+                return f.read()
     artifact = ExtractionGateway.extract(manifest.source.path, document_id=doc_id)
     return getattr(artifact, "text", "") or ""
 
@@ -765,7 +769,13 @@ def generate_stream():
                     except (IndexError, ValueError):
                         pass
 
-        for m_idx in range(1, 6):
+        is_ia = str(gen_req.exam_type or body.get("exam_type", "")).lower() == "ia"
+        if is_ia or len(module_files_int) < 5:
+            target_modules = sorted(set(module_files_int.keys()) | set(existing_module_notes.keys()))
+        else:
+            target_modules = list(range(1, 6))
+
+        for m_idx in target_modules:
             fid = module_files_int.get(m_idx)
             if fid:
                 manifest = store.get(fid)
@@ -774,11 +784,13 @@ def generate_stream():
                     filename = getattr(manifest.source, "filename", f"Module_{m_idx}")
                     combined_parts.append(f"Module {m_idx}: {filename}\n{text}")
                 else:
-                    n_txt = existing_module_notes.get(m_idx) or f"Concepts and analytical principles for Module {m_idx} of {gen_req.subject}"
-                    combined_parts.append(f"Module {m_idx}: {gen_req.subject} - Part {m_idx}\n{n_txt}")
+                    n_txt = existing_module_notes.get(m_idx)
+                    if n_txt:
+                        combined_parts.append(f"Module {m_idx}: {gen_req.subject} - Part {m_idx}\n{n_txt}")
             else:
-                n_txt = existing_module_notes.get(m_idx) or f"Concepts and analytical principles for Module {m_idx} of {gen_req.subject}"
-                combined_parts.append(f"Module {m_idx}: {gen_req.subject} - Part {m_idx}\n{n_txt}")
+                n_txt = existing_module_notes.get(m_idx)
+                if n_txt:
+                    combined_parts.append(f"Module {m_idx}: {gen_req.subject} - Part {m_idx}\n{n_txt}")
 
         notes_text_override = "\n\n".join(combined_parts)
         print(f"[MODULE-MAPPING] Synthesized explicit module slots {list(module_files_int.keys())} into combined notes ({len(notes_text_override)} chars)", flush=True)
@@ -840,7 +852,8 @@ def generate_stream():
     from core.artifacts.resolver import GenerationRequestResolver, ExtractionSourceMissingError
 
     try:
-        source = GenerationRequestResolver.resolve({"file_id": gen_req.file_id, "file_path": file_path})
+        resolver_payload = {"file_path": file_path} if notes_text_override else {"file_id": gen_req.file_id, "file_path": file_path}
+        source = GenerationRequestResolver.resolve(resolver_payload)
         file_path = source.path
         gen_req.file_path = file_path
         print("=" * 60)

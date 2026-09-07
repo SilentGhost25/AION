@@ -402,33 +402,65 @@ def run_pipeline(
                 )
 
         else:
-            try:
-                from core.extraction.gateway import ExtractionGateway, ExtractionError
-                artifact = ExtractionGateway.extract(validated_path, extract_images=False)
-                valid_chunks = [c for c in artifact.chunks if c.is_retrieval_eligible()]
-                content = "\n\n".join(c.text for c in valid_chunks)
-
-                # PRINT RESOLVED OBJECT TYPES BEFORE CHUNKING & GENERATION
+            if Path(validated_path).suffix.lower() in (".txt", ".md"):
+                from core.extraction.gateway import DocumentArtifact
+                content = Path(validated_path).read_text(encoding="utf-8", errors="replace")
+                blocks = [b.strip() for b in re.split(r"\n{2,}", content) if len(b.strip()) > 15]
+                artifact = DocumentArtifact(
+                    text=content,
+                    text_blocks=len(blocks),
+                    equations=[],
+                    tables=[],
+                    figures=[],
+                    valid_chunks=len(blocks),
+                    word_count=len(content.split()),
+                    source_path=validated_path,
+                    adapter="DirectTextReader",
+                    confidence=100.0,
+                    page_count=1,
+                    backends=["DirectTextReader"],
+                )
                 print("=" * 60)
                 print("[RUNTIME EXTRACTION RESOLUTION]")
-                print(f"  Source path     : {artifact.source_path}")
-                print(f"  Source type     : {artifact.mime_type}")
+                print(f"  Source path     : {validated_path}")
+                print(f"  Source type     : text/plain")
                 print(f"  Source authority: ORIGINAL")
-                print(f"  Adapters used   : {artifact.backends}")
-                print(f"  Text blocks     : {artifact.text_blocks if isinstance(artifact.text_blocks, int) else artifact.text_blocks}")
-                print(f"  Equations       : {artifact.equations}")
-                print(f"  Tables          : {artifact.tables}")
-                print(f"  Figures         : {artifact.figures}")
-                print(f"  Valid chunks    : {len(valid_chunks)}")
+                print(f"  Adapters used   : ['DirectTextReader']")
+                print(f"  Text blocks     : {len(blocks)}")
+                print(f"  Equations       : 0")
+                print(f"  Tables          : 0")
+                print(f"  Figures         : 0")
+                print(f"  Valid chunks    : {len(blocks)}")
                 print(f"  Hard stop decision: PROCEED")
                 print("=" * 60)
-            except ExtractionError as ee:
-                print(f"[EXTRACTION HARD STOP] {ee.code}: {ee.message}")
-                raise RuntimeError(f"Extraction Hard Stop: [{ee.code}] {ee.message}")
-            except Exception as ex:
-                print(f"[EXTRACTION FALLBACK] Gateway error: {ex}")
-                raw_document = extract(validated_path, extract_images=False)
-                content = raw_document.raw_text
+            else:
+                try:
+                    from core.extraction.gateway import ExtractionGateway, ExtractionError
+                    artifact = ExtractionGateway.extract(validated_path, extract_images=False)
+                    valid_chunks = [c for c in artifact.chunks if c.is_retrieval_eligible()]
+                    content = "\n\n".join(c.text for c in valid_chunks)
+
+                    # PRINT RESOLVED OBJECT TYPES BEFORE CHUNKING & GENERATION
+                    print("=" * 60)
+                    print("[RUNTIME EXTRACTION RESOLUTION]")
+                    print(f"  Source path     : {artifact.source_path}")
+                    print(f"  Source type     : {artifact.mime_type}")
+                    print(f"  Source authority: ORIGINAL")
+                    print(f"  Adapters used   : {artifact.backends}")
+                    print(f"  Text blocks     : {artifact.text_blocks if isinstance(artifact.text_blocks, int) else artifact.text_blocks}")
+                    print(f"  Equations       : {artifact.equations}")
+                    print(f"  Tables          : {artifact.tables}")
+                    print(f"  Figures         : {artifact.figures}")
+                    print(f"  Valid chunks    : {len(valid_chunks)}")
+                    print(f"  Hard stop decision: PROCEED")
+                    print("=" * 60)
+                except ExtractionError as ee:
+                    print(f"[EXTRACTION HARD STOP] {ee.code}: {ee.message}")
+                    raise RuntimeError(f"Extraction Hard Stop: [{ee.code}] {ee.message}")
+                except Exception as ex:
+                    print(f"[EXTRACTION FALLBACK] Gateway error: {ex}")
+                    raw_document = extract(validated_path, extract_images=False)
+                    content = raw_document.raw_text
 
             # Modular Academic Validation Gate
             acad_res = validate_academic_quality(content)
@@ -1188,6 +1220,17 @@ def _generate_main_question(
                 'easy' if sub_bloom <= 2 else 'medium' if sub_bloom <= 4 else 'hard',
                 sub_bloom
             )
+            # Resolve slot topic first
+            slot_topic = (
+                str(chunk_obj.topic) if (chunk_obj and getattr(chunk_obj, "topic", None) and not re.match(r'^module_\d+', str(chunk_obj.topic)))
+                else (str(chunk_obj.concept_tags[0]) if (chunk_obj and getattr(chunk_obj, "concept_tags", None) and chunk_obj.concept_tags)
+                else next((re.sub(r'^[#*\-\s\d\.]+', '', _l).strip() for _l in str(chunk).splitlines() if 4 <= len(re.sub(r'^[#*\-\s\d\.]+', '', _l).strip()) <= 60 and not re.match(r'^(module_\d+|Q\d+|\[|\()', _l.strip(), re.I)), f"Module {_mod_num} Core Topics"))
+            )
+
+            # Topic-aware domain keyword extraction from chunk
+            from v0_1.chunk_image_mapper import extract_domain_keywords
+            slot_keywords = extract_domain_keywords(str(chunk), topic=slot_topic)
+
             slot = QuestionSlot(
                 slot_id=slot_id,
                 question_no=mq_idx,
@@ -1202,18 +1245,16 @@ def _generate_main_question(
                 co=_blueprint_co,
                 difficulty=difficulty.upper(),
                 question_type=q_type,
-                topic=(
-                    str(chunk_obj.topic) if (chunk_obj and getattr(chunk_obj, "topic", None) and not re.match(r'^module_\d+', str(chunk_obj.topic)))
-                    else (str(chunk_obj.concept_tags[0]) if (chunk_obj and getattr(chunk_obj, "concept_tags", None) and chunk_obj.concept_tags)
-                    else next((re.sub(r'^[#*\-\s\d\.]+', '', _l).strip() for _l in str(chunk).splitlines() if 4 <= len(re.sub(r'^[#*\-\s\d\.]+', '', _l).strip()) <= 60 and not re.match(r'^(module_\d+|Q\d+|\[|\()', _l.strip(), re.I)), f"Module {_mod_num} Core Topics"))
-                ),
+                topic=slot_topic,
                 evidence_ids=(chunk_obj.id,) if chunk_obj else ("chunk_legacy",),
                 answer_budget=answer_budget,
                 question_budget=question_budget,
                 task_signature=task_signature,
                 math_required=math_required,
                 visual_required=visual_required,
-                generation_seed=random.randint(1, 100000)
+                generation_seed=random.randint(1, 100000),
+                keywords=slot_keywords,
+                co_assignment_mode=os.getenv("AION_CO_MODE", "marks-based"),
             )
 
             class MockEvidencePack:
@@ -1298,6 +1339,14 @@ def _generate_main_question(
             q_text = gq.question_text
         else:
             # Fallback legacy mode if orchestrator is not provided (e.g. legacy tests calling this directly)
+            _mod_num = parse_module_number(module_id) if "_" in module_id else 1
+            _policy_co, _ = resolve_co_bl_from_marks(
+                module_idx=_mod_num,
+                marks=marks,
+                total_parts=len(partition),
+                planned_type="CONCEPTUAL",
+            )
+            _blueprint_co = _policy_co
             q_text = get_vtu_vibe_question(
                 chunk        = chunk,
                 marks        = marks,
@@ -1310,9 +1359,9 @@ def _generate_main_question(
                 question_text=q_text,
                 marks=marks,
                 bloom=f"L{sub_bloom}",
-                co=make_co(parse_module_number(module_id)) if "_" in module_id else "CO1",
+                co=_blueprint_co,
                 topic=slot_id,
-                module_id=parse_module_number(module_id) if "_" in module_id else 1,
+                module_id=_mod_num,
                 question_no=mq_idx,
                 sub_label=sub_letter
             )

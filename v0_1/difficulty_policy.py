@@ -8,6 +8,9 @@ original resolve_co_bl_from_marks behavior with zero side effects.
 
 from __future__ import annotations
 
+import os
+from core.contracts.module_identity import make_co
+
 # ============================================================
 # MODULAR DIFFICULTY EASING PATCH
 # Toggle EASE_PAPER_DIFFICULTY = False to fully revert to
@@ -15,22 +18,58 @@ from __future__ import annotations
 # ============================================================
 EASE_PAPER_DIFFICULTY: bool = True   # <-- single on/off switch
 
+# Suggestive Bloom range by marks
+MARKS_TO_BLOOM_RANGE = {
+    (1, 4): [1, 2, 3],      # Suggest L1-L2, allow L3 for numerical/applied
+    (5, 7): [2, 3, 4],      # Suggest L2-L3, allow L4 for analytical
+    (8, 20): [3, 4, 5],     # Suggest L3-L5 (analytical, design, evaluation)
+}
+
+
+def _resolve_co_by_mode(
+    module_idx: int,
+    marks: int,
+    mode: str = "marks-based",
+) -> str:
+    """
+    Resolves Course Outcome (CO) based on the specified assignment mode:
+    - 'marks-based' (default): legacy backward-compatible OBE mapping (<=4M -> CO1, 6M -> CO2, 8M+ -> CO3)
+    - 'module-based': strict syllabus module outcome (Module M -> COM)
+    - 'hybrid': module-based for modules 1-3, marks-based capped at CO3 for modules 4-5
+    """
+    m_str = (mode or "marks-based").lower().strip()
+    if m_str == "module-based":
+        return make_co(module_idx) if module_idx else "CO1"
+    elif m_str == "hybrid":
+        if module_idx <= 3:
+            return make_co(module_idx)
+        return make_co(min(max(1, marks // 2), 3))
+    else:
+        # Default: marks-based
+        if marks <= 4:
+            return "CO1"
+        elif marks <= 6:
+            return "CO2"
+        return "CO3"
+
 
 def _resolve_co_bl_from_marks_original(
     module_idx: int,
     marks: int,
     total_parts: int,
     planned_type: str = "CONCEPTUAL",
+    co_mode: str = None,
 ) -> tuple[str, int]:
     """ORIGINAL, UNMODIFIED policy — kept as permanent backup/reference."""
     ptype = (planned_type or "CONCEPTUAL").upper()
+    mode = co_mode or os.getenv("AION_CO_MODE", "marks-based")
+    co = _resolve_co_by_mode(module_idx, marks, mode)
     if marks <= 4:
-        return "CO1", (1 if ptype == "CONCEPTUAL" else 2)
+        return co, (1 if ptype == "CONCEPTUAL" else 2)
     if marks <= 6:
-        if module_idx <= 4:
-            return "CO2", 3
-        return "CO3", 4
-    return "CO3", 4
+        bloom = 3 if module_idx <= 4 else 4
+        return co, bloom
+    return co, 4
 
 
 def _resolve_co_bl_from_marks_eased(
@@ -38,6 +77,7 @@ def _resolve_co_bl_from_marks_eased(
     marks: int,
     total_parts: int,
     planned_type: str = "CONCEPTUAL",
+    co_mode: str = None,
 ) -> tuple[str, int]:
     """
     EASED policy: shifts the marks threshold so 6M sub-questions also
@@ -47,17 +87,20 @@ def _resolve_co_bl_from_marks_eased(
     Applies uniformly across ALL mark splits (4M, 6M, 8M, 10M).
     """
     ptype = (planned_type or "CONCEPTUAL").upper()
+    mode = co_mode or os.getenv("AION_CO_MODE", "marks-based")
+    co = _resolve_co_by_mode(module_idx, marks, mode)
 
-    # 4M -> foundational (CO1 / L1-L2)
+    # 4M -> foundational (L1-L2)
     if marks <= 4:
-        return "CO1", (1 if ptype == "CONCEPTUAL" else 2)
+        return co, (1 if ptype == "CONCEPTUAL" else 2)
 
-    # 6M -> moderate / easy-tier application (CO2 / L2-L3) across ALL modules
+    # 6M -> moderate / easy-tier application (L2-L3) across ALL modules
     if marks <= 6:
-        return "CO2", (2 if ptype == "CONCEPTUAL" else 3)
+        return co, (2 if ptype == "CONCEPTUAL" else 3)
 
-    # 8M/10M unchanged -> analytical hard tier (CO3 / L4)
-    return "CO3", 4
+    # 8M/10M -> analytical hard tier (L4-L5)
+    bloom = 5 if ptype in ("EVALUATE", "EVALUATION") else 4
+    return co, bloom
 
 
 def resolve_co_bl_from_marks(
@@ -65,6 +108,7 @@ def resolve_co_bl_from_marks(
     marks: int,
     total_parts: int,
     planned_type: str = "CONCEPTUAL",
+    co_mode: str = None,
 ) -> tuple[str, int]:
     """
     Public entry point — routes to eased or original policy based on
@@ -72,5 +116,5 @@ def resolve_co_bl_from_marks(
     to call this exact function name/signature unchanged.
     """
     if EASE_PAPER_DIFFICULTY:
-        return _resolve_co_bl_from_marks_eased(module_idx, marks, total_parts, planned_type)
-    return _resolve_co_bl_from_marks_original(module_idx, marks, total_parts, planned_type)
+        return _resolve_co_bl_from_marks_eased(module_idx, marks, total_parts, planned_type, co_mode)
+    return _resolve_co_bl_from_marks_original(module_idx, marks, total_parts, planned_type, co_mode)

@@ -191,11 +191,18 @@ _OFF_DOMAIN = re.compile(
 )
 
 
-def _is_valid(q: str) -> bool:
+def _is_valid(q: str, evidence: str = "") -> bool:
     if len(q.split()) < 6 or len(q.split()) > 160:
         return False
-    if _OFF_DOMAIN.search(q):
-        return False
+    match = _OFF_DOMAIN.search(q)
+    if match:
+        matched_term = match.group(0).lower()
+        if evidence and matched_term in evidence.lower():
+            # In-domain: authentic domain terminology from provided source material
+            pass
+        else:
+            # Off-domain hallucination: term not grounded in source evidence
+            return False
     try:
         from core.validators.question_quality_firewall import QuestionQualityFirewall
         fw = QuestionQualityFirewall.validate(q)

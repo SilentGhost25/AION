@@ -1,9 +1,12 @@
 # core/contracts/question_slot.py
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+import logging
 from typing import Tuple
 from core.contracts.budgets import AnswerBudget, QuestionBudget
 from core.contracts.task_signature import TaskSignature
+
+LOG = logging.getLogger("aion.question_slot")
 
 
 @dataclass(frozen=True)
@@ -26,8 +29,10 @@ class QuestionContract:
     topic                : str
     evidence_ids         : Tuple[str, ...]
     task_signature       : TaskSignature
-    math_required        : bool
-    visual_required      : bool
+    math_required        : bool = False
+    visual_required      : bool = False
+    keywords             : Tuple[str, ...] = field(default_factory=tuple)
+    co_assignment_mode   : str = "marks-based"
 
 
 @dataclass(frozen=True)
@@ -57,6 +62,8 @@ class QuestionSlot:
     math_required        : bool = False
     visual_required      : bool = False
     generation_seed      : int = 0  # 0 = random
+    keywords             : Tuple[str, ...] = field(default_factory=tuple)
+    co_assignment_mode   : str = "marks-based"
 
     def __post_init__(self):
         if self.marks <= 0:
@@ -66,6 +73,8 @@ class QuestionSlot:
             raise ValueError(f"invalid bloom_level: {self.bloom_level}. Must be one of {valid_blooms}")
         if not self.co.startswith("CO"):
             raise ValueError(f"CO label must start with 'CO', got '{self.co}'")
+        if not self.keywords:
+            LOG.debug(f"Slot {self.slot_id} has no keywords assigned. Generation quality may degrade.")
 
     def make_attempt_slot(self, attempt: int) -> "QuestionSlot":
         """Return a new QuestionSlot instance for a retry attempt with updated seed."""
@@ -90,4 +99,6 @@ class QuestionSlot:
             task_signature       = self.task_signature,
             math_required        = self.math_required,
             visual_required      = self.visual_required,
+            keywords             = self.keywords,
+            co_assignment_mode   = self.co_assignment_mode,
         )
