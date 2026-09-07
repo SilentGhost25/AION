@@ -5,6 +5,7 @@ Maturity:    v0.1 — MODULE-BY-MODULE PARALLEL EXAM ORCHESTRATOR
 Integrated:  Custom Model, Difficulty System, Formula Extractor, Visual RAG
 """
 
+import os
 import re
 import json
 import random
@@ -1020,6 +1021,7 @@ def _generate_main_question(
     slot_bloom_targets: dict = None,
 ) -> dict:
     """Worker function to build a main question with max 3 subquestions using Slot-Contract Architecture."""
+    import os
     from core.contracts.budgets import AnswerBudget, QuestionBudget
     from core.contracts.task_signature import TaskSignature
     from core.contracts.question_slot import QuestionSlot
