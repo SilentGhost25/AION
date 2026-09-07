@@ -61,6 +61,25 @@ def _clean_latex_math_for_doc(text: str) -> str:
     return t
 
 
+def get_module_for_q(q: Dict[str, Any]) -> int:
+    """
+    Derives the 1-indexed VTU module number (1..5) from a question dictionary.
+    Matches Step3Preview.tsx:
+      - Q1, Q2 -> Module 1
+      - Q3, Q4 -> Module 2
+      - Q5, Q6 -> Module 3
+      - Q7, Q8 -> Module 4
+      - Q9, Q10 -> Module 5
+    Formula: ((q_num - 1) // 2) + 1
+    """
+    q_no = q.get("qNo") or q.get("question_number") or q.get("questionNumber") or q.get("sectionNumber") or 1
+    try:
+        q_num = int(q_no)
+        return max(1, min(5, ((q_num - 1) // 2) + 1))
+    except Exception:
+        return 1
+
+
 def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
     """
     Generates a VTU formatted .docx document from a paper dictionary.
@@ -163,10 +182,10 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
         for m in paper_data["modules"]:
             modules_data.append(m)
     elif "questions" in paper_data and isinstance(paper_data["questions"], list):
-        # Group flat questions by module
+        # Group flat questions by module using canonical ((qNo - 1) // 2) + 1 formula
         by_module: Dict[int, List[Any]] = {}
         for q in paper_data["questions"]:
-            mod_num = q.get("module") or q.get("sectionNumber") or 1
+            mod_num = get_module_for_q(q)
             by_module.setdefault(mod_num, []).append(q)
         for mod_num in sorted(by_module.keys()):
             modules_data.append({
@@ -198,8 +217,16 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
     q_counter = 1
 
     for mod_idx, mod in enumerate(modules_data, start=1):
-        m_title = mod.get("module_title") or mod.get("title") or f"Module {mod_idx}"
-        m_idx = mod.get("module_index") or mod_idx
+        raw_title = mod.get("module_title") or mod.get("title") or ""
+        clean_title = raw_title.strip()
+        # Strip redundant leading module label if present (e.g. "Module 1: Advanced Topics" -> "Advanced Topics")
+        clean_title = re.sub(r"^module[\s_-]*\d+\s*[:\-]\s*", "", clean_title, flags=re.IGNORECASE).strip()
+
+        # Avoid redundant placeholder banner strings like "MODULE - 1: MODULE 1"
+        if re.match(r"^module[\s_-]*\d+$", clean_title, re.IGNORECASE) or not clean_title:
+            banner_text = f"MODULE - {m_idx}"
+        else:
+            banner_text = f"MODULE - {m_idx}: {clean_title.upper()}"
 
         # Module Banner Row (Merged across all 6 columns)
         mod_row = table.add_row()
@@ -211,7 +238,7 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
         mp = mod_cell.paragraphs[0]
         mp.alignment = WD_ALIGN_PARAGRAPH.CENTER
         mp.paragraph_format.space_after = Pt(0)
-        mr = mp.add_run(f"MODULE - {m_idx}: {m_title.upper()}")
+        mr = mp.add_run(banner_text)
         mr.bold = True
         mr.font.size = Pt(10)
         mr.font.name = "Calibri"
@@ -341,13 +368,27 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
 
     # --- 6. Percentage of CO Coverage and Syllabus Coverage Tables ---
     raw_qs = paper_data.get("questions") or []
+    if not raw_qs and "modules" in paper_data and isinstance(paper_data["modules"], list):
+        for m in paper_data["modules"]:
+            m_idx = m.get("module_index") or 1
+            for mq in m.get("questions") or []:
+                mq_copy = dict(mq)
+                mq_copy["module"] = m_idx
+                raw_qs.append(mq_copy)
+
     all_qs_docx = []
     for q_item in raw_qs:
+        q_mod = get_module_for_q(q_item)
         sub_items = q_item.get("subQuestions") or q_item.get("sub_questions")
         if sub_items and isinstance(sub_items, list):
-            all_qs_docx.extend(sub_items)
+            for sq in sub_items:
+                sq_copy = dict(sq)
+                sq_copy["module"] = q_mod
+                all_qs_docx.append(sq_copy)
         else:
-            all_qs_docx.append(q_item)
+            q_copy = dict(q_item)
+            q_copy["module"] = q_mod
+            all_qs_docx.append(q_copy)
 
     total_marks_computed = sum(float(q.get("marks") or 0) for q in all_qs_docx) or 1.0
 
@@ -363,7 +404,7 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
 
     mod_totals: Dict[int, float] = {}
     for q in all_qs_docx:
-        m_val = q.get("module") or q.get("moduleIndex") or q.get("module_index") or 1
+        m_val = q.get("module") or 1
         try:
             m_num = int(m_val)
         except Exception:

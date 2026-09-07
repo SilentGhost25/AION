@@ -8,12 +8,12 @@ if TYPE_CHECKING:
     from core.contracts.question_slot import QuestionSlot
 
 BLOOM_VERB_LEVEL_MAP = {
-    "L1": {"define","list","identify","name","state","recall","recognize","enumerate"},
-    "L2": {"explain","describe","summarize","illustrate","interpret","classify","discuss","outline"},
-    "L3": {"calculate","apply","demonstrate","determine","solve","implement","use","compute","derive","show","find"},
-    "L4": {"analyze","analyse","compare","differentiate","examine","investigate","categorize","contrast","distinguish"},
-    "L5": {"evaluate","critique","justify","assess","validate","judge","defend","appraise"},
-    "L6": {"design","develop","propose","formulate","create","generate","construct","build","invent"},
+    "L1": {"define", "list", "identify", "name", "state", "recall", "recognize", "recognise", "enumerate"},
+    "L2": {"explain", "describe", "summarize", "summarise", "illustrate", "interpret", "classify", "discuss", "outline"},
+    "L3": {"calculate", "apply", "demonstrate", "determine", "solve", "implement", "use", "compute", "derive", "show", "find"},
+    "L4": {"analyze", "analyse", "compare", "differentiate", "examine", "investigate", "categorize", "categorise", "contrast", "distinguish"},
+    "L5": {"evaluate", "critique", "justify", "assess", "validate", "judge", "defend", "appraise"},
+    "L6": {"design", "develop", "propose", "formulate", "create", "generate", "construct", "build", "invent"},
 }
 
 BLOOM_TO_OP = {

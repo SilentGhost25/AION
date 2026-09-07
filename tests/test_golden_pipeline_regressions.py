@@ -599,3 +599,30 @@ def test_eased_difficulty_policy_shifts_6m_to_easy_tier():
     assert co5 == "CO2" and bloom5 == 3
     co_hard, bloom_hard = resolve_co_bl_from_marks(module_idx=3, marks=10, total_parts=1)
     assert co_hard == "CO3" and bloom_hard == 4
+
+
+def test_difficulty_manager_verb_matches_canonical_bloom_level():
+    """Verify DifficultyManager verbs strictly match canonical BLOOM_VERB_LEVEL_MAP across L1..L6."""
+    from v0_1.difficulty import DifficultyManager
+    from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
+    dm = DifficultyManager()
+    for level in range(1, 7):
+        for _ in range(5):  # Sample multiple times to verify pool rotation
+            verb = dm.get_verb("medium", level).lower()
+            assert verb in BLOOM_VERB_LEVEL_MAP[f"L{level}"], (
+                f"get_verb returned '{verb}' for L{level}, not in canonical map"
+            )
+
+
+def test_docx_module_grouping_matches_frontend_qno_formula():
+    """Verify docx_export module derivation exactly matches Step3Preview formula ((qNo - 1) // 2) + 1."""
+    from v0_1.docx_export import get_module_for_q
+    # Q1,Q2 -> Module 1; Q9,Q10 -> Module 5
+    assert get_module_for_q({"qNo": 1}) == 1
+    assert get_module_for_q({"qNo": 2}) == 1
+    assert get_module_for_q({"qNo": 9}) == 5
+    assert get_module_for_q({"qNo": 10}) == 5
+    # Also verify fallback on question_number or sectionNumber
+    assert get_module_for_q({"question_number": 3}) == 2
+    assert get_module_for_q({"sectionNumber": 8}) == 4
+

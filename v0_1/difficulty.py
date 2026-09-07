@@ -35,6 +35,9 @@ DIFFICULTY_MARKS_HINTS = {
     "hard":   "This requires critical analysis, evaluation, or design thinking.",
 }
 
+from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
+
+# DEPRECATED: Kept for backwards-compatibility; verbs are now resolved via BLOOM_VERB_LEVEL_MAP
 DIFFICULTY_VERB_POOLS = {
     "easy": [
         "Define", "List", "State", "Name",
@@ -101,8 +104,13 @@ class DifficultyManager:
         difficulty: DifficultyLevel,
         bloom:      int,
     ) -> str:
-        """Get a fresh verb not recently used."""
-        pool = DIFFICULTY_VERB_POOLS.get(difficulty, ["Explain"])
+        """Get a fresh verb strictly matching the assigned Bloom level."""
+        # Note: difficulty parameter is kept for signature backward compatibility;
+        # the verb pool is now strictly derived from canonical BLOOM_VERB_LEVEL_MAP.
+        level_key = f"L{bloom}"
+        canonical_pool = BLOOM_VERB_LEVEL_MAP.get(level_key, BLOOM_VERB_LEVEL_MAP["L2"])
+        pool = [v.capitalize() for v in canonical_pool]
+
         fresh = [v for v in pool if v not in self._used]
         verb  = random.choice(fresh) if fresh else random.choice(pool)
         self._used.add(verb)
