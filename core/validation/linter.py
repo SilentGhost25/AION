@@ -96,30 +96,28 @@ def check_sibling_uniqueness(
 
 
 
+from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
+from core.contracts.task_signature import BLOOM_OPERATION_MAP
+
+# Canonical Bloom verb list per level derived from single source of truth
 BLOOM_VERB_MAP = {
-    "L1": ["Define", "List", "Identify", "Name", "State", "Recall"],
-    "L2": ["Explain", "Describe", "Summarize", "Summarise", "Illustrate", "Classify", "Interpret"],
-    "L3": ["Calculate", "Apply", "Demonstrate", "Determine", "Solve"],
-    "L4": ["Analyze", "Analyse", "Compare", "Examine", "Differentiate"],
-    "L5": ["Evaluate", "Critique", "Justify", "Assess"],
-    "L6": ["Design", "Develop", "Construct", "Propose", "Formulate"],
+    lvl: sorted([v.capitalize() for v in verbs])
+    for lvl, verbs in BLOOM_VERB_LEVEL_MAP.items()
 }
 
-VERB_OPERATION_MAP = {
-    # L1
-    "define": "REMEMBER", "list": "REMEMBER", "identify": "REMEMBER", "name": "REMEMBER", "state": "REMEMBER", "recall": "REMEMBER",
-    # L2
-    "explain": "UNDERSTAND", "describe": "UNDERSTAND", "summarize": "UNDERSTAND", "summarise": "UNDERSTAND", "illustrate": "UNDERSTAND",
-    "classify": "UNDERSTAND", "interpret": "UNDERSTAND",
-    # L3
-    "calculate": "CALCULATE", "solve": "CALCULATE", "determine": "CALCULATE", "apply": "APPLY", "demonstrate": "APPLY",
-    # L4
-    "analyze": "ANALYZE", "analyse": "ANALYZE", "examine": "ANALYZE", "differentiate": "ANALYZE", "compare": "COMPARE",
-    # L5
-    "evaluate": "EVALUATE", "critique": "EVALUATE", "assess": "EVALUATE", "justify": "JUSTIFY",
-    # L6
-    "design": "CREATE", "develop": "CREATE", "construct": "CREATE", "propose": "CREATE", "formulate": "CREATE",
-}
+# Dynamic verb-to-operation map aligned with TaskSignature cognitive operations
+VERB_OPERATION_MAP = {}
+for level, verbs in BLOOM_VERB_LEVEL_MAP.items():
+    default_op = BLOOM_OPERATION_MAP.get(level, "UNDERSTAND")
+    for v in verbs:
+        VERB_OPERATION_MAP[v.lower()] = default_op
+
+VERB_OPERATION_MAP.update({
+    "calculate": "CALCULATE", "solve": "CALCULATE", "determine": "CALCULATE",
+    "compute": "CALCULATE", "derive": "CALCULATE", "find": "CALCULATE",
+    "compare": "COMPARE", "contrast": "COMPARE", "differentiate": "COMPARE",
+    "distinguish": "COMPARE", "justify": "JUSTIFY",
+})
 
 MULTI_SLOT_PATTERNS = [
     r"^\s*\([a-z]\)\s+",       # (a) ...

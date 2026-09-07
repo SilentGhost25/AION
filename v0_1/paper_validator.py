@@ -13,13 +13,11 @@ from typing import Optional, List, Dict, Tuple
 
 # -- Bloom taxonomy ------------------------------------------------------------
 
+from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
+
 BLOOM_VERBS = {
-    1: ["define", "list", "state", "recall", "identify", "name", "write"],
-    2: ["explain", "describe", "summarize", "discuss", "interpret", "outline"],
-    3: ["apply", "illustrate", "demonstrate", "solve", "use", "calculate"],
-    4: ["analyze", "compare", "differentiate", "examine", "contrast"],
-    5: ["evaluate", "justify", "assess", "critique", "argue", "judge"],
-    6: ["design", "develop", "create", "propose", "formulate", "build"],
+    int(lvl[1:]): sorted([v.lower() for v in verbs])
+    for lvl, verbs in BLOOM_VERB_LEVEL_MAP.items()
 }
 
 # Target Bloom distribution for a VTU IAT (percentage of marks)

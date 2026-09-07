@@ -626,3 +626,61 @@ def test_docx_module_grouping_matches_frontend_qno_formula():
     assert get_module_for_q({"question_number": 3}) == 2
     assert get_module_for_q({"sectionNumber": 8}) == 4
 
+
+def test_bloom_verb_and_operation_synchronization_across_pipeline():
+    """Verify canonical Bloom verbs and cognitive operations are 100% synchronized across all validators."""
+    from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
+    from core.validation.linter import VERB_OPERATION_MAP, BLOOM_VERB_MAP, check_answerability
+    from core.contracts.task_signature import _ALL_OPS
+    from core.contracts.question_slot import QuestionSlot
+    from core.contracts.question import GeneratedQuestion
+    from core.contracts.budgets import AnswerBudget, QuestionBudget
+    from core.contracts.task_signature import TaskSignature
+
+    # 1. Check all canonical verbs are in VERB_OPERATION_MAP with valid operations
+    for level, verbs in BLOOM_VERB_LEVEL_MAP.items():
+        for verb in verbs:
+            v_lower = verb.lower()
+            assert v_lower in VERB_OPERATION_MAP, f"Verb '{v_lower}' missing from VERB_OPERATION_MAP"
+            op = VERB_OPERATION_MAP[v_lower]
+            assert op in _ALL_OPS, f"Operation '{op}' for verb '{v_lower}' not in _ALL_OPS"
+
+    # 2. Check all canonical verbs are in BLOOM_VERB_MAP
+    for level, verbs in BLOOM_VERB_LEVEL_MAP.items():
+        for verb in verbs:
+            assert verb.capitalize() in BLOOM_VERB_MAP[level], f"Verb '{verb}' missing from BLOOM_VERB_MAP[{level}]"
+
+    # 3. Check check_answerability passes has_action_verb for expanded verbs like outline, compute, investigate
+    test_verbs = ["outline", "compute", "derive", "find", "investigate", "distinguish", "validate", "appraise"]
+    for tv in test_verbs:
+        slot = QuestionSlot(
+            slot_id=f"test_{tv}",
+            question_no=1,
+            sub_label="a",
+            or_pair_id="pair_1",
+            is_alternative=False,
+            module_id=1,
+            marks=4,
+            bloom_level="L2",
+            bloom_verb=tv.capitalize(),
+            bloom_operation="UNDERSTAND",
+            co="CO1",
+            difficulty="EASY",
+            question_type="THEORY",
+            topic="Cloud Computing Concepts",
+            evidence_ids=("chunk_1",),
+            answer_budget=AnswerBudget.from_marks_and_bloom(4, "L2"),
+            question_budget=QuestionBudget.from_bloom("L2", 4),
+            task_signature=TaskSignature.from_bloom_marks_type("L2", 4, "THEORY")
+        )
+        from core.generation.output_schema import QuestionOutput
+        output = QuestionOutput(
+            instruction=f"{tv.capitalize()} the architecture and operational characteristics of distributed systems.",
+            question_text=f"{tv.capitalize()} the architecture and operational characteristics of distributed systems.",
+            math_blocks=[]
+        )
+        gq = GeneratedQuestion(output, slot)
+        res = check_answerability(gq, slot, evidence_text="")
+        assert res.passed, f"check_answerability failed for action verb '{tv}': {res.message}"
+
+

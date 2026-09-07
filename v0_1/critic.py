@@ -204,13 +204,10 @@ class CriticExtended:
         return CriticVerdict(passed=True, score=0.88, reason_code="PASS", reason="Hallucination check passed.")
 
     def _check_bloom_verb(self, question: str, bloom_level: int) -> CriticVerdict:
+        from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
         bloom_verbs = {
-            1: {"define","list","state","recall","identify","name"},
-            2: {"explain","describe","summarize","discuss","interpret"},
-            3: {"apply","illustrate","demonstrate","solve","calculate"},
-            4: {"compare","analyze","differentiate","examine","contrast"},
-            5: {"evaluate","justify","assess","critique","argue"},
-            6: {"design","develop","create","propose","formulate"},
+            int(lvl[1:]): set(v.lower() for v in verbs)
+            for lvl, verbs in BLOOM_VERB_LEVEL_MAP.items()
         }
 
         first_word = question.strip().split()[0].lower().rstrip()

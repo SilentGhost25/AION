@@ -137,6 +137,7 @@ class AutoHealer:
         """Rewrites instruction and question_text to start with the correct Bloom verb cleanly without double-verb stacking."""
         verb = slot.bloom_verb.strip().capitalize()
 
+        from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
         ALL_ACTION_VERBS = {
             "define", "list", "identify", "state", "explain", "describe",
             "summarize", "summarise", "discuss", "calculate", "determine", "solve",
@@ -145,7 +146,7 @@ class AutoHealer:
             "propose", "formulate", "develop", "name", "recall",
             "construct", "illustrate", "demonstrate", "interpret", "classify",
             "show", "derive", "estimate", "compute", "sketch", "outline",
-        }
+        } | {v.lower() for verbs in BLOOM_VERB_LEVEL_MAP.values() for v in verbs}
 
         def _clean_text_with_verb(text: str) -> str:
             if not text:

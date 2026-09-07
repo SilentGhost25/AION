@@ -2017,6 +2017,9 @@ def regenerate_single_slot():
     from core.contracts.budgets import AnswerBudget, QuestionBudget
     from core.contracts.task_signature import TaskSignature
     from core.generation.orchestrator import SlotOrchestrator
+    from v0_1.chunk_image_mapper import extract_domain_keywords
+
+    slot_keywords = extract_domain_keywords(evidence_text, topic=topic)
 
     slot = QuestionSlot(
         slot_id=f"slot_mod{mod_id}_q{q_no}_{sub_label}",
@@ -2036,7 +2039,8 @@ def regenerate_single_slot():
         evidence_ids=("manual_regenerate",),
         answer_budget=AnswerBudget.from_marks_and_bloom(marks, bloom_level),
         question_budget=QuestionBudget.from_bloom(bloom_level, marks),
-        task_signature=TaskSignature.from_bloom_marks_type(bloom_level, marks, q_type)
+        task_signature=TaskSignature.from_bloom_marks_type(bloom_level, marks, q_type),
+        keywords=slot_keywords,
     )
 
     try:

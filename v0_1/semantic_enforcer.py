@@ -35,13 +35,11 @@ EXAM_RULES = {
     },
 }
 
+from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
+
 BLOOM_VERBS = {
-    "L1": ["define", "list", "state", "recall", "identify", "name", "write", "label"],
-    "L2": ["explain", "describe", "summarize", "interpret", "classify", "discuss", "outline"],
-    "L3": ["illustrate", "apply", "demonstrate", "solve", "construct", "use", "show", "calculate"],
-    "L4": ["compare", "analyze", "differentiate", "examine", "contrast", "distinguish", "categorize"],
-    "L5": ["evaluate", "justify", "assess", "critique", "judge", "argue", "defend"],
-    "L6": ["design", "develop", "propose", "create", "formulate", "build", "invent"],
+    lvl: sorted([v.lower() for v in verbs])
+    for lvl, verbs in BLOOM_VERB_LEVEL_MAP.items()
 }
 
 DIAGRAM_VERBS = {"illustrate", "draw", "sketch", "show", "depict", "plot"}
