@@ -30,7 +30,14 @@ from .generator import (
     SEE_PARTITIONS,
     get_bloom_level_name
 )
-from core.contracts.module_identity import parse_module_number, make_module_id, make_co
+from core.contracts.module_identity import (
+    parse_module_number,
+    make_module_id,
+    make_co,
+    MODULE_HEADER_PATTERN,
+    strip_module_header,
+)
+_strip_module_header = strip_module_header
 from core.contracts.pipeline_integrity import PipelineReadiness, GenerationIntegrity
 from core.contracts.question_slot import QuestionSlot
 from core.contracts.budgets import AnswerBudget, QuestionBudget
@@ -58,6 +65,19 @@ from .chunk_image_mapper import (
     split_module_into_chunks,
     TextChunk
 )
+
+# -------------------------------------------------------------
+# Timing Instrumentation & Concurrency Safety
+# -------------------------------------------------------------
+from threading import Lock
+_chunk_selection_lock = Lock()
+_timing_lock = Lock()
+_stage_times = {}
+def _mark(stage_name, start):
+    dur = time.time() - start
+    with _timing_lock:
+        _stage_times[stage_name] = dur
+    print(f"[TIMING] {stage_name}: {dur:.1f}s", flush=True)
 
 # -------------------------------------------------------------
 # Modules Caching
@@ -403,6 +423,7 @@ def run_pipeline(
                 )
 
         else:
+            t_extract = time.time()
             if Path(validated_path).suffix.lower() in (".txt", ".md"):
                 from core.extraction.gateway import DocumentArtifact
                 content = Path(validated_path).read_text(encoding="utf-8", errors="replace")
@@ -462,6 +483,7 @@ def run_pipeline(
                     print(f"[EXTRACTION FALLBACK] Gateway error: {ex}")
                     raw_document = extract(validated_path, extract_images=False)
                     content = raw_document.raw_text
+            _mark("extraction", t_extract)
 
             # Modular Academic Validation Gate
             acad_res = validate_academic_quality(content)
@@ -473,8 +495,10 @@ def run_pipeline(
                     message = acad_res.rejection_reason if not acad_res.valid else "Clean academic text"
                 )
 
+            t_seg = time.time()
             seg_result = segment_document(content, file_path=validated_path)
             modules = seg_result.segments
+            _mark("segmentation", t_seg)
 
         _save_cached_modules(file_path, modules)
         if pipeline_trace:
@@ -579,6 +603,7 @@ def run_pipeline(
             def eligible_cards(self):
                 return self.figs
 
+        t_map = time.time()
         # Build chunk-image map with mock registry (handles both visual and text-only mapping)
         mapper = ChunkImageMapper(
             registry        = MockRegistry(figures),
@@ -613,6 +638,7 @@ def run_pipeline(
             print(f"[VISUAL] late extract skipped: {_le}", flush=True)
         if (include_visual or len(figures) > 0) and figures:
             selector = QuestionImageSelector(mapper)
+        _mark("chunk_image_mapping", t_map)
     except Exception as e:
         import traceback
         print(f"[MAPPER] Setup failed: {e}")
@@ -652,22 +678,27 @@ def run_pipeline(
             print(f"[PIPELINE] Sub-question count locked to {_sq} ({len(target_partitions)} matching)", flush=True)
 
 
-    from core.generation.orchestrator import SlotOrchestrator
-    orchestrator = SlotOrchestrator(artifact=artifact, marks_split=marks_split)
-
     output_paper = []
-    # Reset global chunk tracker for each fresh pipeline run
     run_pipeline._global_used_chunks = set()
-    _workers = _profile.concurrency if _profile else 1
-    executor = ThreadPoolExecutor(max_workers=_workers)
 
-    for mod_idx, mod in enumerate(modules, 1):
+    def _process_single_module(pos_idx: int, mod: Any) -> Optional[dict]:
+        t_mod = time.time()
+        eff_mod_idx = getattr(mod, "module_index", None)
+        if eff_mod_idx is None:
+            m_match = re.search(r'(?i)\bmodule\s*[-–:]?\s*(\d+)', getattr(mod, "title", ""))
+            eff_mod_idx = int(m_match.group(1)) if m_match else pos_idx
+        mod_idx = eff_mod_idx
         module_id = f"module_{mod_idx}"
-        print(f"\n[MODULE {mod_idx}] Processing: '{mod.title}' ({mod.word_count} words)")
+        print(f"\n[MODULE {mod_idx}] Processing: '{mod.title}' ({mod.word_count} words)", flush=True)
 
         if mod.word_count < 10:
-            print(f"[MODULE {mod_idx}] Skipping — too short")
-            continue
+            print(f"[MODULE {mod_idx}] Skipping — too short", flush=True)
+            return None
+
+        # Dedicated per-module orchestrator and difficulty manager (strictly thread-isolated)
+        from core.generation.orchestrator import SlotOrchestrator
+        mod_orchestrator = SlotOrchestrator(artifact=artifact, marks_split=marks_split, profile=_profile)
+        diff_manager = DifficultyManager.from_string(difficulty)
 
         if mapper:
             module_chunks = mapper.get_chunks_for_module(module_id)
@@ -692,16 +723,10 @@ def run_pipeline(
         if valid_chunks:
             module_chunks_text = valid_chunks
         else:
-            print(f"[VALIDATOR] Warning: All chunks rejected in module '{mod.title}'. Using sanitized text.")
+            print(f"[VALIDATOR] Warning: All chunks rejected in module '{mod.title}'. Using sanitized text.", flush=True)
             module_chunks_text = [validate_content(c).clean_text or c for c in module_chunks_text if c.strip()]
 
         # ── STRUCTURED CO/BLOOM BLUEPRINT ─────────────────────────────
-        # Maps each module's OR-pair to CO and Bloom level targets.
-        # Blueprint: Q1/Q2 = lower cognitive, Q3/Q4 = higher cognitive
-        # CO rotates across modules to ensure coverage:
-        #   mod 1,2 -> CO1 (fundamentals)
-        #   mod 3,4 -> CO2 (application/analysis)
-        #   mod 5   -> CO3 (implementation/design)
         _CO_BLUEPRINT = {
             1: ('CO1', 'CO1'),   # mod1: pair1=CO1, pair2=CO1
             2: ('CO1', 'CO1'),   # mod2: pair1=CO1, pair2=CO1
@@ -709,9 +734,6 @@ def run_pipeline(
             4: ('CO2', 'CO2'),   # mod4: pair1=CO2, pair2=CO2
             5: ('CO3', 'CO3'),   # mod5: pair1=CO3, pair2=CO3
         }
-        # Bloom blueprint: (pair1_a_slot, pair1_b_slot, pair2_a_slot, pair2_b_slot)
-        # a-slot (6M): L1 or L2 for lower pairs, L2 or L3 for higher pairs
-        # b-slot (4M): L3 or L4 for lower pairs, L4 or L5 for higher pairs
         _BLOOM_BLUEPRINT = {
             1: (2, 4, 2, 4),   # mod1: Q1a=L2, Q1b=L4, Q2a=L2, Q2b=L4
             2: (1, 3, 2, 4),   # mod2: Q3a=L1, Q3b=L3, Q4a=L2, Q4b=L4
@@ -720,19 +742,14 @@ def run_pipeline(
             5: (3, 4, 3, 6),   # mod5: Q9a=L3, Q9b=L4, Q10a=L3, Q10b=L6
         }
         _bb = _BLOOM_BLUEPRINT.get(mod_idx, (2, 4, 2, 4))
-        # bloom_levels[i] = target bloom for Q(i+1) as a whole
-        # These drive verb selection; remapper clamps a/b slots correctly
         bloom_levels = [_bb[0], _bb[0], _bb[2], _bb[2]]
-        # Store per-slot bloom targets for slot construction below
         _slot_bloom_targets = {
-            1: _bb[0], 2: _bb[1],   # Q1: a=bb[0], b=bb[1]
-            3: _bb[0], 4: _bb[1],   # Q2 (OR of Q1): same targets
-            5: _bb[2], 6: _bb[3],   # Q3: a=bb[2], b=bb[3]
-            7: _bb[2], 8: _bb[3],   # Q4 (OR of Q3): same targets
+            1: _bb[0], 2: _bb[1],
+            3: _bb[0], 4: _bb[1],
+            5: _bb[2], 6: _bb[3],
+            7: _bb[2], 8: _bb[3],
         }
         _pair1_co, _pair2_co = _CO_BLUEPRINT.get(mod_idx, ('CO1', 'CO2'))
-        pair1_bloom = _bb[0]
-        pair2_bloom = _bb[2]
 
         # Lock mark partitions per OR pair (Pair 1: Q1/Q2, Pair 2: Q3/Q4)
         has_override = False
@@ -746,11 +763,9 @@ def run_pipeline(
         except Exception:
             pass
 
-        # Define base_partitions from target_partitions (must always exist)
         if target_partitions:
-            base_partitions = target_partitions
+            base_partitions_mod = target_partitions
         else:
-            # Try user/module split
             try:
                 from core.generation.marks_partitioner import get_user_split
                 _us = get_user_split()
@@ -762,56 +777,39 @@ def run_pipeline(
             except Exception:
                 _mp = None
             if _mp and sum(_mp) == target_marks:
-                base_partitions = [list(_mp)]
+                base_partitions_mod = [list(_mp)]
             elif _us and sum(_us) == target_marks:
-                base_partitions = [list(_us)]
+                base_partitions_mod = [list(_us)]
             else:
-                # Last resort: single partition (no forced equal split)
-                if 'target_marks' not in locals():
-                    target_marks = 20 if exam_type.lower() == "see" else 10
-            base_partitions = [[target_marks]]
+                base_partitions_mod = [[target_marks]]
 
         if not has_override:
             if isinstance(sub_question_count, list) and len(sub_question_count) >= (mod_idx * 2):
                 q1_c = sub_question_count[(mod_idx - 1) * 2]
                 q2_c = sub_question_count[(mod_idx - 1) * 2 + 1]
-                p1_filtered = [p for p in base_partitions if len(p) == q1_c] or base_partitions
-                p2_filtered = [p for p in base_partitions if len(p) == q2_c] or base_partitions
+                p1_filtered = [p for p in base_partitions_mod if len(p) == q1_c] or base_partitions_mod
+                p2_filtered = [p for p in base_partitions_mod if len(p) == q2_c] or base_partitions_mod
                 pair1_partition = random.choice(p1_filtered)
                 pair2_partition = random.choice(p2_filtered)
             elif sub_question_count:
-                # Handle both int and list (from frontend: list with per-module counts)
                 if isinstance(sub_question_count, int):
                     sq_target = sub_question_count
                 elif isinstance(sub_question_count, list) and sub_question_count:
-                    # Use the count for this module's first slot, or default to 2
                     sq_target = sub_question_count[0] if len(sub_question_count) > 0 else 2
                 else:
                     sq_target = 2
-                filtered = [p for p in base_partitions if len(p) == sq_target] or base_partitions
+                filtered = [p for p in base_partitions_mod if len(p) == sq_target] or base_partitions_mod
                 pair1_partition = random.choice(filtered)
                 pair2_partition = random.choice(filtered)
             else:
-                if base_partitions:
-                    pair1_partition = random.choice(base_partitions)
-                    pair2_partition = random.choice(base_partitions)
+                if base_partitions_mod:
+                    pair1_partition = random.choice(base_partitions_mod)
+                    pair2_partition = random.choice(base_partitions_mod)
                 else:
                     pair1_partition = [target_marks]
                     pair2_partition = [target_marks]
 
         partitions_for_questions = [pair1_partition, pair1_partition, pair2_partition, pair2_partition]
-
-        # Attach extracted equations/figures so the LLM must use them (not dummy 'eq' / empty image_path)
-        try:
-            import aion_patch as _ap
-            _assets = getattr(_ap, "collect_extracted_assets", lambda p: {})(file_path) if "file_path" in dir() else {}
-            _eqs = (_assets or {}).get("equations") or []
-            _imgs = (_assets or {}).get("images") or []
-            if _eqs or _imgs:
-                print(f"[MODULE {mod_idx}] Binding visuals: {len(_imgs)} images, {len(_eqs)} equations", flush=True)
-        except Exception:
-            _eqs, _imgs = [], []
-
 
         # Calculate dynamic pedagogy-aware slot types for this module
         total_slots = sum(len(p) for p in partitions_for_questions)
@@ -825,16 +823,15 @@ def run_pipeline(
             planned_types_by_question.append(planned_types[offset:offset+n_sub])
             offset += n_sub
 
-        # used_chunk_ids persists across questions within module
-        # (already declared outside loop — cleared per module is correct,
-        #  but we also track globally to prevent cross-module repetition)
         used_chunk_ids: set[str] = set()
-        if not hasattr(run_pipeline, '_global_used_chunks'):
-            run_pipeline._global_used_chunks = set()
-        used_chunk_ids = used_chunk_ids | run_pipeline._global_used_chunks
-        module_questions         = []
-        futures = []
+        with _chunk_selection_lock:
+            if hasattr(run_pipeline, '_global_used_chunks'):
+                used_chunk_ids = used_chunk_ids | run_pipeline._global_used_chunks
 
+        module_questions = []
+
+        # Sequential question generation within module: preserves chunk progression,
+        # sibling similarity deduplication, and archetype rotation determinism.
         for mq_idx in range(1, 5):
             bloom     = bloom_levels[mq_idx - 1]
             partition = partitions_for_questions[mq_idx - 1]
@@ -845,54 +842,44 @@ def run_pipeline(
 
             if mapper and module_chunks:
                 prefer_img = (mq_idx == 1)
-                top_tcs = mapper.get_top_n_chunks_for_question(
-                    module_id      = module_id,
-                    n              = len(partition),
-                    prefer_image   = prefer_img,
-                    used_chunk_ids = used_chunk_ids,
-                    target_bloom   = bloom,
-                )
-                if top_tcs:
-                    for tc in top_tcs:
-                        used_chunk_ids.add(tc.id)
-                        selected_chunks.append(tc.text)
-                    best_chunk_obj = top_tcs[0]
+                with _chunk_selection_lock:
+                    top_tcs = mapper.get_top_n_chunks_for_question(
+                        module_id      = module_id,
+                        n              = len(partition),
+                        prefer_image   = prefer_img,
+                        used_chunk_ids = used_chunk_ids,
+                        target_bloom   = bloom,
+                    )
+                    if top_tcs:
+                        for tc in top_tcs:
+                            used_chunk_ids.add(tc.id)
+                            selected_chunks.append(tc.text)
+                        best_chunk_obj = top_tcs[0]
 
-            # Fallback if mapper not present or returned fewer chunks
             while len(selected_chunks) < len(partition):
                 avail_texts = [t for t in module_chunks_text if t not in selected_chunks]
                 if not avail_texts:
                     avail_texts = module_chunks_text
-                # Stride across module text to sample from start/middle/end of module content
                 stride_idx = (mq_idx * len(partition) + len(selected_chunks)) % max(1, len(avail_texts))
                 selected_chunks.append(avail_texts[stride_idx])
 
-
-            futures.append(
-                executor.submit(
-                    _generate_main_question,
-                    mq_idx, partition, bloom, selected_chunks, target_marks,
-                    diff_manager, best_chunk_obj, selector, module_id, orchestrator,
-                    planned_sub_types,
-                    _pair1_co if mq_idx in (1, 2) else _pair2_co,
-                    _slot_bloom_targets,
-                )
+            res = _generate_main_question(
+                mq_idx, partition, bloom, selected_chunks, target_marks,
+                diff_manager, best_chunk_obj, selector, module_id, mod_orchestrator,
+                planned_sub_types,
+                _pair1_co if mq_idx in (1, 2) else _pair2_co,
+                _slot_bloom_targets,
             )
-
-        for fut in as_completed(futures):
-            res = fut.result()
             module_questions.append(res)
 
         module_questions.sort(key=lambda x: x["mq_index"])
 
-        # -- SLOT COMPLETENESS GATE ----------------------------------------------
-        # Build expected set from the slots that were actually planned
-        # (not from a hardcoded count of 4)
+        # -- SLOT COMPLETENESS GATE --
         expected_slot_ids: set[str] = set()
         generated_slot_ids: set[str] = set()
         for mq in module_questions:
             for slot in mq.get("slots", []):
-                expected_slot_ids.add(slot.slot_id)   # every planned slot
+                expected_slot_ids.add(slot.slot_id)
             for gq in mq.get("generated_questions", []):
                 generated_slot_ids.add(gq.slot_id)
 
@@ -906,27 +893,61 @@ def run_pipeline(
                 f"  Extra slots   : {sorted(extra_slots)}"
             )
 
-        # Enforce OR pair parity (Q1 vs Q2, Q3 vs Q4) using new OR validator
+        # Enforce OR pair parity (Q1 vs Q2, Q3 vs Q4) using module-isolated validator
         if len(module_questions) >= 2:
             module_questions[0], module_questions[1] = run_or_pair_check(
-                module_questions[0], module_questions[1], orchestrator
+                module_questions[0], module_questions[1], mod_orchestrator
             )
         if len(module_questions) >= 4:
             module_questions[2], module_questions[3] = run_or_pair_check(
-                module_questions[2], module_questions[3], orchestrator
+                module_questions[2], module_questions[3], mod_orchestrator
             )
 
-        # Update global chunk tracking to prevent cross-module repetition
-        run_pipeline._global_used_chunks = (
-            getattr(run_pipeline, '_global_used_chunks', set()) | used_chunk_ids
-        )
-        output_paper.append({
+        _mark(f"module_{mod_idx}_generation", t_mod)
+        return {
             "module_index": mod_idx,
             "module_title": mod.title,
-            "questions": module_questions
-        })
+            "questions": module_questions,
+            "_used_chunk_ids": used_chunk_ids,
+        }
 
-    executor.shutdown()
+    env_concurrency = os.getenv("AION_CONCURRENCY")
+    if env_concurrency and env_concurrency.strip().isdigit():
+        concurrency_workers = max(1, int(env_concurrency.strip()))
+    else:
+        concurrency_workers = _profile.concurrency if _profile else 1
+
+    max_module_workers = max(1, min(len(modules), concurrency_workers))
+    print(f"[PIPELINE] Module-level concurrency: {max_module_workers} workers (profile: {_profile_name}, config: {concurrency_workers})", flush=True)
+
+    if max_module_workers == 1:
+        for pos_idx, mod in enumerate(modules, 1):
+            mod_res = _process_single_module(pos_idx, mod)
+            if mod_res:
+                used_c = mod_res.pop("_used_chunk_ids", set())
+                with _chunk_selection_lock:
+                    run_pipeline._global_used_chunks = (
+                        getattr(run_pipeline, '_global_used_chunks', set()) | used_c
+                    )
+                output_paper.append(mod_res)
+    else:
+        with ThreadPoolExecutor(max_workers=max_module_workers) as executor:
+            futures = {
+                executor.submit(_process_single_module, pos_idx, mod): pos_idx
+                for pos_idx, mod in enumerate(modules, 1)
+            }
+            for fut in as_completed(futures):
+                mod_res = fut.result()
+                if mod_res:
+                    used_c = mod_res.pop("_used_chunk_ids", set())
+                    with _chunk_selection_lock:
+                        run_pipeline._global_used_chunks = (
+                            getattr(run_pipeline, '_global_used_chunks', set()) | used_c
+                        )
+                    output_paper.append(mod_res)
+
+    # Sort output paper by module index so ordering is strictly preserved
+    output_paper.sort(key=lambda x: x["module_index"])
 
     if mapper:
         print(f"\n[MAPPER] Final: {mapper.summary()}")
@@ -944,11 +965,13 @@ def run_pipeline(
             "[EXPORT GATE] Paper contains zero generated questions. Generation failed entirely."
         )
 
+    t_export = time.time()
     from core.validation.export_gate import ExportGate
     export_result = ExportGate.validate(all_gqs)
     if not export_result.passed:
         raise RuntimeError(f"[EXPORT GATE] FAILED: {export_result.message}")
     print("[EXPORT GATE] PASS — full paper integrity verified.")
+    _mark("export_gate", t_export)
 
     # -- POST-GENERATION INTEGRITY GATE -----------------------------------
     all_slot_ids = [gq.slot_id for gq in all_gqs]
@@ -998,6 +1021,7 @@ def run_pipeline(
     except Exception as e:
         print(f"[QA ENGINE] Warning running paper QA check: {e}")
 
+    _mark("total_pipeline", t_start)
     return output_paper, qa_report
 
 
@@ -1223,11 +1247,14 @@ def _generate_main_question(
                 sub_bloom
             )
             # Resolve slot topic first
-            slot_topic = (
+            raw_slot_topic = (
                 str(chunk_obj.topic) if (chunk_obj and getattr(chunk_obj, "topic", None) and not re.match(r'^module_\d+', str(chunk_obj.topic)))
                 else (str(chunk_obj.concept_tags[0]) if (chunk_obj and getattr(chunk_obj, "concept_tags", None) and chunk_obj.concept_tags)
                 else next((re.sub(r'^[#*\-\s\d\.]+', '', _l).strip() for _l in str(chunk).splitlines() if 4 <= len(re.sub(r'^[#*\-\s\d\.]+', '', _l).strip()) <= 60 and not re.match(r'^(module_\d+|Q\d+|\[|\()', _l.strip(), re.I)), f"Module {_mod_num} Core Topics"))
             )
+            slot_topic = _strip_module_header(raw_slot_topic)
+            if not slot_topic:
+                slot_topic = f"Module {_mod_num} Core Topics"
 
             # Topic-aware domain keyword extraction from chunk
             from v0_1.chunk_image_mapper import extract_domain_keywords
@@ -1266,11 +1293,13 @@ def _generate_main_question(
 
             evidence_pack = MockEvidencePack(chunk)
 
+            t_slot = time.time()
             gq = orchestrator.generate(
                 slot=slot,
                 evidence_pack=evidence_pack,
                 excluded_concepts=set()
             )
+            _mark(f"slot_{slot.slot_id}_inference", t_slot)
 
             # AION image binder: attach extracted image path to generated question when available
             try:

@@ -17,8 +17,8 @@ export const CO_BLOOM_RULES: Record<number, CoBloomRule> = {
   1: { co: "CO1", bloom: ["L1", "L2"] },
   2: { co: "CO2", bloom: ["L3"] },
   3: { co: "CO3", bloom: ["L4"] },
-  4: { co: "CO3", bloom: ["L4"] },
-  5: { co: "CO2", bloom: ["L3"] },
+  4: { co: "CO4", bloom: ["L5"] },
+  5: { co: "CO5", bloom: ["L6"] },
 };
 
 export interface BloomDefinition {

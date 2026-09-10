@@ -16,7 +16,8 @@
 param([string]$Command = "")
 
 $ROOT         = $PSScriptRoot
-$BACKEND_PORT = 8100
+$BACKEND_PORT = if ($env:AION_PORT) { [int]$env:AION_PORT } elseif ($env:BACKEND_PORT) { [int]$env:BACKEND_PORT } else { 8100 }
+$FRONTEND_PORT = if ($env:FRONTEND_PORT) { [int]$env:FRONTEND_PORT } else { 5174 }
 $FRONTEND_DIR = "$ROOT\frontend\artifacts\qp-generator"
 $LOG_DIR      = "$ROOT\logs"
 $BACKEND_LOG  = "$LOG_DIR\backend.log"
@@ -197,7 +198,7 @@ function Invoke-Status {
     $services = @(
         @{ Name="Backend";  Port=$BACKEND_PORT },
         @{ Name="Ollama";   Port=11434 },
-        @{ Name="Frontend"; Port=5173 }
+        @{ Name="Frontend"; Port=$FRONTEND_PORT }
     )
 
     foreach ($svc in $services) {

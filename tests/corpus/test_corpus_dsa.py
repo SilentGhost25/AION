@@ -9,17 +9,25 @@ from v0_1.question_completeness import QuestionCompletenessValidator
 
 @pytest.fixture
 def dsa_corpus_file(tmp_path) -> str:
-    f = tmp_path / "dsa_full_textbook_chapter.txt"
-    f.write_text(
-        "MODULE 1: Linear Data Structures. Arrays, Stacks, and Queues are fundamental linear data structures. "
-        "A stack is a Last-In First-Out (LIFO) data structure supporting push and pop operations. "
-        "MODULE 2: Trees and Graphs. Binary Search Trees maintain left child less than root and right child greater. "
-        "AVL trees perform LL, RR, LR, and RL rotations to ensure balance factor remains between -1 and +1. "
-        "MODULE 3: Graph Algorithms. Dijkstra's algorithm finds single-source shortest paths in weighted graphs with non-negative edge weights. "
-        "Prim's and Kruskal's algorithms construct Minimum Spanning Trees (MST) for connected weighted graphs.",
-        encoding="utf-8",
+    import fitz
+    pdf_path = tmp_path / "dsa_full_textbook_chapter.pdf"
+    content = (
+        "MODULE 1: Linear Data Structures\n\n"
+        "Arrays, Stacks, and Queues are fundamental linear data structures. "
+        "A stack is a Last-In First-Out (LIFO) data structure supporting push and pop operations.\n\n"
+        "MODULE 2: Trees and Graphs\n\n"
+        "Binary Search Trees maintain left child less than root and right child greater. "
+        "AVL trees perform LL, RR, LR, and RL rotations to ensure balance factor remains between -1 and +1.\n\n"
+        "MODULE 3: Graph Algorithms\n\n"
+        "Dijkstra's algorithm finds single-source shortest paths in weighted graphs with non-negative edge weights. "
+        "Prim's and Kruskal's algorithms construct Minimum Spanning Trees (MST) for connected weighted graphs."
     )
-    return str(f)
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((50, 72), content, fontsize=11)
+    doc.save(str(pdf_path))
+    doc.close()
+    return str(pdf_path)
 
 
 def test_dsa_corpus_pipeline_run(dsa_corpus_file):

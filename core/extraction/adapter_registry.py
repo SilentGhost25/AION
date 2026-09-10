@@ -26,7 +26,7 @@ class AdapterCapability:
     functional : bool
     adapter    : Optional[ExtractionAdapter] = None
 
-
+    
 class AdapterRegistry:
     """Registry maintaining active extraction capabilities."""
 

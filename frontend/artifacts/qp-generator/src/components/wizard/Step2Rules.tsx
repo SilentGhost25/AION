@@ -47,7 +47,18 @@ function splitMarks(total: number, count: number): number[] {
   return Array.from({ length: n }, (_, i) => base + (i < remainder ? 1 : 0))
 }
 
-const RBT_LEVELS = ["L1", "L2", "L3", "L4", "L5"]
+const RBT_LEVELS = ["L1/L2", "L3", "L4", "L5", "L6"]
+
+function getRbtForCo(co: string): string {
+  switch (co) {
+    case "CO1": return "L1/L2"
+    case "CO2": return "L3"
+    case "CO3": return "L4"
+    case "CO4": return "L5"
+    case "CO5": return "L6"
+    default: return "L2"
+  }
+}
 
 function extractTopic(notes: string): string {
   const cleaned = (notes ?? "").trim().replace(/\s+/g, " ")
@@ -111,12 +122,13 @@ function parseAIONResponse(
 
     // Shape: { question, sub_questions: [{part,marks,text,bloom}] }
     if (parsed.sub_questions && Array.isArray(parsed.sub_questions)) {
+      const coVal = `CO${Math.min(5, Math.ceil(qNum / 2))}`
       return parsed.sub_questions.map((sq: any, i: number) => ({
         label: sq.part ?? String.fromCharCode(97 + i),
         text:  sq.text ?? parsed.question ?? raw,
         marks: sq.marks ?? marksSplit[i] ?? section.marks,
-        co:    `CO${Math.min(5, Math.ceil(qNum / 2))}`,
-        rbt:   sq.bloom ?? RBT_LEVELS[(qNum - 1 + i) % RBT_LEVELS.length],
+        co:    coVal,
+        rbt:   sq.bloom ?? getRbtForCo(coVal),
       }))
     }
 
@@ -138,13 +150,14 @@ function splitIntoSubs(
   marksSplit: number[],
   qNum: number,
 ): SubQuestion[] {
+  const coVal = `CO${Math.min(5, Math.ceil(qNum / 2))}`
   if (subCount === 1) {
     return [{
       label: "a",
       text:  text,
       marks: marksSplit[0] ?? 10,
-      co:    `CO${Math.min(5, Math.ceil(qNum / 2))}`,
-      rbt:   RBT_LEVELS[(qNum - 1) % RBT_LEVELS.length],
+      co:    coVal,
+      rbt:   getRbtForCo(coVal),
     }]
   }
 
@@ -158,8 +171,8 @@ function splitIntoSubs(
       label: String.fromCharCode(97 + i),
       text:  chunk || text,
       marks: marksSplit[i] ?? Math.floor(10 / subCount),
-      co:    `CO${Math.min(5, Math.ceil(qNum / 2))}`,
-      rbt:   RBT_LEVELS[(qNum - 1 + i) % RBT_LEVELS.length],
+      co:    coVal,
+      rbt:   getRbtForCo(coVal),
     }
   })
 }
@@ -340,32 +353,40 @@ export function Step2Rules({
     const aionPaper = (window as any).__aionLastPaper
     if (aionPaper?.modules?.length > 0) {
       try {
-        const questions = aionPaper.modules.flatMap((mod: any, modIdx: number) =>
-          (mod.questions ?? []).map((q: any) => ({
-            qNo:           q.mqIndex ?? q.qNo ?? (modIdx * 2 + 1),
-            text:          q.subQuestions?.[0]?.text ?? "",
-            marks:         q.totalMarks ?? 10,
-            co:            q.subQuestions?.[0]?.co ?? `CO${modIdx + 1}`,
-            rbt:           `L${q.bloomLevel ?? 2}`,
-            sectionNumber: modIdx + 1,
-            isOrQuestion:  q.isOr ?? false,
-            subQuestions:  (q.subQuestions ?? []).map((sq: any) => {
-              const sqText = sq.text ?? ""
-              const sqMath = sq.math_blocks ?? []
-              const segs = sqMath.length > 0 && sqText
-                ? buildSegments(sqText, sqMath)
-                : sqText ? [{ type: "text" as const, value: sqText }] : undefined
-              return {
-                label: sq.letter ?? "a",
-                text:  sqText,
-                marks: sq.marks ?? 5,
-                co:    sq.co ?? `CO${modIdx + 1}`,
-                rbt:   `L${sq.bloom ?? 2}`,
-                segments: segs,
-              }
-            }),
-          }))
-        )
+        const questions = aionPaper.modules.flatMap((mod: any, modIdx: number) => {
+          const mNum = Number(mod.moduleIndex ?? mod.module_index ?? (modIdx + 1))
+          return (mod.questions ?? []).map((q: any, qIdx: number) => {
+            const derivedQNo = q.qNo ?? ((mNum - 1) * 2 + (qIdx + 1))
+            return {
+              qNo:           derivedQNo,
+              module:        mNum,
+              moduleIndex:   mNum,
+              text:          q.subQuestions?.[0]?.text ?? "",
+              marks:         q.totalMarks ?? 10,
+              co:            q.subQuestions?.[0]?.co ?? `CO${mNum}`,
+              rbt:           `L${q.bloomLevel ?? 2}`,
+              sectionNumber: mNum,
+              isOrQuestion:  q.isOr ?? false,
+              subQuestions:  (q.subQuestions ?? []).map((sq: any) => {
+                const sqText = sq.text ?? ""
+                const sqMath = sq.math_blocks ?? []
+                const segs = sqMath.length > 0 && sqText
+                  ? buildSegments(sqText, sqMath)
+                  : sqText ? [{ type: "text" as const, value: sqText }] : undefined
+                return {
+                  label: sq.letter ?? "a",
+                  text:  sqText,
+                  marks: sq.marks ?? 5,
+                  co:    sq.co ?? `CO${mNum}`,
+                  rbt:   `L${sq.bloom ?? 2}`,
+                  module: mNum,
+                  moduleIndex: mNum,
+                  segments: segs,
+                }
+              }),
+            }
+          })
+        })
         const paper: GeneratedPaper = {
           config,
           questions,
@@ -438,20 +459,22 @@ export function Step2Rules({
 
         // Fallback for blocks not yet previewed
         const fallbackText = extractTopic(section.notesText)
+        const fallbackCo = `CO${Math.min(5, Math.ceil(qNum / 2))}`
+        const fallbackRbt = getRbtForCo(fallbackCo)
         return {
           qNo:          qNum,
           text:         `Explain ${fallbackText} with relevant examples.`,
           marks:        section.marks,
-          co:           `CO${Math.min(5, Math.ceil(qNum / 2))}`,
-          rbt:          RBT_LEVELS[(qNum - 1) % RBT_LEVELS.length],
+          co:           fallbackCo,
+          rbt:          fallbackRbt,
           sectionNumber: section.sectionNumber,
           isOrQuestion:  idx % 2 === 1,
           subQuestions:  [{
             label: "a",
             text:  `Explain ${fallbackText} with relevant examples.`,
             marks: section.marks,
-            co:    `CO${Math.min(5, Math.ceil(qNum / 2))}`,
-            rbt:   RBT_LEVELS[(qNum - 1) % RBT_LEVELS.length],
+            co:    fallbackCo,
+            rbt:   fallbackRbt,
           }],
         }
       })

@@ -214,5 +214,17 @@
       "topics": [],
       "last_covered": "2026-09-01T12:36:45.960660"
     }
+  },
+  "Computer Networks": {
+    "module_1": {
+      "times_covered": 1,
+      "topics": [],
+      "last_covered": "2026-09-07T21:37:58.020031"
+    },
+    "module_2": {
+      "times_covered": 1,
+      "topics": [],
+      "last_covered": "2026-09-07T21:37:58.020172"
+    }
   }
 }

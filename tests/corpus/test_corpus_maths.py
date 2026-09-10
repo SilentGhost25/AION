@@ -9,14 +9,22 @@ from v0_1.question_completeness import QuestionCompletenessValidator
 
 @pytest.fixture
 def maths_corpus_file(tmp_path) -> str:
-    f = tmp_path / "maths_linear_algebra.txt"
-    f.write_text(
-        "MODULE 1: Linear Algebra and Matrix Theory. Matrices, matrix rank, system of linear equations Ax = b, and Gauss elimination methods for solving simultaneous equations. "
-        "MODULE 2: Eigenvalues and Eigenvectors. Characteristic polynomial equation det(A - lambda I) = 0 and Cayley-Hamilton theorem applications in finding matrix inverses. "
-        "MODULE 3: Vector Calculus. Gradient of scalar fields, divergence and curl of vector fields, Green's theorem, and Stokes' theorem in line and surface vector integration.",
-        encoding="utf-8",
+    import fitz
+    pdf_path = tmp_path / "maths_linear_algebra.pdf"
+    content = (
+        "MODULE 1: Linear Algebra and Matrix Theory\n\n"
+        "Matrices, matrix rank, system of linear equations Ax = b, and Gauss elimination methods for solving simultaneous equations.\n\n"
+        "MODULE 2: Eigenvalues and Eigenvectors\n\n"
+        "Characteristic polynomial equation det(A - lambda I) = 0 and Cayley-Hamilton theorem applications in finding matrix inverses.\n\n"
+        "MODULE 3: Vector Calculus\n\n"
+        "Gradient of scalar fields, divergence and curl of vector fields, Green's theorem, and Stokes' theorem in line and surface vector integration."
     )
-    return str(f)
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((50, 72), content, fontsize=11)
+    doc.save(str(pdf_path))
+    doc.close()
+    return str(pdf_path)
 
 
 def test_maths_corpus_pipeline_run(maths_corpus_file):

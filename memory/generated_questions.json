@@ -1,225 +1,5 @@
 [
   {
-    "hash": "7063903e883c",
-    "subject": "DBMS",
-    "module": 4,
-    "text": "Consider two relations: DEPARTMENT (DNAME, DNUMBER) and EMPLOYEE (FNAME, LNAME, SSN, DNO). Write a Relational Algebra expression that retrieves the full name of employees who work in a specified department. Then, write another Relational Algebra expression to update each employee's salary by an inpu",
-    "bloom": 3,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:12:03.271827"
-  },
-  {
-    "hash": "3b9a790281f1",
-    "subject": "DBMS",
-    "module": 4,
-    "text": "Consider two relations: DEPARTMENT (DNAME, DNUMBER) and EMPLOYEE (FNAME, LNAME, SSN, DNO). Write a Relational Algebra expression that retrieves the full name of employees who work in a specified department. Then, write another Relational Algebra expression to update each employee's salary by an inpu",
-    "bloom": 3,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:12:03.271829"
-  },
-  {
-    "hash": "2c9e65a7314d",
-    "subject": "DBMS",
-    "module": 5,
-    "text": "Consider two relations: EMPLOYEE (FNAME, LNAME, SSN) and DEPENDENT (ESSN, DNAME). Write a Relational Algebra expression that retrieves the first name and last name of employees who have dependents. Analyze how each step in your expression contributes to filtering and retrieving the correct informati",
-    "bloom": 3,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:12:03.271834"
-  },
-  {
-    "hash": "2c6b3cbd8115",
-    "subject": "DBMS",
-    "module": 5,
-    "text": "Define how triggers are used to enforce data integrity in SQL. Justify your answer by explaining the syntax of a trigger and providing an example where a trigger is necessary for maintaining referential integrity between two tables.",
-    "bloom": 3,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:12:03.271836"
-  },
-  {
-    "hash": "cd3cf5771676",
-    "subject": "DBMS",
-    "module": 5,
-    "text": "Consider two relations: EMPLOYEE (FNAME, LNAME, SSN) and DEPENDENT (ESSN, DNAME). Write a Relational Algebra expression that retrieves the first name and last name of employees who have at least one dependent. Additionally, write an expression to retrieve the number of dependents for each employee.",
-    "bloom": 3,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:12:03.271839"
-  },
-  {
-    "hash": "8e36f2909249",
-    "subject": "DBMS",
-    "module": 5,
-    "text": "Consider an application that accepts SQL update commands from the user at runtime. Write a sequence of SQL/CLI commands to prepare, execute, and fetch results from a dynamically generated query. Additionally, describe how a cursor is used in this context to manage multiple tuples returned by the que",
-    "bloom": 3,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:12:03.271841"
-  },
-  {
-    "hash": "d02ac897600b",
-    "subject": "DBMS",
-    "module": 5,
-    "text": "Consider a database system where users can input SQL update commands at runtime. Write a sequence of SQL/CLI commands that demonstrates the process of accepting, preparing, and executing a user-provided SQL update statement dynamically. Assume the user inputs an update command to modify employee sal",
-    "bloom": 4,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:12:03.271844"
-  },
-  {
-    "hash": "99c5e842dc65",
-    "subject": "DBMS",
-    "module": 5,
-    "text": "Write a sequence of SQL/CLI commands that demonstrates the preparation and execution of a dynamic SQL update command. The program should accept an update command from the user at runtime, prepare it using SQLPrepare, and then execute it with SQLExecute. Include all necessary declarations and handle ",
-    "bloom": 4,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:12:03.271846"
-  },
-  {
-    "hash": "a8c2acd45aba",
-    "subject": "DBMS",
-    "module": 1,
-    "text": "SQL is a standard language for managing relational databases. It includes Data Definition Language (DDL) and Data Manipulation Language (DML). Classify the roles of CREATE, ALTER, DROP commands under DDL and SELECT, INSERT, UPDATE, DELETE commands under DML. Explain how these commands are used to de",
-    "bloom": 4,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:16:48.687387"
-  },
-  {
-    "hash": "0d85afcd3bc4",
-    "subject": "DBMS",
-    "module": 1,
-    "text": "Consider two relations: EMPLOYEE and DEPARTMENT. The EMPLOYEE relation has attributes (SSN, FNAME, LNAME, SALARY, DNO). The DEPARTMENT relation has attributes (DNUMBER, DNAME). Write a Relational Algebra expression to retrieve the SSNs of all employees working in department number 5 whose salary is ",
-    "bloom": 4,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:16:48.687392"
-  },
-  {
-    "hash": "aca19af2d338",
-    "subject": "DBMS",
-    "module": 1,
-    "text": "Using the provided relational schema, write the Relational Algebra expression to select all employees working on project 'ProductX', and apply a 10 percent raise to their salaries. Assume you have relations EMPLOYEE (SSN, FNAME, LNAME, SALARY), WORKS\\_ON (ESSN, PNO), PROJECT (PNUMBER, PNAME) availab",
-    "bloom": 4,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:16:48.687395"
-  },
-  {
-    "hash": "f5190501720d",
-    "subject": "DBMS",
-    "module": 1,
-    "text": "Consider two relations: EMPLOYEE and DEPARTMENT. The EMPLOYEE relation has attributes (SSN, FNAME, LNAME, SALARY, DNO). The DEPARTMENT relation has attributes (DNUMBER, DNAME, MGRSSN, MGRSTARTDATE). Write a Relational Algebra expression to retrieve the first name, last name, and salary of all employ",
-    "bloom": 4,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:16:48.687398"
-  },
-  {
-    "hash": "14869646692c",
-    "subject": "DBMS",
-    "module": 2,
-    "text": "Consider two relations: EMPLOYEE and DEPARTMENT. The EMPLOYEE relation has attributes (SSN, FNAME, LNAME, SALARY, DNO). The DEPARTMENT relation has attributes (DNUMBER, DNAME, MGRSSN, MGRSTARTDATE). Illustrate how to use Relational Algebra operations to find the names of all employees who work in th",
-    "bloom": 1,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:16:48.687402"
-  },
-  {
-    "hash": "a3443afb3d2b",
-    "subject": "DBMS",
-    "module": 2,
-    "text": "Consider the scenario where you need to retrieve the name of each employee who works on all the projects controlled by department number 5. Describe how the EXISTS operator can be used to replace the CONTAINS operator in this context, explaining its role and functionality in SQL queries.",
-    "bloom": 1,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:16:48.687404"
-  },
-  {
-    "hash": "0284fe70ce84",
-    "subject": "DBMS",
-    "module": 2,
-    "text": "Consider two relations: WORKS\\_ON (Ename, Pno) and PROJECT (Pno, Pname). Write a Relational Algebra expression using the EXISTS operator to retrieve the project number and name of each project where at least one employee works. Ensure your expression correctly uses the EXISTS operator as specified.",
-    "bloom": 1,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:16:48.687407"
-  },
-  {
-    "hash": "d37feb314ac4",
-    "subject": "DBMS",
-    "module": 2,
-    "text": "Define how correlated nested queries operate in SQL and explain why they produce different results for each tuple of the relation(s) declared in the outer query. Justify your answer with an example using the EMPLOYEE and DEPENDENT relations.",
-    "bloom": 1,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:16:48.687409"
-  },
-  {
-    "hash": "b49f35ce727b",
-    "subject": "DBMS",
-    "module": 2,
-    "text": "Using the EXISTS operator, write a Relational Algebra expression that retrieves the name of each employee who works on all the projects controlled by department number 5. Assume you have relations EMPLOYEE (E), WORKS\\_ON (W), and PROJECT (P). The EMPLOYEE relation has attributes SSN, FNAME, LNAME, D",
-    "bloom": 2,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:16:48.687412"
-  },
-  {
-    "hash": "874fcb3069bf",
-    "subject": "DBMS",
-    "module": 2,
-    "text": "Rewrite the following SQL query using the EXISTS operator instead of CONTAINS: SELECT FNAME, LNAME FROM EMPLOYEE WHERE NOT EXISTS (SELECT * FROM WORKS_ON WO INNER JOIN PROJECT P ON WO.PNO = P.PNUMBER WHERE E.SSN = WO.ESSN AND P.DNUM != 5);",
-    "bloom": 2,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:16:48.687414"
-  },
-  {
-    "hash": "aa923290be79",
-    "subject": "DBMS",
-    "module": 2,
-    "text": "Consider two relations: STUDENT (Sno, Sname, Age) and COURSE (Cno, Cname, Credits). Write a Relational Algebra expression that retrieves the names of all students who are enrolled in at least one course. Assume there is an additional relation ENROLLMENT (Sno, Cno) which records student enrollments.",
-    "bloom": 2,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:16:48.687416"
-  },
-  {
-    "hash": "1b0a3629f398",
-    "subject": "DBMS",
-    "module": 2,
-    "text": "Consider the relations EMPLOYEE (Ename, Lname, Salary, Dno), DEPARTMENT (Dname, Dnumber, Mgrssn,Mgrstartd), WORKS\\_ON (Essn, Pno), and PROJECT (Pname, Pnumber, Dnum). Construct a Relational Algebra expression to retrieve all distinct salary values of employees who work on projects managed by departm",
-    "bloom": 2,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:16:48.687418"
-  },
-  {
-    "hash": "352c23a18a3b",
-    "subject": "DBMS",
-    "module": 3,
-    "text": "Summarise how views are used to simplify query specification. Additionally, explain why updating views can be complicated and ambiguous.",
-    "bloom": 3,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:16:48.687422"
-  },
-  {
-    "hash": "4263a0728d2c",
-    "subject": "DBMS",
-    "module": 3,
-    "text": "Consider two relations: PROJECT (PNUMBER, PNAME) and WORKS\\_ON (ESSN, PNO). Write a Relational Algebra expression that retrieves the project number (PNUMBER), project name (PNAME), and the count of employees who work on each project for projects where more than two employees are working. Justify why",
-    "bloom": 3,
-    "co": "CO1",
-    "marks": 5,
-    "generated_at": "2026-09-01T05:16:48.687424"
-  },
-  {
     "hash": "48cb90f31510",
     "subject": "DBMS",
     "module": 3,
@@ -4998,5 +4778,225 @@
     "co": "CO1",
     "marks": 5,
     "generated_at": "2026-09-01T12:36:45.960670"
+  },
+  {
+    "hash": "3d7e474ece12",
+    "subject": "Computer Networks",
+    "module": 1,
+    "text": "Summarise syllabus content for Module 1 questions, describe principles, and outline valid questions.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020092"
+  },
+  {
+    "hash": "baeac9bb65d3",
+    "subject": "Computer Networks",
+    "module": 1,
+    "text": "Name syllabus content for Module 1 questions, define principles, and state valid questions.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020109"
+  },
+  {
+    "hash": "be8d272834d2",
+    "subject": "Computer Networks",
+    "module": 1,
+    "text": "Identify the fundamental definitions and primary components of Module 1 Core Topics.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020118"
+  },
+  {
+    "hash": "973e6fc378e3",
+    "subject": "Computer Networks",
+    "module": 1,
+    "text": "Classify the operational architecture of Module 1 Core Topics, detailing the interaction between its key components.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020126"
+  },
+  {
+    "hash": "f04c35aa9335",
+    "subject": "Computer Networks",
+    "module": 1,
+    "text": "Name the essential characteristics and operational parameters of Module 1 Core Topics.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020132"
+  },
+  {
+    "hash": "5a2a1db90f14",
+    "subject": "Computer Networks",
+    "module": 1,
+    "text": "Outline the core mechanisms and functional processes of Module 1 Core Topics as described in the technical specifications.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020137"
+  },
+  {
+    "hash": "9289e75b814c",
+    "subject": "Computer Networks",
+    "module": 1,
+    "text": "Summarize the core mechanisms and functional processes of Module 1 Core Topics as described in the technical specifications.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020142"
+  },
+  {
+    "hash": "39725d4c693c",
+    "subject": "Computer Networks",
+    "module": 1,
+    "text": "Classify the core mechanisms and functional processes of Module 1 Core Topics as described in the technical specifications.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020147"
+  },
+  {
+    "hash": "256e160dc218",
+    "subject": "Computer Networks",
+    "module": 1,
+    "text": "Illustrate the core mechanisms and functional processes of Module 1 Core Topics as described in the technical specifications.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020151"
+  },
+  {
+    "hash": "2cb7557219a2",
+    "subject": "Computer Networks",
+    "module": 1,
+    "text": "Outline the underlying working principles of Module 1 Core Topics, illustrating with an appropriate technical example.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020157"
+  },
+  {
+    "hash": "4255223a07fc",
+    "subject": "Computer Networks",
+    "module": 1,
+    "text": "Interpret the operational architecture of Module 1 Core Topics, detailing the interaction between its key components.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020161"
+  },
+  {
+    "hash": "560211f7ab93",
+    "subject": "Computer Networks",
+    "module": 1,
+    "text": "Classify the underlying working principles of Module 1 Core Topics, illustrating with an appropriate technical example.",
+    "bloom": 2,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020166"
+  },
+  {
+    "hash": "157a73b49a47",
+    "subject": "Computer Networks",
+    "module": 2,
+    "text": "Use syllabus content for Module 1 questions, solve formulas, and calculate valid questions.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020178"
+  },
+  {
+    "hash": "25890099ca91",
+    "subject": "Computer Networks",
+    "module": 2,
+    "text": "Implement the practical application of Module 2 Core Topics to solve standard operational constraints in the system.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020182"
+  },
+  {
+    "hash": "767e840abf92",
+    "subject": "Computer Networks",
+    "module": 2,
+    "text": "Determine the implementation of Module 2 Core Topics in an engineering scenario, highlighting key execution steps and parameter configurations.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020188"
+  },
+  {
+    "hash": "e385ccccf23d",
+    "subject": "Computer Networks",
+    "module": 2,
+    "text": "Demonstrate the integration and deployment of Module 2 Core Topics to fulfill performance requirements of the specified architecture.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020192"
+  },
+  {
+    "hash": "c5239b826804",
+    "subject": "Computer Networks",
+    "module": 2,
+    "text": "Compute the integration and deployment of Module 2 Core Topics to fulfill performance requirements of the specified architecture.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020198"
+  },
+  {
+    "hash": "329395be0109",
+    "subject": "Computer Networks",
+    "module": 2,
+    "text": "Calculate the practical application of Module 2 Core Topics to solve standard operational constraints in the system.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020202"
+  },
+  {
+    "hash": "c5239b826804",
+    "subject": "Computer Networks",
+    "module": 2,
+    "text": "Compute the integration and deployment of Module 2 Core Topics to fulfill performance requirements of the specified architecture.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020206"
+  },
+  {
+    "hash": "c2e3532a893b",
+    "subject": "Computer Networks",
+    "module": 2,
+    "text": "Apply the implementation of Module 2 Core Topics in an engineering scenario, highlighting key execution steps and parameter configurations.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020211"
+  },
+  {
+    "hash": "25cc868fcdff",
+    "subject": "Computer Networks",
+    "module": 2,
+    "text": "Calculate the integration and deployment of Module 2 Core Topics to fulfill performance requirements of the specified architecture.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020215"
+  },
+  {
+    "hash": "178e5e346c47",
+    "subject": "Computer Networks",
+    "module": 2,
+    "text": "Show the implementation of Module 2 Core Topics in an engineering scenario, highlighting key execution steps and parameter configurations.",
+    "bloom": 3,
+    "co": "CO1",
+    "marks": 20,
+    "generated_at": "2026-09-07T21:37:58.020223"
   }
 ]

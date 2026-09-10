@@ -1,20 +1,24 @@
 """
 AION Module: Difficulty Policy
 ==============================
-Modular difficulty easing patch with config toggle.
-Toggle EASE_PAPER_DIFFICULTY = False to fully revert to
-original resolve_co_bl_from_marks behavior with zero side effects.
+Strict Course Outcome (CO) <-> Bloom Level (BL) Mapping & Printing Policy.
+Enforces institutional OBE rules:
+- CO1 <-> L1/L2 (Printed RBT: "L1/L2")
+- CO2 <-> L3    (Printed RBT: "L3")
+- CO3 <-> L4    (Printed RBT: "L4")
+- CO4 <-> L5    (Printed RBT: "L5")
+- CO5 <-> L6    (Printed RBT: "L6")
 """
 
 from __future__ import annotations
 
 import os
+import re
+from typing import Any
 from core.contracts.module_identity import make_co
 
 # ============================================================
-# MODULAR DIFFICULTY EASING PATCH
-# Toggle EASE_PAPER_DIFFICULTY = False to fully revert to
-# original resolve_co_bl_from_marks behavior with zero side effects.
+# MODULAR DIFFICULTY POLICY CONFIG
 # ============================================================
 EASE_PAPER_DIFFICULTY: bool = True   # <-- single on/off switch
 
@@ -24,6 +28,59 @@ MARKS_TO_BLOOM_RANGE = {
     (5, 7): [2, 3, 4],      # Suggest L2-L3, allow L4 for analytical
     (8, 20): [3, 4, 5],     # Suggest L3-L5 (analytical, design, evaluation)
 }
+
+# Compatibility mapping for callers expecting strict constants
+STRICT_CO_TO_BLOOM = {
+    "CO1": (1, 2),
+    "CO2": (2, 3),
+    "CO3": (3, 4),
+    "CO4": (4, 5),
+    "CO5": (5, 6),
+}
+
+STRICT_BLOOM_TO_CO = {
+    1: "CO1",
+    2: "CO1",
+    3: "CO2",
+    4: "CO3",
+    5: "CO4",
+    6: "CO5",
+}
+
+STRICT_MODULE_TO_CO = {
+    1: "CO1",
+    2: "CO2",
+    3: "CO3",
+    4: "CO4",
+    5: "CO5",
+}
+
+STRICT_CO_TO_PRINTED_RBT = {
+    "CO1": "L1/L2",
+    "CO2": "L3",
+    "CO3": "L4",
+    "CO4": "L5",
+    "CO5": "L6",
+}
+
+
+def format_co_and_rbt(co: Any = None, bloom: Any = None, module_idx: int = 1) -> tuple[str, str]:
+    """
+    Format CO and RBT strings safely without destructive overrides.
+    Preserves actual pipeline CO and Bloom levels.
+    """
+    co_str = str(co or "").strip().upper()
+    if not co_str or not co_str.startswith("CO"):
+        co_str = make_co(min(max(1, int(module_idx or 1)), 5))
+
+    b_str = str(bloom or "").strip().upper()
+    if b_str.isdigit():
+        b_str = f"L{b_str}"
+    elif not b_str.startswith("L"):
+        m = re.search(r"L?([1-6])", b_str)
+        b_str = f"L{m.group(1)}" if m else "L2"
+
+    return co_str, b_str
 
 
 def _resolve_co_by_mode(

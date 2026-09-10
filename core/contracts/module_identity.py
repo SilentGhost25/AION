@@ -72,3 +72,29 @@ def parse_co_number(co: str) -> int:
             f"Invalid CO label {co!r}. Expected format 'CO<integer>' (e.g. 'CO1')."
         )
     return int(m.group(1))
+
+
+# Single source of truth pattern for stripping module/unit/chapter headers from topics
+MODULE_HEADER_PATTERN = re.compile(
+    r'^\s*(?:MODULE|UNIT|CHAPTER)\s*[-_]?\s*\d+\s*[:\-–—\.]*\s*',
+    re.IGNORECASE
+)
+
+
+def strip_module_header(text: str) -> str:
+    """Remove module/unit/chapter prefix from start of string.
+
+    Examples:
+        "MODULE 1: Orbital Mechanics" -> "Orbital Mechanics"
+        "Module 2 - Satellite Subsystems" -> "Satellite Subsystems"
+        "UNIT 3: Communication Links" -> "Communication Links"
+        "module_1: Basics" -> "Basics"
+        "CHAPTER 4 — Advanced Topics" -> "Advanced Topics"
+        "Modular Arithmetic" -> "Modular Arithmetic"
+    """
+    if not text:
+        return ""
+    cleaned = MODULE_HEADER_PATTERN.sub('', text).strip()
+    if cleaned != text.strip():
+        print(f"[TOPIC] Stripped header: '{text.strip()}' -> '{cleaned}'", flush=True)
+    return cleaned

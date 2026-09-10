@@ -27,9 +27,18 @@ i = get_resolution_info()
 print(f'{m} ({i[chr(115)+chr(111)+chr(117)+chr(114)+chr(99)+chr(101)]})')
 " 2>$null
 
+$targetPort = if ($env:AION_PORT) { [int]$env:AION_PORT } else { 8100 }
+$resolvedPort = python -c "from core.config.server_config import find_available_port; print(find_available_port($targetPort))" 2>$null
+if (-not $resolvedPort) { $resolvedPort = $targetPort }
+if ($resolvedPort -ne $targetPort) {
+    Write-Host "[AIQ] Port $targetPort is occupied. Dynamically switched to port $resolvedPort" -ForegroundColor Yellow
+}
+$env:AION_PORT = $resolvedPort
+$env:BACKEND_PORT = $resolvedPort
+
 Write-Host "Model   : $model" -ForegroundColor Green
 Write-Host "Device  : server (L40)" -ForegroundColor Green
-Write-Host "Backend : http://localhost:8100" -ForegroundColor Green
+Write-Host "Backend : http://localhost:$resolvedPort" -ForegroundColor Green
 Write-Host ""
 
 Set-Location $PSScriptRoot

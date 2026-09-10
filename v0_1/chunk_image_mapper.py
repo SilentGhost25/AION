@@ -98,62 +98,101 @@ _HEADING_RE      = re.compile(
 
 _STRUCTURAL_NOISE_PATTERNS = [
     re.compile(r"^\s*\d+\s*$", re.M),
-    re.compile(r"^\s*page\s+\d+\s+of\s+\d+\s*$", re.I | re.M),
+    re.compile(r"^\s*page\s+\d+\s+(?:of\s+\d+)?\s*$", re.I | re.M),
     re.compile(r"^\s*table\s+of\s+contents\b", re.I | re.M),
     re.compile(r"^\s*all\s+rights\s+reserved\b", re.I | re.M),
     re.compile(r"^\s*copyright\s+©?\s*\d{4}\b", re.I | re.M),
     re.compile(r"^\s*downloaded\s+from\b", re.I | re.M),
     re.compile(r"^\s*isbn[:\s]*[0-9\-]{10,17}\b", re.I | re.M),
+    re.compile(r"^\s*issn[:\s]*[0-9\-]{8,10}\b", re.I | re.M),
+    re.compile(r"^\s*doi[:\s]*10\.\d{4,9}/", re.I | re.M),
+    re.compile(r"^\s*(?:published|printed)\s+by\b", re.I | re.M),
+    re.compile(r"^\s*library\s+of\s+congress\b", re.I | re.M),
 ]
 
 
 def _is_structural_noise(text: str) -> bool:
-    """Check if chunk is page noise, TOC, or boilerplate, not academic content."""
+    """Check if chunk is page noise, TOC, bibliography, index, or publisher boilerplate."""
     stripped = text.strip()
     if not stripped:
         return True
     words = stripped.split()
-    if len(words) < 25:
+    word_count = len(words)
+
+    # 1. Structural boilerplate patterns (checked regardless of short word counts up to 80 words)
+    if word_count < 80:
         for pat in _STRUCTURAL_NOISE_PATTERNS:
             if pat.search(stripped):
                 return True
-        if re.match(r"^(?:chapter|module|unit)\s*\d+\s*$", stripped, re.I):
-            return True
+
+    # 2. Standalone unit/chapter header
+    if word_count < 15 and re.match(r"^(?:chapter|module|unit)\s*\d+[\s:–-]*[A-Za-z\s]*$", stripped, re.I):
+        return True
+
+    # 3. Line-by-line structural analysis
     lines = [l.strip() for l in stripped.splitlines() if l.strip()]
-    if lines and len(lines) >= 3:
-        ref_lines = sum(1 for l in lines if re.match(r"^\[\d+\]\s+[A-Z]", l))
-        if ref_lines / len(lines) > 0.6:
+    if lines:
+        n_lines = len(lines)
+
+        # 3a. Table of Contents dotted leaders or line-end page numbers: "Chapter 1 ...... 15"
+        toc_lines = sum(1 for l in lines if re.search(r"(\.{3,}|\t+)\s*\d+$", l) or re.search(r"\bpage\s+\d+$", l, re.I))
+        if toc_lines / n_lines >= 0.35 and n_lines >= 2:
             return True
+
+        # 3b. Bibliography / Citation lines: "[1] Author ...", "[12] Smith ..." or "Author, A. (2021)"
+        ref_lines = sum(1 for l in lines if re.match(r"^\[\d+\]\s+[A-Z]", l) or re.match(r"^[A-Z][a-z]+,\s+[A-Z]\.\s*(?:\([12]\d{3}\)|[12]\d{3})", l))
+        if ref_lines / n_lines >= 0.40 and n_lines >= 2:
+            return True
+
+        # 3c. Index entries: "Keyword, 12, 34-36, 90"
+        index_lines = sum(1 for l in lines if re.match(r"^[A-Za-z\s\-]+,\s*\d+(?:[\-–]\d+)?(?:,\s*\d+)*$", l))
+        if index_lines / n_lines >= 0.40 and n_lines >= 2:
+            return True
+
     return False
 
 
 def _is_legitimate_domain_content(text: str) -> bool:
     """Check if chunk contains legitimate academic, technical, or analytical prose."""
-    words = text.split()
-    if len(words) < 20:
+    if _is_structural_noise(text):
         return False
-    # Formulas, LaTeX or equations
-    has_equations = any(sym in text for sym in ("=", "\\frac", "\\sum", "\\int", "√", "×", "±", "→", "$"))
-    # Broad multi-department engineering vocabulary
-    text_lower = text.lower()
-    domain_terms = (
-        "principle", "function", "system", "process", "analysis", "structure",
-        "method", "model", "equation", "property", "parameter", "component",
-        "operation", "design", "performance", "effect", "theory", "condition",
-        "state", "force", "energy", "circuit", "voltage", "algorithm", "stress",
-        "frequency", "flow", "material", "network", "control", "response",
-        "current", "resistor", "capacitor", "lathe", "machine", "signal",
-        "power", "torque", "velocity", "pressure", "temperature", "fluid"
-    )
-    has_academic_density = any(term in text_lower for term in domain_terms)
-    return has_academic_density or has_equations or len(words) >= 40
+
+    words = re.findall(r"\b[a-zA-Z]{3,}\b", text.lower())
+    total_words = len(words)
+    if total_words < 15:
+        return False
+
+    # 1. Formulas, LaTeX or equations indicate quantitative/scientific content
+    has_equations = any(sym in text for sym in ("=", "\\frac", "\\sum", "\\int", "√", "×", "±", "→", "$", "≤", "≥", "≠", "≈", "∂", "λ", "μ", "π", "σ", "θ", "ω"))
+    if has_equations and total_words >= 15:
+        return True
+
+    # 2. Programming / code notation
+    has_code = any(sym in text for sym in ("def ", "class ", "return ", "import ", "void ", "int ", "public ", "for(", "while(", "SELECT ", "FROM "))
+    if has_code and total_words >= 15:
+        return True
+
+    # 3. Universal lexical diversity & substantive depth (works across all disciplines)
+    unique_terms = set(words)
+    diversity = len(unique_terms) / max(1, total_words)
+    avg_word_len = sum(len(w) for w in words) / max(1, total_words)
+
+    # Substantive paragraphs: >= 25 words with healthy lexical variety and technical length
+    if total_words >= 25 and diversity >= 0.35 and avg_word_len >= 4.0:
+        return True
+
+    # Short paragraphs (18-24 words) are legitimate if they have full punctuation/sentences
+    if total_words >= 18 and diversity >= 0.45 and any(p in text for p in (".", "?", "!")):
+        return True
+
+    return total_words >= 40 and diversity >= 0.30
 
 
 def classify_chunk_depth(text: str, target_module_idx: int = 1) -> str:
     """
     Classifies chunk depth into CORE, SUPPORTING, ADVANCED, or EXTERNAL.
     Safely filters structural noise as EXTERNAL while preserving legitimate
-    academic content across all engineering disciplines.
+    academic content across all engineering and science disciplines.
     """
     if _is_structural_noise(text):
         return "EXTERNAL"
@@ -540,7 +579,13 @@ class ChunkImageMapper:
 
         self._module_groups = {}
 
-        for mod_idx, mod in enumerate(modules, 1):
+        for pos_idx, mod in enumerate(modules, 1):
+            eff_mod_idx = getattr(mod, "module_index", None)
+            if eff_mod_idx is None:
+                m_match = re.search(r'(?i)\bmodule\s*[-–:]?\s*(\d+)', getattr(mod, "title", ""))
+                eff_mod_idx = int(m_match.group(1)) if m_match else pos_idx
+
+            mod_idx = eff_mod_idx
             module_id    = f"module_{mod_idx}"
             module_title = getattr(mod, "title", f"Module {mod_idx}")
             content      = getattr(mod, "content", "")

@@ -601,6 +601,23 @@ def test_eased_difficulty_policy_shifts_6m_to_easy_tier():
     assert co_hard == "CO3" and bloom_hard == 4
 
 
+def test_safe_co_bloom_formatting():
+    """Verify format_co_and_rbt safely formats CO and RBT strings without destructive overrides."""
+    from v0_1.difficulty_policy import format_co_and_rbt
+
+    assert format_co_and_rbt("CO1", "L1") == ("CO1", "L1")
+    assert format_co_and_rbt("CO1", "L2") == ("CO1", "L2")
+    assert format_co_and_rbt("CO2", "L3") == ("CO2", "L3")
+    assert format_co_and_rbt("CO3", "L4") == ("CO3", "L4")
+    assert format_co_and_rbt("CO4", "L5") == ("CO4", "L5")
+    assert format_co_and_rbt("CO5", "L6") == ("CO5", "L6")
+    # Integer bloom normalization
+    assert format_co_and_rbt("CO2", 3) == ("CO2", "L3")
+    # Fallback to module when CO missing
+    assert format_co_and_rbt(None, 2, module_idx=1) == ("CO1", "L2")
+    assert format_co_and_rbt(None, 3, module_idx=2) == ("CO2", "L3")
+
+
 def test_difficulty_manager_verb_matches_canonical_bloom_level():
     """Verify DifficultyManager verbs strictly match canonical BLOOM_VERB_LEVEL_MAP across L1..L6."""
     from v0_1.difficulty import DifficultyManager

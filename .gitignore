@@ -11,6 +11,11 @@ __pycache__/
 *.db-wal
 *.log
 temp_tree.txt
+scratch/
+scratch_*
+logs/pipeline/
+.aiq/ports.env
+workspace/manifests/
 
 # Large Model Weights & Workspace Data
 models/

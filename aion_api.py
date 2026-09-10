@@ -607,6 +607,18 @@ def upload():
         manifest = store.get(doc.id)
         doc.status = DocumentStatus.READY
 
+        # -- Extraction Caching: cache extracted text for downstream generation --
+        enable_cache = os.getenv("ENABLE_EXTRACTION_CACHE", "true").lower() == "true"
+        if enable_cache and artifact:
+            extracted_text = getattr(artifact, "text", None) or (artifact.get("text") if isinstance(artifact, dict) else None)
+            if extracted_text:
+                try:
+                    store.store_derived(doc.id, "plain_text", extracted_text)
+                    manifest = store.get(doc.id)
+                    print(f"[CACHE] Saved extraction for {doc.id}: {len(extracted_text)} chars", flush=True)
+                except Exception as _ce:
+                    print(f"[CACHE] Failed to save extraction for {doc.id}: {_ce}", flush=True)
+
         # -- Self-Learning: extract concepts from uploaded document ---------
         try:
             _body = locals().get('body') or {}
@@ -625,7 +637,7 @@ def upload():
         "source_type":            manifest.source.mime_type,
         "source_filename":        doc.filename,
         "source_authority":       "original",
-        "derived_text_available": False,
+        "derived_text_available": bool(manifest.get_derived_text()),
         "id":                     doc.id,
         "filename":               doc.filename,
         "status":                 manifest.status.value,
@@ -709,6 +721,7 @@ def get_document_text(doc_id: str, store: Optional[Any] = None) -> str:
     manifest = store.get(doc_id)
     derived_path = manifest.get_derived_text()
     if derived_path and os.path.exists(derived_path):
+        print(f"[CACHE] Reading cached extraction for {doc_id}: {derived_path}", flush=True)
         with open(derived_path, "r", encoding="utf-8", errors="replace") as f:
             return f.read()
     if manifest.source.path and Path(manifest.source.path).suffix.lower() in (".txt", ".md"):
@@ -1631,15 +1644,17 @@ def _format_paper(paper, subject, exam_type, mode, qa_report=None):
                 image = _aion_public_image_url(image)
                 sq_m  = split[sq_idx] if sq_idx < len(split) else 0
 
-                final_bloom = sq_dict.get("bloom") or sq_dict.get("rbt") or getattr(raw_sq, "bloom", "L2")
-                final_co    = sq_dict.get("co") or getattr(raw_sq, "co", f"CO{min(5, mod_idx + 1)}")
+                raw_bloom = sq_dict.get("bloom") or sq_dict.get("rbt") or getattr(raw_sq, "bloom", "L2")
+                raw_co    = sq_dict.get("co") or getattr(raw_sq, "co", None)
+                from v0_1.difficulty_policy import format_co_and_rbt
+                final_co, final_rbt = format_co_and_rbt(raw_co, raw_bloom, m_index)
 
                 subs.append(SubQuestion(
                     letter = letters[sq_idx],
                     text   = str(text).strip(),
                     marks  = sq_m,
                     co     = str(final_co),
-                    bloom  = str(final_bloom),
+                    bloom  = str(final_rbt),
                     image  = image,
                 ))
 
@@ -1998,7 +2013,16 @@ def regenerate_single_slot():
     """
     body = request.get_json(silent=True) or {}
     
-    bloom_level = str(body.get("bloom_level") or body.get("bloom") or "L3").upper()
+    mod_id = int(body.get("module_index") or body.get("module") or 1)
+    raw_co = body.get("co")
+    raw_bloom = body.get("bloom_level") or body.get("bloom")
+    from v0_1.difficulty_policy import format_co_and_rbt
+    co, rbt_str = format_co_and_rbt(raw_co, raw_bloom, mod_id)
+
+    # QuestionSlot expects valid bloom_level (L1..L6)
+    b_cand = str(raw_bloom or rbt_str or "L3").strip().upper()
+    m = re.search(r"L?([1-6])", b_cand)
+    bloom_level = f"L{m.group(1)}" if m else "L3"
     bloom_verb = str(body.get("bloom_verb") or body.get("verb") or "").strip()
     if not bloom_verb:
         defaults = {"L1": "Define", "L2": "Explain", "L3": "Calculate", "L4": "Analyze", "L5": "Evaluate", "L6": "Design"}
@@ -2010,8 +2034,6 @@ def regenerate_single_slot():
     evidence_text = str(body.get("evidence_text") or body.get("context") or topic).strip()
     sub_label = str(body.get("sub_label") or body.get("label") or "a").strip()
     q_no = int(body.get("question_number") or body.get("qNo") or 1)
-    mod_id = int(body.get("module_index") or body.get("module") or 1)
-    co = str(body.get("co") or f"CO{min(mod_id, 5)}")
 
     from core.contracts.question_slot import QuestionSlot
     from core.contracts.budgets import AnswerBudget, QuestionBudget
@@ -2055,8 +2077,8 @@ def regenerate_single_slot():
                 "text": q_text,
                 "marks": marks,
                 "co": co,
-                "bloom": bloom_level,
-                "rbt": bloom_level,
+                "bloom": rbt_str,
+                "rbt": rbt_str,
                 "question_type": q_type,
             }
         }), 200

@@ -48,26 +48,39 @@ class ConfidenceGatedExtractor:
         return extract(str(path))
 
     def extract_pdf(self, pdf_path: str) -> Dict[str, Any]:
+        import os
         from .document_parser import parse_document
         parsed = parse_document(pdf_path)
         text = parsed.full_text_with_tables()
         confidence = getattr(parsed, "confidence", 0.58)
+        word_count = len(text.split())
 
-        print(f"[EXTRACTOR] Primary confidence: {confidence:.0%}")
+        ocr_word_threshold = int(os.getenv("OCR_WORD_COUNT_THRESHOLD", "100"))
+
+        print(f"[EXTRACTOR] Primary extraction: {word_count} words, confidence={confidence:.0%}", flush=True)
 
         if confidence >= self.THRESHOLDS["high"]:
-            print(f"[EXTRACTOR] Strategy: native text (confidence={confidence:.0%})")
+            print(f"[EXTRACTOR] Strategy: native text (confidence={confidence:.0%})", flush=True)
             return {"text": text, "method": parsed.method, "confidence": confidence}
 
         if confidence >= self.THRESHOLDS["medium"]:
-            print(f"[EXTRACTOR] Strategy: OCR validation (confidence={confidence:.0%})")
+            if ocr_word_threshold > 0 and word_count >= ocr_word_threshold:
+                print(f"[EXTRACTOR] Skipping OCR validation: confidence {confidence:.0%} but {word_count} words extracted (>= {ocr_word_threshold})", flush=True)
+                return {"text": text, "method": parsed.method, "confidence": confidence}
+            print(f"[EXTRACTOR] Strategy: OCR validation (confidence={confidence:.0%})", flush=True)
             text = self._validate_with_ocr(pdf_path, text)
             return {"text": text, "method": "pymupdf+ocr_validated", "confidence": 0.75}
 
-        print(f"[EXTRACTOR] Strategy: OCR override (confidence={confidence:.0%})")
-        ocr_text = self._extract_full_ocr(pdf_path)
-        if ocr_text.strip():
-            return {"text": ocr_text, "method": "rapidocr_full", "confidence": 0.72}
+        # < 60% confidence:
+        needs_ocr = (ocr_word_threshold == 0) or (word_count < ocr_word_threshold)
+        if needs_ocr:
+            print(f"[EXTRACTOR] Strategy: OCR override (confidence={confidence:.0%}, words={word_count} < {ocr_word_threshold})", flush=True)
+            ocr_text = self._extract_full_ocr(pdf_path)
+            if ocr_text.strip():
+                return {"text": ocr_text, "method": "rapidocr_full", "confidence": 0.72}
+        else:
+            if confidence < 0.60:
+                print(f"[EXTRACTOR] Skipping OCR: confidence {confidence:.0%} low but {word_count} words extracted (>= {ocr_word_threshold})", flush=True)
 
         return {"text": text, "method": parsed.method, "confidence": confidence}
 

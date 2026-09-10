@@ -9,15 +9,27 @@ from v0_1.question_completeness import QuestionCompletenessValidator
 
 @pytest.fixture
 def mech_corpus_file(tmp_path) -> str:
-    f = tmp_path / "mech_thermodynamics.txt"
-    f.write_text(
-        "MODULE 1: Basic Thermodynamics Concepts. First Law of Thermodynamics energy conservation for closed and open systems. "
+    import fitz
+    pdf_path = tmp_path / "mech_thermodynamics.pdf"
+    content = (
+        "MODULE 1: Basic Thermodynamics Concepts\n\n"
+        "First Law of Thermodynamics energy conservation for closed and open systems. "
         "Work transfer, heat transfer, and internal energy non-flow energy equation Q - W = delta U. "
-        "MODULE 2: Second Law of Thermodynamics. Carnot cycle thermal efficiency, Clausius inequality statement, and entropy calculation. "
-        "MODULE 3: Thermal Power Cycles. Otto, Diesel, Dual, and Rankine thermal power generation cycles.",
-        encoding="utf-8",
+        "Enthalpy H = U + PV. Steady flow energy equation applies to nozzles, turbines, and compressors.\n\n"
+        "MODULE 2: Second Law of Thermodynamics\n\n"
+        "Carnot cycle thermal efficiency, Clausius inequality statement, and entropy calculation. "
+        "Second law statements of Kelvin-Planck and Clausius. Reversible and irreversible processes. "
+        "Entropy change in ideal gases and temperature-entropy T-s diagrams.\n\n"
+        "MODULE 3: Thermal Power Cycles\n\n"
+        "Otto, Diesel, Dual, and Rankine thermal power generation cycles. "
+        "Air standard efficiency calculations, compression ratio influence, and mean effective pressure."
     )
-    return str(f)
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((50, 72), content, fontsize=11)
+    doc.save(str(pdf_path))
+    doc.close()
+    return str(pdf_path)
 
 
 def test_mech_corpus_pipeline_run(mech_corpus_file):

@@ -16,9 +16,10 @@ from typing import List, Dict, Any
 
 @dataclass
 class ModuleSegment:
-    title:      str
-    content:    str
-    word_count: int
+    title:        str
+    content:      str
+    word_count:   int
+    module_index: int = 1
 
     def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
@@ -69,7 +70,7 @@ class RobustSegmenter:
 
         # Strategy 1: Explicit markers
         segments = self._by_explicit_markers(text, target_n)
-        if self._is_valid(segments, min_words):
+        if self._is_valid(segments, min_words, allow_single_explicit=True):
             print(f"[SEGMENTER] Strategy: explicit markers -> {len(segments)} segments")
             return segments
 
@@ -144,7 +145,8 @@ class RobustSegmenter:
                 segments.append(ModuleSegment(
                     title=f"Module {i+1}",
                     content=content,
-                    word_count=wc
+                    word_count=wc,
+                    module_index=i+1,
                 ))
 
         return segments
@@ -164,20 +166,24 @@ class RobustSegmenter:
 
             if current_words >= target_words and len(segments) < target_n - 1:
                 content = " ".join(current_sentences)
+                idx = len(segments) + 1
                 segments.append(ModuleSegment(
-                    title=f"Module {len(segments)+1}",
+                    title=f"Module {idx}",
                     content=content,
-                    word_count=len(content.split())
+                    word_count=len(content.split()),
+                    module_index=idx,
                 ))
                 current_sentences = []
                 current_words = 0
 
         if current_sentences:
             content = " ".join(current_sentences)
+            idx = len(segments) + 1
             segments.append(ModuleSegment(
-                title=f"Module {len(segments)+1}",
+                title=f"Module {idx}",
                 content=content,
-                word_count=len(content.split())
+                word_count=len(content.split()),
+                module_index=idx,
             ))
 
         return segments
@@ -197,7 +203,8 @@ class RobustSegmenter:
                 segments.append(ModuleSegment(
                     title=f"Module {i+1}",
                     content=content,
-                    word_count=wc
+                    word_count=wc,
+                    module_index=i+1,
                 ))
 
         return segments
@@ -213,17 +220,34 @@ class RobustSegmenter:
             content = "\n".join(lines[start_line:end_line]).strip()
             wc = len(content.split())
             if wc > 10:
+                raw_title = split['title']
+                m_match = re.search(r'(?i)\b(?:module|chapter|unit|section|part)\s*[-–:]?\s*(\d+)', raw_title)
+                mod_num = int(m_match.group(1)) if m_match else (i + 1)
+
+                clean_title = re.sub(r'^(?:' + prefix + r'|module|chapter|unit|section|part)\s*[-–:]?\s*\d+[:\s-]*', '', raw_title, flags=re.IGNORECASE).strip()
+                if not clean_title:
+                    disp_title = f"{prefix} {mod_num}"
+                else:
+                    disp_title = f"{prefix} {mod_num}: {clean_title[:50]}"
+
                 segments.append(ModuleSegment(
-                    title=f"{prefix} {i+1}: {split['title'][:40]}",
+                    title=disp_title,
                     content=content,
-                    word_count=wc
+                    word_count=wc,
+                    module_index=mod_num,
                 ))
 
         return segments
 
-    def _is_valid(self, segments: List[ModuleSegment], min_words: int) -> bool:
-        if not segments or len(segments) < 2:
+    def _is_valid(self, segments: List[ModuleSegment], min_words: int, allow_single_explicit: bool = False) -> bool:
+        if not segments:
             return False
+        if len(segments) < 2:
+            if not allow_single_explicit:
+                return False
+            title = segments[0].title.lower()
+            if not any(k in title for k in ("module", "chapter", "unit", "part")):
+                return False
         return all(s.word_count >= min_words for s in segments)
 
 

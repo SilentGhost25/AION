@@ -7,10 +7,12 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from core.contracts.question_slot import QuestionSlot, QuestionContract
 from core.contracts.question import GeneratedQuestion
+from core.contracts.module_identity import MODULE_HEADER_PATTERN, strip_module_header
 from core.generation.output_schema import QuestionOutput
 from core.validation.common import CheckResult, RetryAction, GenerationFailureCode, GenerationFailure
 from core.validation.linter import run_linter
 
+_strip_module_header = strip_module_header
 LOG = logging.getLogger(__name__)
 
 def _repair_invalid_json_backslashes(raw: str) -> str:
@@ -243,6 +245,8 @@ class SlotOrchestrator:
         text = re.sub(r'\bmodule_\d+_Q\d+_[a-z]\b', '', text)
         text = re.sub(r'\bmodule_\d+_Q\d+\b', '', text)
         text = re.sub(r'\b(?:according to|for|in)\s+\[?[a-zA-Z0-9_]*slot_[a-zA-Z0-9_]+\]?', '', text, flags=re.IGNORECASE)
+        # Strip echoed module/unit headers
+        text = MODULE_HEADER_PATTERN.sub('', text).strip()
         # Fix tab-corrupted LaTeX keywords
         text = re.sub(r'[\t ]+imes\b', r'\\times ', text)
         text = re.sub(r'[\t ]+ext\{', r'\\text{', text)
@@ -1069,8 +1073,10 @@ class SlotOrchestrator:
             sec_verb = "List" if slot.bloom_verb.lower() != "list" else "Define"
 
         # Ground the example topic dynamically on the slot's actual domain with varied phrasing
-        import re as _re_fmt
-        clean_ex_topic = slot.topic if (slot.topic and not _re_fmt.match(r'^module_\d+', slot.topic.lower())) else "the primary system architecture"
+        raw_topic = str(slot.topic or "").strip()
+        clean_ex_topic = _strip_module_header(raw_topic)
+        if not clean_ex_topic or clean_ex_topic.lower().startswith("module_"):
+            clean_ex_topic = "the primary system architecture"
 
         # Stateful Round-Robin Archetype Rotation across sequential slots
         archetype_idx = getattr(self, "_archetype_counter", 0) % 4
@@ -1156,7 +1162,7 @@ class SlotOrchestrator:
         ) if kw_tuple else ""
 
         prompt = f"""Generate ONE examination sub-question matching this contract:
-Topic: {slot.topic}
+Topic: {clean_ex_topic}
 Course Outcome (CO): {slot.co}
 {kw_line}Bloom Verb: {slot.bloom_verb} (primary operation: {slot.bloom_operation}, level: {slot.bloom_level})
 Marks: {slot.marks}
@@ -1559,7 +1565,7 @@ IMPORTANT OUTPUT CONTRACT:
         marks = slot.marks or 5
 
         # 2. Resolve a clean, well-formed noun topic
-        raw_topic = (slot.topic or "").strip()
+        raw_topic = _strip_module_header((slot.topic or "").strip())
         generic_markers = {"the topic", "general", "unit 1", "unit 2", "unit 3", "unit 4", "unit 5", "module 1", "module 2", "module 3", "module 4", "module 5"}
         import re as _re
 
@@ -1593,6 +1599,7 @@ IMPORTANT OUTPUT CONTRACT:
         # Clean trailing prepositions/conjunctions and pipe noise
         raw_topic = _re.sub(r'\|+', ' ', raw_topic)
         clean_topic = _re.sub(r'\s+(?:and|or|of|in|to|with|for)\s*$', '', raw_topic, flags=_re.IGNORECASE).strip(' ,;:-.|')
+        clean_topic = _strip_module_header(clean_topic)
         if not clean_topic:
             clean_topic = "the core architectural concepts"
 
@@ -1639,10 +1646,10 @@ IMPORTANT OUTPUT CONTRACT:
         template_idx = int(hashlib.md5(slot.slot_id.encode()).hexdigest(), 16) % len(templates)
         template = templates[template_idx]
 
-        question_text = template.format(
+        question_text = self._sanitize_question_text(template.format(
             verb=verb,
             topic=clean_topic,
-        )
+        ))
 
         output = QuestionOutput(
             instruction=question_text,

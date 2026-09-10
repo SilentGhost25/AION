@@ -3,11 +3,12 @@
 # AIQ — Academic Intelligence Questioning
 # Linux / Ubuntu Server Launcher
 # Usage:
-#   ./aiq              → start everything
-#   ./aiq backend      → backend only
-#   ./aiq frontend     → frontend only
+#   ./aiq              → start everything (dynamic port allocation)
+#   ./aiq [port]       → start everything with preferred backend port
+#   ./aiq backend [p]  → backend only
+#   ./aiq frontend [p] → frontend only
 #   ./aiq status       → check running services
-#   ./aiq stop         → stop all AIQ processes
+#   ./aiq stop         → stop all AIQ processes safely
 #   ./aiq logs         → tail backend logs
 #   ./aiq model        → show resolved model
 #   ./aiq install      → install global 'aiq' command
@@ -21,10 +22,13 @@ BACKEND_LOG="$LOG_DIR/backend.log"
 PID_DIR="$ROOT/.aiq"
 BACKEND_PID_FILE="$PID_DIR/backend.pid"
 FRONTEND_PID_FILE="$PID_DIR/frontend.pid"
+PORTS_FILE="$PID_DIR/ports.env"
 
-BACKEND_PORT=8100
-FRONTEND_PORT=5173
+DEFAULT_BACKEND_PORT=8100
+DEFAULT_FRONTEND_PORT=5174
 FRONTEND_DIR="$ROOT/frontend/artifacts/qp-generator"
+
+PORT_OVERRIDE=""
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'
@@ -95,20 +99,6 @@ is_port_open() {
     fi
 }
 
-kill_port() {
-    local port="$1"
-    if command -v fuser >/dev/null 2>&1; then
-        fuser -k "${port}/tcp" 2>/dev/null || true
-    fi
-    if command -v lsof >/dev/null 2>&1; then
-        local pids
-        pids=$(lsof -t -i:"${port}" 2>/dev/null || true)
-        if [[ -n "$pids" ]]; then
-            kill -9 $pids 2>/dev/null || true
-        fi
-    fi
-}
-
 read_pid() {
     local f="$1"
     [[ -f "$f" ]] && cat "$f" || echo ""
@@ -121,6 +111,46 @@ is_running() {
 
 write_pid() {
     echo "$1" > "$2"
+}
+
+read_ports() {
+    if [[ -f "$PORTS_FILE" ]]; then
+        while IFS='=' read -r key val || [[ -n "$key" ]]; do
+            [[ -z "$key" || "$key" =~ ^# ]] && continue
+            export "$key"="$val"
+        done < "$PORTS_FILE"
+    fi
+    BACKEND_PORT="${AION_PORT:-${BACKEND_PORT:-$DEFAULT_BACKEND_PORT}}"
+    FRONTEND_PORT="${FRONTEND_PORT:-$DEFAULT_FRONTEND_PORT}"
+}
+
+allocate_ports() {
+    local desired_backend="${PORT_OVERRIDE:-${AION_PORT:-${BACKEND_PORT:-$DEFAULT_BACKEND_PORT}}}"
+    local desired_frontend="${FRONTEND_PORT_OVERRIDE:-${FRONTEND_PORT:-$DEFAULT_FRONTEND_PORT}}"
+
+    local resolved_backend
+    resolved_backend=$(python -c "from core.config.server_config import find_available_port; print(find_available_port($desired_backend))" 2>/dev/null || echo "$desired_backend")
+    if [[ "$resolved_backend" != "$desired_backend" ]]; then
+        warn "Port $desired_backend is occupied. Dynamically selected port: $resolved_backend"
+    fi
+    BACKEND_PORT="$resolved_backend"
+    export AION_PORT="$resolved_backend"
+    export BACKEND_PORT="$resolved_backend"
+
+    local resolved_frontend
+    resolved_frontend=$(python -c "from core.config.server_config import find_available_port; print(find_available_port($desired_frontend))" 2>/dev/null || echo "$desired_frontend")
+    if [[ "$resolved_frontend" != "$desired_frontend" ]]; then
+        warn "Port $desired_frontend is occupied. Dynamically selected port: $resolved_frontend"
+    fi
+    FRONTEND_PORT="$resolved_frontend"
+    export FRONTEND_PORT="$resolved_frontend"
+
+    mkdir -p "$PID_DIR"
+    cat <<EOF > "$PORTS_FILE"
+BACKEND_PORT=$BACKEND_PORT
+AION_PORT=$AION_PORT
+FRONTEND_PORT=$FRONTEND_PORT
+EOF
 }
 
 cleanup() {
@@ -137,10 +167,14 @@ cmd_backend() {
     ensure_dirs
     cd "$ROOT"
     activate_venv
+    allocate_ports
 
-    if is_port_open "$BACKEND_PORT"; then
-        warn "Port $BACKEND_PORT is currently occupied — clearing existing process..."
-        kill_port "$BACKEND_PORT"
+    # Only stop prior instance if recorded by this launcher
+    local old_pid
+    old_pid=$(read_pid "$BACKEND_PID_FILE")
+    if is_running "$old_pid"; then
+        warn "Stopping previous AIQ backend instance (PID $old_pid)..."
+        kill "$old_pid" 2>/dev/null || true
         sleep 1
     fi
 
@@ -181,27 +215,33 @@ cmd_backend() {
 cmd_frontend() {
     header "Starting AIQ Frontend"
     ensure_dirs
+    read_ports
 
     if [[ ! -d "$FRONTEND_DIR" ]]; then
         error "Frontend directory not found: $FRONTEND_DIR"
         return 1
     fi
 
-    if is_port_open "$FRONTEND_PORT"; then
-        warn "Port $FRONTEND_PORT is currently occupied — clearing existing frontend process..."
-        kill_port "$FRONTEND_PORT"
-        kill_port 5174
+    local old_pid
+    old_pid=$(read_pid "$FRONTEND_PID_FILE")
+    if is_running "$old_pid"; then
+        warn "Stopping previous AIQ frontend instance (PID $old_pid)..."
+        kill "$old_pid" 2>/dev/null || true
         sleep 1
     fi
 
     cd "$FRONTEND_DIR"
     require pnpm
 
-    pnpm run dev --host &
+    export BACKEND_PORT="$BACKEND_PORT"
+    export AION_PORT="$BACKEND_PORT"
+    export FRONTEND_PORT="$FRONTEND_PORT"
+
+    pnpm run dev --host --port "$FRONTEND_PORT" &
     local pid=$!
     write_pid "$pid" "$FRONTEND_PID_FILE"
     log "Frontend PID: $pid"
-    log "Frontend starting..."
+    log "Frontend starting on port $FRONTEND_PORT (mapping backend $BACKEND_PORT)..."
 
     # Wait for Vite to initialize
     sleep 3
@@ -260,32 +300,42 @@ cmd_start() {
 
 cmd_stop() {
     header "Stopping AIQ"
+    read_ports
 
     local backend_pid frontend_pid
     backend_pid=$(read_pid "$BACKEND_PID_FILE")
     frontend_pid=$(read_pid "$FRONTEND_PID_FILE")
 
+    # Safely verify process name before terminating
     if is_running "$backend_pid"; then
-        kill "$backend_pid" 2>/dev/null || true
-        log "Backend stopped (PID $backend_pid)"
+        local comm
+        comm=$(ps -p "$backend_pid" -o comm= 2>/dev/null || echo "")
+        if [[ "$comm" =~ python ]]; then
+            kill "$backend_pid" 2>/dev/null || true
+            log "Backend stopped (PID $backend_pid)"
+        else
+            warn "PID $backend_pid is '$comm' (not Python) — skipping kill to protect other processes."
+        fi
     fi
 
     if is_running "$frontend_pid"; then
-        kill "$frontend_pid" 2>/dev/null || true
-        log "Frontend stopped (PID $frontend_pid)"
+        local comm
+        comm=$(ps -p "$frontend_pid" -o comm= 2>/dev/null || echo "")
+        if [[ "$comm" =~ node|pnpm ]]; then
+            kill "$frontend_pid" 2>/dev/null || true
+            log "Frontend stopped (PID $frontend_pid)"
+        else
+            warn "PID $frontend_pid is '$comm' (not Node) — skipping kill to protect other processes."
+        fi
     fi
 
-    # Kill by port as robust fallback
-    kill_port "$BACKEND_PORT"
-    kill_port "$FRONTEND_PORT"
-    kill_port 5174
-
-    rm -f "$BACKEND_PID_FILE" "$FRONTEND_PID_FILE"
-    log "Stopped all processes on ports $BACKEND_PORT, $FRONTEND_PORT"
+    rm -f "$BACKEND_PID_FILE" "$FRONTEND_PID_FILE" "$PORTS_FILE"
+    log "AIQ stopped."
 }
 
 cmd_status() {
     header "AIQ Status"
+    read_ports
 
     local backend_pid frontend_pid
     backend_pid=$(read_pid "$BACKEND_PID_FILE")
@@ -296,9 +346,9 @@ cmd_status() {
         echo -e "  Backend   ${GREEN}● running${NC}  (port $BACKEND_PORT, PID ${backend_pid:-active})"
         # Try health check
         local health
-        health=$(curl -sf "http://localhost:$BACKEND_PORT/api/v1/health" 2>/dev/null || echo "{}")
+        health=$(curl -sf "http://localhost:$BACKEND_PORT/api/health" 2>/dev/null || curl -sf "http://localhost:$BACKEND_PORT/api/v1/health" 2>/dev/null || echo "{}")
         local model status
-        model=$(echo "$health" | python -c "import sys,json; d=json.load(sys.stdin); print(d.get('resolved_model','?'))" 2>/dev/null || echo "?")
+        model=$(echo "$health" | python -c "import sys,json; d=json.load(sys.stdin); print(d.get('resolved_model', d.get('model', '?')))" 2>/dev/null || echo "?")
         status=$(echo "$health" | python -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','?'))" 2>/dev/null || echo "?")
         echo -e "  Health    ${GREEN}$status${NC}"
         echo -e "  Model     $model"
@@ -374,35 +424,49 @@ cmd_install() {
 
 cmd_help() {
     banner
-    echo "Usage: ./aiq [command]  (or 'aiq [command]' if installed)"
+    echo "Usage: ./aiq [command] [port]  (or 'aiq [command] [port]' if installed)"
     echo ""
     echo "Commands:"
-    echo "  (none)     Start backend + frontend"
-    echo "  backend    Start backend only"
-    echo "  frontend   Start frontend only"
-    echo "  stop       Stop all AIQ processes (ports 8100 & 5173)"
-    echo "  status     Show running status"
+    echo "  (none)     Start backend + frontend (auto-allocating free ports)"
+    echo "  backend    Start backend only (e.g. ./aiq backend 8105)"
+    echo "  frontend   Start frontend only (e.g. ./aiq frontend 5175)"
+    echo "  stop       Stop all AIQ processes safely"
+    echo "  status     Show running status and verified ports"
     echo "  logs       Tail backend logs"
     echo "  model      Show resolved model configuration"
     echo "  install    Install global 'aiq' binary in ~/.local/bin"
     echo "  help       Show this help"
     echo ""
     echo "Environment:"
+    echo "  AION_PORT=8100      Preferred backend port"
+    echo "  FRONTEND_PORT=5174  Preferred frontend port"
     echo "  AION_DEVICE=laptop|desktop|server"
-    echo "  AION_MODEL=qwen2.5:7b  (manual override)"
+    echo "  AION_MODEL=qwen2.5:14b  (manual override)"
     echo ""
     echo "Examples:"
     echo "  ./aiq"
-    echo "  AION_DEVICE=server ./aiq"
+    echo "  ./aiq 8105"
+    echo "  ./aiq backend 8102"
     echo "  ./aiq status"
     echo "  ./aiq stop"
 }
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
 
+# Check if first argument is a numeric port (e.g. ./aiq 8105)
+if [[ "${1:-}" =~ ^[0-9]+$ ]]; then
+    PORT_OVERRIDE="$1"
+    set -- ""
+fi
+
+# Check if second argument is a numeric port for subcommands (e.g. ./aiq backend 8105)
+if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+    PORT_OVERRIDE="$2"
+fi
+
 case "${1:-}" in
     backend)  activate_venv 2>/dev/null; cd "$ROOT"; cmd_backend; wait ;;
-    frontend) cmd_frontend; wait ;;
+    frontend) activate_venv 2>/dev/null; cd "$ROOT"; cmd_frontend; wait ;;
     stop)     cmd_stop ;;
     status)   cmd_status ;;
     logs)     cmd_logs ;;

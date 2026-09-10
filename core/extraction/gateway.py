@@ -7,9 +7,9 @@ import os
 import re
 import json
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-import os
 
 AION_ROOT = Path(os.environ.get("AION_BASE_DIR") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -346,7 +346,6 @@ class ExtractionGateway:
                         # Try to export the image
                         img_path = ""
                         try:
-                            import tempfile, os
                             pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), clip=bbox)
                             tmp_dir = tempfile.mkdtemp(prefix="aion_figs_")
                             img_path = os.path.join(tmp_dir, f"fig_p{page_idx+1}_{xref}.png")

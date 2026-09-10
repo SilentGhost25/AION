@@ -13,6 +13,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import nsdecls, qn
+from v0_1.difficulty_policy import format_co_and_rbt
 
 
 def _set_cell_background(cell, hex_color: str):
@@ -72,6 +73,12 @@ def get_module_for_q(q: Dict[str, Any]) -> int:
       - Q9, Q10 -> Module 5
     Formula: ((q_num - 1) // 2) + 1
     """
+    explicit = q.get("module") or q.get("module_index") or q.get("moduleIndex")
+    if explicit is not None:
+        try:
+            return max(1, min(5, int(explicit)))
+        except Exception:
+            pass
     q_no = q.get("qNo") or q.get("question_number") or q.get("questionNumber") or q.get("sectionNumber") or 1
     try:
         q_num = int(q_no)
@@ -268,8 +275,9 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
                 # Single question without sub-questions
                 q_text = _clean_latex_math_for_doc(q.get("text") or q.get("question_text") or "")
                 q_marks = q.get("marks") or 10
-                q_co = q.get("co") or f"CO{min(mod_idx, 5)}"
-                q_rbt = q.get("bloom") or q.get("bloom_level") or q.get("rbt") or "L2"
+                q_co_raw = q.get("co") or f"CO{min(mod_idx, 5)}"
+                q_rbt_raw = q.get("bloom") or q.get("bloom_level") or q.get("rbt") or "L2"
+                q_co, q_rbt = format_co_and_rbt(q_co_raw, q_rbt_raw, mod_idx)
 
                 row = table.add_row()
                 cells = row.cells
@@ -290,8 +298,9 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
                     s_label = sq.get("label") or sq.get("sub_label") or (letters[s_idx] if s_idx < len(letters) else f"({s_idx+1})")
                     s_text = _clean_latex_math_for_doc(sq.get("text") or sq.get("question_text") or "")
                     s_marks = sq.get("marks") or (6 if s_idx == 0 else 4)
-                    s_co = sq.get("co") or f"CO{min(mod_idx, 5)}"
-                    s_rbt = sq.get("bloom") or sq.get("bloom_level") or sq.get("rbt") or "L2"
+                    s_co_raw = sq.get("co") or f"CO{min(mod_idx, 5)}"
+                    s_rbt_raw = sq.get("bloom") or sq.get("bloom_level") or sq.get("rbt") or "L2"
+                    s_co, s_rbt = format_co_and_rbt(s_co_raw, s_rbt_raw, mod_idx)
 
                     row = table.add_row()
                     cells = row.cells

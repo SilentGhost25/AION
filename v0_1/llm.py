@@ -132,16 +132,32 @@ def assert_model_ready(
 
 
 def _get_concurrency() -> int:
-    """Read concurrency from the active RuntimeProfile, defaulting to 3 (production)."""
+    """Read concurrency from environment or active RuntimeProfile, defaulting to 2."""
+    env_c = os.getenv("AION_CONCURRENCY")
+    if env_c and env_c.strip().isdigit():
+        return max(1, int(env_c.strip()))
     try:
         from runtime import get_active_profile
         return get_active_profile().concurrency
     except Exception:
-        return 3
+        return 2
 
 
-# Bounded concurrency semaphore — value set from runtime profile
-CONCURRENCY_SEMAPHORE = threading.Semaphore(_get_concurrency())
+# Bounded concurrency semaphore — value set from runtime profile or env
+_concurrency_val = _get_concurrency()
+CONCURRENCY_SEMAPHORE = threading.Semaphore(_concurrency_val)
+_sem_lock = threading.Lock()
+
+def get_concurrency_semaphore() -> threading.Semaphore:
+    """Returns dynamic concurrency semaphore reacting to environment/profile changes."""
+    global CONCURRENCY_SEMAPHORE, _concurrency_val
+    curr = _get_concurrency()
+    if curr != _concurrency_val:
+        with _sem_lock:
+            if curr != _concurrency_val:
+                _concurrency_val = curr
+                CONCURRENCY_SEMAPHORE = threading.Semaphore(curr)
+    return CONCURRENCY_SEMAPHORE
 
 
 def get_best_llm():
@@ -272,7 +288,7 @@ class RobustLLMCaller:
         Call LLM with hard timeout.
         Only production model is tried unless allow_fallback was explicitly enabled.
         """
-        with CONCURRENCY_SEMAPHORE:
+        with get_concurrency_semaphore():
             models_to_try = [self.primary_model]
             if self.allow_fallback and self.fallback_models:
                 models_to_try += self.fallback_models
