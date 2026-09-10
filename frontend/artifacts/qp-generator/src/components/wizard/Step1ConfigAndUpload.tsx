@@ -49,6 +49,14 @@ const ERROR_MESSAGES: Record<string, { title: string; hint: string }> = {
     title: "Not enough usable content in uploaded PDF",
     hint: "Upload a complete module PDF, not a summary or slide deck.",
   },
+}
+
+const formatRbt = (v: any): string => {
+  const s = String(v ?? 2).replace(/^L+/i, "")
+  return `L${s || "2"}`
+}
+
+const ERROR_MESSAGES_CONTINUED: Record<string, { title: string; hint: string }> = {
   GENERATION_FAILED: {
     title: "Question generation failed",
     hint: "The AI model encountered an error. Try again or upload a different PDF.",
@@ -278,14 +286,14 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
               text: sq.text || "",
               marks: sq.marks,
               co: sq.co || co,
-              rbt: `L${sq.bloom || q.bloom_level || q.bloomLevel || 2}`,
+              rbt: formatRbt(sq.bloom || q.bloom_level || q.bloomLevel || 2),
             }))
             questions.push({
               qNo: globalQNo,
               text: "",
               marks: q.totalMarks || q.total_marks || markPerQuestion,
               co,
-              rbt: `L${q.bloom_level || q.bloomLevel || 2}`,
+              rbt: formatRbt(q.bloom_level || q.bloomLevel || 2),
               sectionNumber: globalQNo,
               isOrQuestion: isOr,
               subQuestions: subs,
@@ -528,7 +536,7 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
               text: sq.text || "",
               marks: sq.marks,
               co: sq.co || co,
-              rbt: `L${sq.bloom || q.bloom_level || q.bloomLevel || 2}`,
+              rbt: formatRbt(sq.bloom || q.bloom_level || q.bloomLevel || 2),
             }))
 
             questions.push({
@@ -536,7 +544,7 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
               text: "",   // Pure renderer — text is in subQuestions
               marks: q.totalMarks || q.total_marks || markPerQuestion,
               co,
-              rbt: `L${q.bloom_level || q.bloomLevel || 2}`,
+              rbt: formatRbt(q.bloom_level || q.bloomLevel || 2),
               sectionNumber: globalQNo,
               isOrQuestion: isOr,
               subQuestions: subs,

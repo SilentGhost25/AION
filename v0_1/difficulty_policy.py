@@ -74,11 +74,10 @@ def format_co_and_rbt(co: Any = None, bloom: Any = None, module_idx: int = 1) ->
         co_str = make_co(min(max(1, int(module_idx or 1)), 5))
 
     b_str = str(bloom or "").strip().upper()
-    if b_str.isdigit():
-        b_str = f"L{b_str}"
-    elif not b_str.startswith("L"):
-        m = re.search(r"L?([1-6])", b_str)
-        b_str = f"L{m.group(1)}" if m else "L2"
+    # Strip any leading 'L's (e.g. 'LL2' -> '2', 'L2' -> '2', '2' -> '2')
+    b_num = re.sub(r"^L+", "", b_str)
+    m = re.search(r"([1-6])", b_num if b_num else b_str)
+    b_str = f"L{m.group(1)}" if m else "L2"
 
     return co_str, b_str
 

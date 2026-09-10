@@ -15,6 +15,11 @@ import { Spinner } from "@/components/ui/spinner"
 import { aionAPI } from "@/lib/aion-api"
 import { buildSegments } from "@/components/normalizeSegments"
 
+const formatRbt = (v: any): string => {
+  const s = String(v ?? 2).replace(/^L+/i, "")
+  return `L${s || "2"}`
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface SubQuestion {
@@ -364,7 +369,7 @@ export function Step2Rules({
               text:          q.subQuestions?.[0]?.text ?? "",
               marks:         q.totalMarks ?? 10,
               co:            q.subQuestions?.[0]?.co ?? `CO${mNum}`,
-              rbt:           `L${q.bloomLevel ?? 2}`,
+              rbt:           formatRbt(q.bloomLevel ?? 2),
               sectionNumber: mNum,
               isOrQuestion:  q.isOr ?? false,
               subQuestions:  (q.subQuestions ?? []).map((sq: any) => {
@@ -378,7 +383,7 @@ export function Step2Rules({
                   text:  sqText,
                   marks: sq.marks ?? 5,
                   co:    sq.co ?? `CO${mNum}`,
-                  rbt:   `L${sq.bloom ?? 2}`,
+                  rbt:   formatRbt(sq.bloom ?? 2),
                   module: mNum,
                   moduleIndex: mNum,
                   segments: segs,

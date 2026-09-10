@@ -616,6 +616,10 @@ def test_safe_co_bloom_formatting():
     # Fallback to module when CO missing
     assert format_co_and_rbt(None, 2, module_idx=1) == ("CO1", "L2")
     assert format_co_and_rbt(None, 3, module_idx=2) == ("CO2", "L3")
+    # Duplicate prefix defense
+    assert format_co_and_rbt("CO1", "LL2") == ("CO1", "L2")
+    assert format_co_and_rbt("CO2", "LLL3") == ("CO2", "L3")
+    assert format_co_and_rbt("CO3", "l4") == ("CO3", "L4")
 
 
 def test_difficulty_manager_verb_matches_canonical_bloom_level():
