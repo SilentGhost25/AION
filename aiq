@@ -473,6 +473,6 @@ case "${1:-}" in
     model)    cmd_model ;;
     install)  cmd_install ;;
     help|--help|-h) cmd_help ;;
-    "")       cmd_start ;;
+    start|"") cmd_start ;;
     *)        error "Unknown command: $1"; cmd_help; exit 1 ;;
 esac

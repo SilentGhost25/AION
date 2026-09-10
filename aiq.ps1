@@ -269,6 +269,7 @@ switch ($Command) {
     "model"    { Invoke-Model }
     "logs"     { Invoke-Logs }
     "help"     { Show-Help }
+    "start"    { Invoke-Start }
     ""         { Invoke-Start }
     default    { Write-Err "Unknown command: $Command"; Show-Help }
 }
