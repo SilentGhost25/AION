@@ -18,9 +18,10 @@ class SubQuestion:
     co:      str   = "CO1"
     bloom:   int   = 2
     image:   Optional[str] = None
+    ragas_metrics: Optional[dict] = None
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "letter": self.letter,
             "text":   self.text,
             "marks":  self.marks,
@@ -28,6 +29,10 @@ class SubQuestion:
             "bloom":  self.bloom,
             "image":  self.image,
         }
+        if self.ragas_metrics is not None:
+            d["ragas_metrics"] = self.ragas_metrics
+            d["ragasMetrics"] = self.ragas_metrics
+        return d
 
 
 @dataclass

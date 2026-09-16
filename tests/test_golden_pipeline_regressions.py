@@ -705,3 +705,61 @@ def test_bloom_verb_and_operation_synchronization_across_pipeline():
         assert res.passed, f"check_answerability failed for action verb '{tv}': {res.message}"
 
 
+def test_cross_module_deduplication_via_shared_registry():
+    """Verify that SlotOrchestrator with shared_generated_texts catches cross-module duplicate questions."""
+    from core.generation.orchestrator import SlotOrchestrator
+    from core.contracts.question_slot import QuestionSlot
+    from core.contracts.question import GeneratedQuestion
+    from core.generation.output_schema import QuestionOutput
+    from core.contracts.budgets import AnswerBudget, QuestionBudget
+    from core.contracts.task_signature import TaskSignature
+    from core.validation.linter import check_sibling_uniqueness
+    import threading
+
+    shared_texts = []
+    lock = threading.Lock()
+
+    orch1 = SlotOrchestrator(shared_generated_texts=shared_texts, shared_texts_lock=lock)
+    orch2 = SlotOrchestrator(shared_generated_texts=shared_texts, shared_texts_lock=lock)
+
+    # Module 3 (orch1) generates a question about VirtualBox Ubuntu installation
+    q_mod3 = "Explain the step-by-step procedure to install and configure Ubuntu Linux inside VirtualBox."
+    with lock:
+        orch1._all_generated_texts.append(q_mod3)
+
+    # Module 4 (orch2) sees this in its shared texts
+    assert len(orch2._all_generated_texts) == 1
+    assert "VirtualBox" in orch2._all_generated_texts[0]
+
+    # If Module 4 attempts to generate a near-duplicate, check_sibling_uniqueness catches it
+    cand_output = QuestionOutput(
+        instruction="Describe the detailed steps to install and configure Ubuntu OS on Oracle VirtualBox.",
+        question_text="Describe the detailed steps to install and configure Ubuntu OS on Oracle VirtualBox.",
+        math_blocks=[]
+    )
+    slot = QuestionSlot(
+        slot_id="module_4_Q7_a",
+        question_no=7,
+        sub_label="a",
+        or_pair_id="pair_1",
+        is_alternative=False,
+        module_id=4,
+        marks=6,
+        bloom_level="L2",
+        bloom_verb="Describe",
+        bloom_operation="UNDERSTAND",
+        co="CO2",
+        difficulty="MEDIUM",
+        question_type="THEORY",
+        topic="Virtualization Setup",
+        evidence_ids=("chunk_vbox",),
+        answer_budget=AnswerBudget.from_marks_and_bloom(6, "L2"),
+        question_budget=QuestionBudget.from_bloom("L2", 6),
+        task_signature=TaskSignature.from_bloom_marks_type("L2", 6, "THEORY")
+    )
+    cand_q = GeneratedQuestion(cand_output, slot)
+    check_res = check_sibling_uniqueness(cand_q, sibling_texts=list(orch2._all_generated_texts))
+    assert not check_res.passed
+    assert check_res.code == "SIBLING_SIMILARITY"
+
+

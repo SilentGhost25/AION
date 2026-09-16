@@ -32,12 +32,15 @@ STOPWORDS = {
     "the", "and", "for", "with", "that", "this", "from", "are", "its", "which",
     "how", "what", "why", "based", "including", "using", "into", "their", "such",
     "each", "other", "when", "where", "have", "been", "given", "value", "these",
+    "explain", "describe", "detail", "detailed", "procedure", "steps", "step",
+    "discuss", "illustrate", "outline", "state", "write", "define", "briefly",
+    "various", "following", "between", "difference", "differences", "about",
 }
 
 def _jaccard_similarity(a: str, b: str) -> float:
-    """Meaningful word-level Jaccard similarity excluding common grammatical stopwords."""
-    set_a = {w for w in re.findall(r"\b[a-zA-Z0-9]{3,}\b", a.lower()) if w not in STOPWORDS}
-    set_b = {w for w in re.findall(r"\b[a-zA-Z0-9]{3,}\b", b.lower()) if w not in STOPWORDS}
+    """Meaningful word-level Jaccard similarity excluding common grammatical and prompt stopwords."""
+    set_a = {re.sub(r"s$", "", w) for w in re.findall(r"\b[a-zA-Z0-9]{3,}\b", a.lower()) if w not in STOPWORDS}
+    set_b = {re.sub(r"s$", "", w) for w in re.findall(r"\b[a-zA-Z0-9]{3,}\b", b.lower()) if w not in STOPWORDS}
     if not set_a or not set_b:
         return 0.0
     return len(set_a & set_b) / len(set_a | set_b)

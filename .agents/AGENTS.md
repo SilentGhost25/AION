@@ -1,6 +1,20 @@
 # Project Rules & Release Baseline
 
-## Release Baseline (Golden State)
+# Project Rules & Release Baseline
+
+## Current Production Baseline
+- **Tag**: `v1.1.0`
+- **Branch**: `mod_eval`
+- **Core Enhancements in v1.1.0**:
+  - Module-level concurrency & dynamic port allocation (`start_server.ps1`, `start_server.sh`)
+  - Cross-module deduplication registry (`shared_generated_texts`) & Jaccard audit pass in `v0_1/main.py`
+  - Bloom verb and operation harmonization (`BLOOM_VERB_LEVEL_MAP`) across linter, critic, and exporters
+  - Fail-closed subject archetype registry
+  - RapidOCR word-count gating (`OCR_WORD_COUNT_THRESHOLD=100`) & persistent extraction caching
+  - Sparse module indexing in `v0_1/segmenter.py`
+  - Topical neighborhood chunk distribution & `EXTERNAL` depth exclusion in `v0_1/chunk_image_mapper.py`
+
+## Release Baseline (Golden State / Rollback Target)
 - **Tag**: `v1.0.0` and `v1`
 - **Golden Commit**: `6e3631a`
 - **Reversion Directive**: If the user requests to revert to the previous golden version, check out or restore tag `v1.0.0` / `v1`.

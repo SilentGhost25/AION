@@ -139,6 +139,31 @@ def run_unified(
     auditor.audit_critic(len(validated), n_passed, n_repaired, n_failed,
                          elapsed_ms=(time.time()-t7)*1000)
 
+    # -- S7.5: Observe accepted questions with DeterministicRAGEvaluator --
+    try:
+        from core.evaluation import DeterministicRAGEvaluator, aggregate_paper_metrics, emit_accepted_metric
+        _rag_eval = DeterministicRAGEvaluator()
+        _metrics_list = []
+        for v in validated:
+            if v.verdict == ValidationVerdict.PASS:
+                _spec = v.question.spec
+                _ev_text = _spec.evidence.combined_text if hasattr(_spec, "evidence") and _spec.evidence else ""
+                _m = _rag_eval.evaluate_question(
+                    question_text=v.question.question_text,
+                    slot=_spec,
+                    evidence=_ev_text,
+                    model_name=model,
+                    trace_id=raw.doc_id,
+                )
+                setattr(v.question, "ragas_metrics", _m)
+                _metrics_list.append(_m)
+                emit_accepted_metric(_m)
+        if _metrics_list:
+            _summary = aggregate_paper_metrics(_metrics_list)
+            print(f"[UNIFIED] Evaluated {len(_metrics_list)} accepted questions | Harmonic RAG Score: {_summary.mean_rag_score:.2f}", flush=True)
+    except Exception as _eval_err:
+        print(f"[UNIFIED] RAG metric evaluation skipped: {_eval_err}", flush=True)
+
     # -- S8: Assemble final paper ----------------------------------------------
     paper = _assemble(raw, validated, health)
     auditor.audit_final_paper(paper)

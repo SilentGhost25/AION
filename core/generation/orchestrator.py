@@ -1,5 +1,6 @@
 # core/generation/orchestrator.py
 
+import os
 import json
 import logging
 import time
@@ -221,14 +222,15 @@ class SlotOrchestrator:
     Drives sub-question generation and validation using a failure-specific 
     bounded retry state machine.
     """
-    def __init__(self, llm_client=None, rng=None, artifact=None, profile=None, marks_split=None):
+    def __init__(self, llm_client=None, rng=None, artifact=None, profile=None, marks_split=None, shared_generated_texts=None, shared_texts_lock=None):
         self.llm_client = llm_client
         self.rng = rng
         self.artifact = artifact
         self.profile = profile
         self.marks_split = marks_split  # User-specified marks partitions
         self.session_log: List[Dict[str, Any]] = []
-        self._all_generated_texts: List[str] = []
+        self._all_generated_texts: List[str] = shared_generated_texts if shared_generated_texts is not None else []
+        self._shared_texts_lock = shared_texts_lock
         self._archetype_counter: int = 0
 
 
@@ -283,14 +285,20 @@ class SlotOrchestrator:
         extra_hints = ""
         failure_history: List[str] = []
         start_time = time.monotonic()
-        # Track sibling question texts for anti-similarity check
-        sibling_texts: List[str] = list(getattr(self, "_all_generated_texts", [])) + list(getattr(self, "_generated_texts_this_pair", []))
         
         while attempt <= MAX_ATTEMPTS:
             # Slot budget check
             if time.monotonic() - start_time > slot_budget_sec:
                 LOG.warning(f'[ORCHESTRATOR] Slot budget exceeded for {slot.slot_id} — using fallback.')
                 return self._generate_template_fallback(slot, evidence_pack)
+
+            # Refresh sibling and previously-generated texts dynamically across attempts/modules
+            if getattr(self, "_shared_texts_lock", None):
+                with self._shared_texts_lock:
+                    _all_texts_copy = list(self._all_generated_texts)
+            else:
+                _all_texts_copy = list(getattr(self, "_all_generated_texts", []))
+            sibling_texts: List[str] = _all_texts_copy + list(getattr(self, "_generated_texts_this_pair", []))
 
             # Generate candidate attempt slot with iterated seed
             attempt_slot = slot.make_attempt_slot(attempt - 1) if hasattr(slot, "make_attempt_slot") else slot
@@ -880,9 +888,13 @@ class SlotOrchestrator:
                         candidate.instruction = self._sanitize_question_text(candidate.instruction)
                     self._generated_texts_this_pair.append(candidate.question_text)
                     # Global registry for cross-module dedup
-                    if not hasattr(self, "_all_generated_texts"):
-                        self._all_generated_texts = []
-                    self._all_generated_texts.append(candidate.question_text)
+                    if getattr(self, "_shared_texts_lock", None):
+                        with self._shared_texts_lock:
+                            self._all_generated_texts.append(candidate.question_text)
+                    else:
+                        if not hasattr(self, "_all_generated_texts"):
+                            self._all_generated_texts = []
+                        self._all_generated_texts.append(candidate.question_text)
                     # Reset pair list after 6 slots (3 OR pairs x 2 sub-questions)
                     if len(self._generated_texts_this_pair) >= 6:
                         self._generated_texts_this_pair = []
@@ -934,9 +946,13 @@ class SlotOrchestrator:
                             if not hasattr(self, "_generated_texts_this_pair"):
                                 self._generated_texts_this_pair = []
                             self._generated_texts_this_pair.append(healed_candidate.question_text)
-                            if not hasattr(self, "_all_generated_texts"):
-                                self._all_generated_texts = []
-                            self._all_generated_texts.append(healed_candidate.question_text)
+                            if getattr(self, "_shared_texts_lock", None):
+                                with self._shared_texts_lock:
+                                    self._all_generated_texts.append(healed_candidate.question_text)
+                            else:
+                                if not hasattr(self, "_all_generated_texts"):
+                                    self._all_generated_texts = []
+                                self._all_generated_texts.append(healed_candidate.question_text)
                             return healed_candidate
                 except Exception as _heal_imm_err:
                     LOG.debug(f"[AUTO-HEALER] Immediate healing skipped: {_heal_imm_err}")
@@ -1150,7 +1166,11 @@ class SlotOrchestrator:
         )
 
         # Build exclusion list from previously generated questions (last 10)
-        _prev_texts = list(getattr(self, "_all_generated_texts", []))[-10:]
+        if getattr(self, "_shared_texts_lock", None):
+            with self._shared_texts_lock:
+                _prev_texts = list(self._all_generated_texts)[-10:]
+        else:
+            _prev_texts = list(getattr(self, "_all_generated_texts", []))[-10:]
         previously_generated = "\n".join(f"- {t[:120]}" for t in _prev_texts) if _prev_texts else "(none — this is the first question)"
 
         kw_tuple = getattr(slot, "keywords", ()) or ()
@@ -1420,7 +1440,8 @@ IMPORTANT OUTPUT CONTRACT:
         if self.llm_client:
             if hasattr(self.llm_client, "call"):
                 from core.generation.robust_llm_caller import LLMRequest
-                req = LLMRequest(model="qwen2.5:7b", prompt=prompt)
+                from core.config.production_model import get_production_model
+                req = LLMRequest(model=get_production_model(), prompt=prompt)
                 resp = self.llm_client.call(req)
                 if resp.success and resp.text:
                     return resp.text

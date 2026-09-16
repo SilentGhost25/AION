@@ -145,7 +145,7 @@ def _clean_extracted_text(text: str) -> str:
     return text.strip()
 
 
-def extract(pdf_or_text_path: str) -> Document:
+def extract(pdf_or_text_path: str, **kwargs) -> Document:
     path      = Path(pdf_or_text_path)
     file_type = path.suffix.lstrip(".").lower() or "txt"
     text      = ""

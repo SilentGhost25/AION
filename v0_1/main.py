@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from typing import List, Tuple, Dict, Optional, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 from .uploader import upload
 from .extractor import extract
@@ -680,6 +681,8 @@ def run_pipeline(
 
     output_paper = []
     run_pipeline._global_used_chunks = set()
+    shared_generated_texts: list = []
+    shared_texts_lock = threading.Lock()
 
     def _process_single_module(pos_idx: int, mod: Any) -> Optional[dict]:
         t_mod = time.time()
@@ -695,9 +698,15 @@ def run_pipeline(
             print(f"[MODULE {mod_idx}] Skipping — too short", flush=True)
             return None
 
-        # Dedicated per-module orchestrator and difficulty manager (strictly thread-isolated)
+        # Dedicated per-module orchestrator and difficulty manager (thread-isolated with shared dedup registry)
         from core.generation.orchestrator import SlotOrchestrator
-        mod_orchestrator = SlotOrchestrator(artifact=artifact, marks_split=marks_split, profile=_profile)
+        mod_orchestrator = SlotOrchestrator(
+            artifact=artifact,
+            marks_split=marks_split,
+            profile=_profile,
+            shared_generated_texts=shared_generated_texts,
+            shared_texts_lock=shared_texts_lock
+        )
         diff_manager = DifficultyManager.from_string(difficulty)
 
         if mapper:
@@ -965,6 +974,21 @@ def run_pipeline(
             "[EXPORT GATE] Paper contains zero generated questions. Generation failed entirely."
         )
 
+    # -- Cross-Question Semantic Deduplication Audit Pass --
+    from core.validation.linter import _jaccard_similarity
+    duplicates_found = []
+    for _i, _gq1 in enumerate(all_gqs):
+        for _gq2 in all_gqs[_i + 1:]:
+            _sim = _jaccard_similarity(_gq1.question_text, _gq2.question_text)
+            if _sim >= 0.55:
+                duplicates_found.append((_gq1.slot_id, _gq2.slot_id, _sim, _gq1.question_text[:50], _gq2.question_text[:50]))
+
+    if duplicates_found:
+        for _s1, _s2, _sim, _t1, _t2 in duplicates_found:
+            print(f"[DEDUP AUDIT WARNING] Cross-question duplication detected ({_sim:.2f}): {_s1} ('{_t1}...') vs {_s2} ('{_t2}...')", flush=True)
+    else:
+        print(f"[DEDUP AUDIT] PASS — all {len(all_gqs)} questions verified semantically distinct across paper.", flush=True)
+
     t_export = time.time()
     from core.validation.export_gate import ExportGate
     export_result = ExportGate.validate(all_gqs)
@@ -1020,6 +1044,29 @@ def run_pipeline(
         print(f"\n[QA ENGINE] Completed Paper QA Check | Score: {qa_report['legacy_qa_score']}/100")
     except Exception as e:
         print(f"[QA ENGINE] Warning running paper QA check: {e}")
+
+    # Paper-level RAG metric aggregation (Observer only)
+    try:
+        from core.evaluation import aggregate_paper_metrics
+        _paper_metrics = [
+            getattr(_q, "ragas_metrics", None)
+            for _q in all_gqs
+            if getattr(_q, "ragas_metrics", None) is not None
+        ]
+        if _paper_metrics:
+            _summary = aggregate_paper_metrics(_paper_metrics)
+            qa_report["ragas_summary"] = _summary.to_dict()
+            print(
+                f"\n[RAG TELEMETRY] Evaluated {len(_paper_metrics)} accepted questions | "
+                f"Faithfulness={_summary.mean_faithfulness:.2f} | "
+                f"Recall={_summary.mean_context_recall:.2f} | "
+                f"Relevance={_summary.mean_question_relevance:.2f} | "
+                f"Harmonic Score={_summary.mean_rag_score:.2f} | "
+                f"p50 Latency={_summary.p50_latency_ms:.1f}ms",
+                flush=True
+            )
+    except Exception as _rag_sum_err:
+        print(f"[RAG TELEMETRY] Summary aggregation skipped: {_rag_sum_err}", flush=True)
 
     _mark("total_pipeline", t_start)
     return output_paper, qa_report
@@ -1411,6 +1458,31 @@ def _generate_main_question(
                 # Re-sync modified text
                 gq.question_text = q_text
 
+        # Real-time RAG metric evaluation (observer only — does not decide acceptance)
+        rag_metrics_dict = None
+        try:
+            from core.evaluation import DeterministicRAGEvaluator, emit_accepted_metric
+            _rag_eval = DeterministicRAGEvaluator()
+            _slot_lat = (time.time() - t_slot) * 1000.0 if 't_slot' in locals() else 0.0
+            _m_name = getattr(orchestrator, "model_name", None) or os.getenv("AION_MODEL", "qwen2.5:14b")
+            _ev_ctx = locals().get("evidence_pack") or chunk
+            _metric = _rag_eval.evaluate_question(
+                question_text=q_text,
+                slot=slot,
+                evidence=_ev_ctx,
+                latency_ms=_slot_lat,
+                model_name=_m_name,
+                provider_name=os.getenv("AION_INFERENCE_PROVIDER", "ollama"),
+                attempt_index=1,
+                trace_id=getattr(slot, "slot_id", slot_id),
+                generation_id=str(getattr(slot, "generation_seed", "")),
+            )
+            setattr(gq, "ragas_metrics", _metric)
+            rag_metrics_dict = _metric.to_dict()
+            emit_accepted_metric(_metric)
+        except Exception as _eval_err:
+            pass
+
         sub_questions.append({
             "letter":     sub_letters[idx] if len(partition) > 1 else None,
             "text":       q_text,
@@ -1419,6 +1491,7 @@ def _generate_main_question(
             "bloom":      sub_bloom,
             "co":         _blueprint_co,
             "image":      image_data,
+            "ragas_metrics": rag_metrics_dict,
         })
         generated_questions.append(gq)
         slots.append(slot)

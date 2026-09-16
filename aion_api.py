@@ -68,7 +68,7 @@ from core.generation.marks_partitioner import parse_marks, set_user_split
 
 @app.before_request
 def _aion_production_guard():
-    from flask import request
+    from flask import request, has_request_context
     try:
         if request.path in ("/api/generate", "/api/generate/stream", "/api/generate/vllm"):
             body = (request.get_json(silent=True) if request.is_json else None) or request.form.to_dict() or {}
@@ -982,6 +982,15 @@ def generate_stream():
             pipeline_done = threading.Event()
             result_holder = {"paper": None, "qa_report": None, "error": None, "trace": None}
 
+            import queue
+            from core.evaluation import register_metric_listener, unregister_metric_listener, RealtimeRAGMetrics
+            metric_q = queue.Queue()
+
+            def _on_accepted_rag_metric(m: RealtimeRAGMetrics):
+                metric_q.put(m)
+
+            register_metric_listener(_on_accepted_rag_metric)
+
             def run_worker():
                 t0 = time.time()
                 try:
@@ -1065,16 +1074,30 @@ def generate_stream():
             last_keepalive = time.time()
             KEEPALIVE_INTERVAL = 4
 
-            while not pipeline_done.is_set():
-                pipeline_done.wait(timeout=0.5)
+            while not pipeline_done.is_set() or not metric_q.empty():
+                pipeline_done.wait(timeout=0.2)
+                # Drain and stream any real-time RAG metrics for accepted questions
+                while not metric_q.empty():
+                    try:
+                        accepted_metric = metric_q.get_nowait()
+                        m_dict = accepted_metric.to_dict()
+                        yield _sse("ragas_metric", m_dict)
+                        yield _sse("question_ready", {
+                            "slot_id": accepted_metric.provenance.slot_id if hasattr(accepted_metric, "provenance") else "",
+                            "metrics": m_dict,
+                        })
+                    except queue.Empty:
+                        break
+
                 now = time.time()
-                if now - last_keepalive >= KEEPALIVE_INTERVAL:
+                if now - last_keepalive >= KEEPALIVE_INTERVAL and not pipeline_done.is_set():
                     yield _sse("stage_update", {
                         "stage": "generation",
                         "message": f"Processing questions... ({int(now - start_time)}s elapsed)"
                     })
                     last_keepalive = now
 
+            unregister_metric_listener(_on_accepted_rag_metric)
             elapsed = time.time() - start_time
 
             if result_holder["error"]:
@@ -1649,6 +1672,7 @@ def _format_paper(paper, subject, exam_type, mode, qa_report=None):
                 from v0_1.difficulty_policy import format_co_and_rbt
                 final_co, final_rbt = format_co_and_rbt(raw_co, raw_bloom, m_index)
 
+                raw_ragas = sq_dict.get("ragas_metrics") or getattr(raw_sq, "ragas_metrics", None)
                 subs.append(SubQuestion(
                     letter = letters[sq_idx],
                     text   = str(text).strip(),
@@ -1656,6 +1680,7 @@ def _format_paper(paper, subject, exam_type, mode, qa_report=None):
                     co     = str(final_co),
                     bloom  = str(final_rbt),
                     image  = image,
+                    ragas_metrics = raw_ragas,
                 ))
 
             module.questions.append(MainQuestion(
@@ -1670,6 +1695,13 @@ def _format_paper(paper, subject, exam_type, mode, qa_report=None):
         gp.modules.append(module)
 
     res_dict = gp.to_dict()
+
+    if qa_report:
+        res_dict["qaReport"] = qa_report
+        res_dict["qa_report"] = qa_report
+        if isinstance(qa_report, dict) and "ragas_summary" in qa_report:
+            res_dict["ragas_summary"] = qa_report["ragas_summary"]
+            res_dict["ragasSummary"] = qa_report["ragas_summary"]
 
     # Remove internal generation transport tokens from student-facing paper.
     res_dict = _aion_sanitize_paper_questions(res_dict)
