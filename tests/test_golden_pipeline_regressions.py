@@ -763,3 +763,87 @@ def test_cross_module_deduplication_via_shared_registry():
     assert check_res.code == "SIBLING_SIMILARITY"
 
 
+def test_math_incomplete_frac_exhaustion_does_not_crash_pipeline():
+    """Simulate 4 consecutive MATH_INCOMPLETE_FRAC failures on a slot.
+    Assert: orchestrator returns a degraded-but-valid result, ExportGate passes,
+    and no unhandled RuntimeError crashes the pipeline."""
+    from core.generation.orchestrator import SlotOrchestrator
+    from core.contracts.question_slot import QuestionSlot
+    from core.contracts.budgets import AnswerBudget, QuestionBudget
+    from core.contracts.task_signature import TaskSignature
+    from core.validation.export_gate import ExportGate
+    from core.generation.auto_healer import AutoHealer
+
+    # 1. Verify AutoHealer repairs \frac syntax directly
+    healed = AutoHealer._heal_latex(r"\frac{water\_volume}")
+    assert healed == r"\frac{water\_volume}{1}"
+
+    # 2. Setup slot with math_required=True
+    slot = QuestionSlot(
+        slot_id="module_2_Q3",
+        question_no=3,
+        sub_label="",
+        or_pair_id="module_2_OR_2",
+        is_alternative=False,
+        module_id=2,
+        marks=10,
+        bloom_level="L3",
+        bloom_verb="Calculate",
+        bloom_operation="APPLY",
+        co="CO2",
+        difficulty="MEDIUM",
+        question_type="NUMERICAL",
+        topic="Fertigation and Nutrient Solution Management",
+        evidence_ids=("chunk_fertigation",),
+        answer_budget=AnswerBudget.from_marks_and_bloom(10, "L3"),
+        question_budget=QuestionBudget.from_bloom("L3", 10),
+        task_signature=TaskSignature.from_bloom_marks_type("L3", 10, "NUMERICAL"),
+        math_required=True,
+    )
+
+    class MockEvidencePack:
+        combined_text = (
+            "Fertigation delivers mineral nutrients directly to crop root zones. "
+            "The nutrient concentration is adjusted based on electrical conductivity and pH. "
+            "Flow rates determine total dosage delivered to emitter lines."
+        )
+
+    orch = SlotOrchestrator()
+
+    # Mock _call_llm to simulate 4 consecutive broken LaTeX fraction outputs
+    broken_payload = {
+        "instruction": "Calculate the nutrient dosage requirement [MATH:math_1]",
+        "question_text": "Calculate the nutrient dosage requirement for fertigation [MATH:math_1]",
+        "math_blocks": [
+            {
+                "block_id": "math_1",
+                "latex": r"\frac{dose}",  # Missing denominator!
+                "display_mode": True
+            }
+        ]
+    }
+
+    import json
+    def mock_broken_call(*args, **kwargs):
+        return json.dumps(broken_payload)
+
+    orch._call_llm = mock_broken_call
+
+    # Execute generation: must not raise RuntimeError
+    gq = orch.generate(slot, MockEvidencePack())
+
+    assert gq is not None
+    assert gq.slot_id == "module_2_Q3"
+    assert gq.question_text and len(gq.question_text) > 15
+    # Must not contain raw [MATH:...] placeholder in user-facing text
+    assert "[MATH:" not in gq.question_text
+    assert "[math_1]" not in gq.question_text
+
+    # ExportGate must validate cleanly without raising RuntimeError
+    gate_decision = ExportGate.evaluate(generated_slots=[gq])
+    assert gate_decision.passed is True
+    check_result = ExportGate.validate([gq])
+    assert check_result.passed is True
+
+
+

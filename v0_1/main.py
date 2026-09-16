@@ -993,8 +993,31 @@ def run_pipeline(
     from core.validation.export_gate import ExportGate
     export_result = ExportGate.validate(all_gqs)
     if not export_result.passed:
-        raise RuntimeError(f"[EXPORT GATE] FAILED: {export_result.message}")
-    print("[EXPORT GATE] PASS — full paper integrity verified.")
+        print(f"[EXPORT GATE WARNING] Initial validation failed ({export_result.message}). Attempting emergency slot salvage...", flush=True)
+        salvaged_count = 0
+        for idx, gq in enumerate(all_gqs):
+            single_res = ExportGate.validate([gq])
+            if not single_res.passed:
+                slot_obj = getattr(gq, "slot", None)
+                print(f"[EXPORT GATE SALVAGE] Salvaging failing slot {gq.slot_id}: {single_res.message}", flush=True)
+                if slot_obj is not None:
+                    try:
+                        from core.generation.orchestrator import SlotOrchestrator
+                        # Salvage using template fallback for that slot
+                        orch_inst = locals().get("orchestrator") or SlotOrchestrator()
+                        salvaged_gq = orch_inst._generate_template_fallback(slot_obj, "")
+                        all_gqs[idx] = salvaged_gq
+                        salvaged_count += 1
+                    except Exception as _salvage_err:
+                        print(f"[EXPORT GATE SALVAGE] Salvage failed for {gq.slot_id}: {_salvage_err}", flush=True)
+        
+        # Re-validate whole paper
+        export_result = ExportGate.validate(all_gqs)
+        if not export_result.passed:
+            raise RuntimeError(f"[EXPORT GATE] FAILED: {export_result.message}")
+        print(f"[EXPORT GATE] PASS after emergency salvage of {salvaged_count} slot(s).", flush=True)
+    else:
+        print("[EXPORT GATE] PASS — full paper integrity verified.")
     _mark("export_gate", t_export)
 
     # -- POST-GENERATION INTEGRITY GATE -----------------------------------
@@ -1156,11 +1179,10 @@ def _generate_main_question(
             )
 
             _strong_math_signals = (
-                "\\frac", "\\sum", "\\prod", "\\sqrt", "\\int",
-                "\\sigma", "\\pi_", "\\rho", "\\bowtie",
-                "\\cup", "\\cap", "\\times", "\\rightarrow",
-                "σ", "π", "⋈", "∪", "∩", "→",
-                "$$", "\\[", "\\("
+                "\\frac{", "\\sum_{", "\\prod_{", "\\sqrt{", "\\int_{",
+                "\\sigma_{", "\\pi_{", "\\rho_{", "\\bowtie",
+                "\\cup", "\\cap", "⋈",
+                "$$", "\\["
             )
 
             _looks_like_code = any(
@@ -1181,10 +1203,6 @@ def _generate_main_question(
                 and getattr(chunk_obj, "has_formula", False)
             )
 
-            # Only strong mathematical/relational-algebra evidence requires a
-            # MathBlock. The extractor has_formula flag is diagnostic only because
-            # it can also be triggered by SQL/procedural notation.
-            math_required = bool(_looks_like_real_math)
             visual_required = (image_data is not None)
 
             # Resolve pedagogy-aware question type (strict source-grounded mode)
@@ -1289,6 +1307,15 @@ def _generate_main_question(
             )
             _blueprint_co = _policy_co
             sub_bloom     = _policy_bloom
+
+            # MathBlock policy: strictly for NUMERICAL questions or genuine
+            # mathematical notation where Bloom level >= 3.
+            # Conceptual, descriptive, and Bloom L1/L2 questions must NEVER force math_required=True.
+            math_required = bool(
+                (q_type == "NUMERICAL" and numerical_allowed)
+                or (_looks_like_real_math and q_type in ("NUMERICAL", "APPLICATION") and sub_bloom >= 3)
+            )
+
             verb = dm.get_verb(
                 'easy' if sub_bloom <= 2 else 'medium' if sub_bloom <= 4 else 'hard',
                 sub_bloom
@@ -1482,6 +1509,15 @@ def _generate_main_question(
             emit_accepted_metric(_metric)
         except Exception as _eval_err:
             pass
+
+        # Final defense: ensure no internal placeholder tags ever leak to user-facing question text
+        import re as _re
+        q_text = _re.sub(r'\[MATH:[^\]]+\]', '', q_text).strip()
+        q_text = _re.sub(r'\[FIGURE_ID:[^\]]+\]', '', q_text).strip()
+        q_text = _re.sub(r'\[KU:[^\]]+\]', '', q_text).strip()
+        q_text = _re.sub(r'\[(?:calc|math)_\d+\]', '', q_text).strip()
+        q_text = _re.sub(r'\s{2,}', ' ', q_text).strip()
+        gq.question_text = q_text
 
         sub_questions.append({
             "letter":     sub_letters[idx] if len(partition) > 1 else None,
