@@ -1282,20 +1282,6 @@ def _generate_main_question(
             else:
                 q_type = planned_type
 
-            print(
-                f"[APPLIED-CLASSIFIER] {slot_id}: "
-                f"planned={planned_type} final={q_type} "
-                f"programming={programming_allowed} "
-                f"numerical={numerical_allowed} "
-                f"numeric_values={_numeric_values[:8]} "
-                f"numeric_context={_has_numeric_context} "
-                f"math_required={math_required} "
-                f"looks_code={_looks_like_code} "
-                f"looks_math={_looks_like_real_math} "
-                f"extractor_formula={_extractor_formula}",
-                flush=True,
-            )
-
             # Use canonical module identity helpers (F6b)
             _mod_num = parse_module_number(module_id)
             # Marks-first authoritative CO/BL resolution
@@ -1314,6 +1300,20 @@ def _generate_main_question(
             math_required = bool(
                 (q_type == "NUMERICAL" and numerical_allowed)
                 or (_looks_like_real_math and q_type in ("NUMERICAL", "APPLICATION") and sub_bloom >= 3)
+            )
+
+            print(
+                f"[APPLIED-CLASSIFIER] {slot_id}: "
+                f"planned={planned_type} final={q_type} "
+                f"programming={programming_allowed} "
+                f"numerical={numerical_allowed} "
+                f"numeric_values={_numeric_values[:8]} "
+                f"numeric_context={_has_numeric_context} "
+                f"math_required={math_required} "
+                f"looks_code={_looks_like_code} "
+                f"looks_math={_looks_like_real_math} "
+                f"extractor_formula={_extractor_formula}",
+                flush=True,
             )
 
             verb = dm.get_verb(
