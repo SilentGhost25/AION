@@ -49,3 +49,25 @@
 * **Medium Priority — #4. Hardcoded Ollama Default URLs**: `v0_1/llm.py` (lines 36, 100, 267, 419) and `aion_api.py` (line 451, 464) default to `http://127.0.0.1:11434` without fallback to `os.environ.get("OLLAMA_HOST")` or `os.environ.get("OLLAMA_BASE_URL")`.
 * **Low Priority — #5. Hardcoded Linux `/tmp/` in V2 Pipeline Demo**: `core/pipeline/aion_pipeline_v2.py:40` uses `memory_path="/tmp/variation_v2_test.json"`, causing an unexpected `C:\tmp` directory to be created on Windows.
 * **Benchmark Only — #6. Hardcoded 120s Timeout in A/B Grounding Benchmark**: `scratch/compare_qwen_grounding.py:438` sets `timeout_sec=120`, triggering runner deadlines when executing 14B under large context prompts.
+
+---
+
+## 5. Deferred Investigation: Content Filter Thresholds for Short Documents (2026-09-16)
+
+**Status**: DEFERRED — regex bug fixed (line 384), threshold changes need verification against real documents
+
+### Applied Fix
+* **Regex bug in `_is_dense_academic`** (`v0_1/content_filter.py:384`): Character class `±->←` was an invalid range. Fixed to `±←→>-` (hyphen at end). Proven crash on Python 3.14, deprecation warning on 3.12.
+
+### Deferred: `_is_dense_academic` word-count thresholds
+* **Location**: `v0_1/content_filter.py:379-390`
+* `words < 40` gate (line 381) rejects paragraphs under 40 words; `words >= 60` (line 390) required even with signals
+* A 93-word synthetic file (`v0_1/sample_lecture.txt`) had both paragraphs rejected → all content dropped
+* **Before fixing**: Verify against a real short module (e.g., tonight's 782-word Module 2) to confirm the thresholds aren't correctly protecting against junk from large PDFs
+
+### Deferred: `emergency_middle_slice` drops pages from tiny documents
+* **Location**: `v0_1/content_filter.py:253-258`
+* For 2-page docs: `range(max(1, int(2*0.1)), max(lo, int(2*0.9))+1)` = `{page 1}` → half content lost
+* **Candidate fix**: Keep all pages for documents ≤ 5 pages
+* **Before fixing**: Check git history for original rationale of the 10%-90% window; confirm no real ≤5-page upload would admit non-academic content
+

@@ -381,7 +381,7 @@ class AcademicContentFilter:
         if words < 40:
             return False
         signals = 0
-        if re.search(r"[=∑∫√≤≥±->←]|\\frac|\\sum", page.text):
+        if re.search(r"[=∑∫√≤≥±←→>-]|\\frac|\\sum", page.text):
             signals += 1
         if re.search(r"\b(definition|theorem|lemma|proof|example|figure|table)\b", page.text, re.I):
             signals += 1
