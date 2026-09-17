@@ -324,61 +324,10 @@ _HEADER_FOOTER_MIN_REPEAT = 3  # Appears on >=3 pages -> header/footer
 
 def _remove_headers_footers(text: str, raw_pages: List[str] | None = None) -> tuple[str, int]:
     """
-    Remove repeated headers/footers, page numbers, repeated chapter titles.
-    Returns (cleaned_text, removed_count)
+    Pass-through: preserves the exact, authentic output extracted by the extraction modules
+    (MinerU, Docling, PyMuPDF) without dropping repeated lines, headers, footers, or page content.
     """
-    lines = text.splitlines()
-    if not lines:
-        return text, 0
-
-    # Detect repeated lines (header/footer candidates)
-    norm_counts: Counter[str] = Counter()
-    for ln in lines:
-        s = ln.strip().lower()
-        if len(s) >= 4 and not s.isdigit() and len(s) <= 120:
-            norm_counts[s] += 1
-
-    repeated = {line for line, cnt in norm_counts.items() if cnt >= _HEADER_FOOTER_MIN_REPEAT}
-
-    kept: List[str] = []
-    removed = 0
-    for ln in lines:
-        s = ln.strip()
-        if not s:
-            kept.append("")
-            continue
-        low = s.lower()
-        # Page number
-        if s.isdigit() or re.match(r"^page\s+\d+(\s+of\s+\d+)?$", low):
-            removed += 1
-            continue
-        # Divider
-        if re.match(r"^[-=_]{4,}$", s):
-            removed += 1
-            continue
-        # Repeated header/footer
-        if low in repeated:
-            removed += 1
-            continue
-        # ISBN / copyright boilerplate (per content_filter)
-        if re.search(r"^(isbn|copyright|all rights reserved|published by|doi:)", low):
-            removed += 1
-            continue
-        # URL-only line
-        if re.match(r"^\s*https?://\S+\s*$", s):
-            removed += 1
-            continue
-        kept.append(ln)
-
-    # Rebuild paragraphs
-    # Collapse excessive newlines, preserve paragraph boundaries
-    cleaned = "\n".join(kept)
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-    cleaned = re.sub(r"[ \t]{3,}", " ", cleaned)
-    cleaned = cleaned.strip()
-    # Fix hyphenation across lines
-    cleaned = re.sub(r"(\w+)-\s+(\w+)", r"\1\2", cleaned)
-    return cleaned, removed
+    return text, 0
 
 
 def _layer6_merge(layers: List[ExtractionLayerResult], original_text_fallback: str = "") -> tuple[str, float, str, List[str]]:

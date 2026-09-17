@@ -1039,6 +1039,12 @@ def generate_stream():
                         _locked = None
                     _active_now = locals().get('_locked') or locals().get('_existing') or locals().get('_sp')
                     _sub_q_arg = len(_active_now) if _active_now else 2
+                    if getattr(gen_req, "subject", None):
+                        try:
+                            import aion_patch
+                            aion_patch.ACTIVE_SUBJECT = str(gen_req.subject).strip()
+                        except Exception:
+                            pass
                     _paper, _qa = _run_pipe(
                         file_path          = file_path,
                         exam_type          = gen_req.exam_type,
@@ -1048,6 +1054,7 @@ def generate_stream():
                         mode               = "turbo",
                         sub_question_count = _sq_c,
                         marks_split        = _sp or _existing,
+                        subject            = getattr(gen_req, "subject", None),
                     )
                     dur = (time.time() - t0) * 1000
                     trace.stage("PipelineExecution", status="PASS", duration_ms=dur,

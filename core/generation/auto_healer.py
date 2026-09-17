@@ -122,6 +122,12 @@ class AutoHealer:
             elif failure_code == "SIBLING_SIMILARITY":
                 return cls._fix_sibling_similarity(output, slot)
 
+            elif failure_code in (
+                "MATH_INCOMPLETE_FRAC", "MATH_RENDER_FAILURE", "MATH_UNCLOSED_BRACES",
+                "MATH_UNBALANCED_BRACES", "MATH_EMPTY", "MATH_RENDER_ERROR", "MATH_CORRUPTED"
+            ):
+                return cls._fix_math_blocks(output, slot)
+
             # Note: DOMAIN_INTEGRITY_VIOLATION requires full LLM regeneration with
             # recovery hint rather than regex truncation which leaves broken grammar.
 
@@ -131,6 +137,67 @@ class AutoHealer:
         return output  # return original if healing not applicable
 
     # -- Individual healers ----------------------------------------------------
+
+    @classmethod
+    def _heal_latex(cls, latex: str) -> str:
+        """Repairs common LLM LaTeX syntax errors in-place."""
+        if not latex or not isinstance(latex, str):
+            return ""
+        s = latex.strip()
+
+        # 1. Tab / escape corrupted keywords
+        s = re.sub(r'[\t ]+imes\b', r'\\times ', s)
+        s = re.sub(r'[\t ]+ext\{', r'\\text{', s)
+        s = re.sub(r'[\t ]+heta\b', r'\\theta ', s)
+        s = re.sub(r'[\t ]+au\b', r'\\tau ', s)
+        s = s.replace(r"\t{", r"\text{")
+        s = s.replace(r"\owtie", r"\bowtie")
+        s = s.replace(r"\ext", r"\text")
+        s = s.replace(r"\newline", " ")
+
+        # 2. Fix \frac missing arguments
+        # \frac{num} without second brace -> \frac{num}{1}
+        s = re.sub(r'\\frac\s*\{([^}]+)\}(?!\s*\{)', r'\\frac{\1}{1}', s)
+        # \frac a b -> \frac{a}{b}
+        s = re.sub(r'\\frac\s+([A-Za-z0-9_]+)\s+([A-Za-z0-9_]+)', r'\\frac{\1}{\2}', s)
+        # \frac a {b} -> \frac{a}{b}
+        s = re.sub(r'\\frac\s+([A-Za-z0-9_]+)\s*\{([^}]+)\}', r'\\frac{\1}{\2}', s)
+        # lone \frac without arguments -> replace with /
+        s = re.sub(r'\\frac(?!\s*\{|\s+[A-Za-z0-9])', '/', s)
+
+        # 3. Balance braces
+        depth = 0
+        for ch in s:
+            if ch == '{': depth += 1
+            elif ch == '}': depth -= 1
+        if depth > 0:
+            s = s + ('}' * depth)
+        elif depth < 0:
+            while depth < 0 and s.endswith('}'):
+                s = s[:-1]
+                depth += 1
+
+        return s.strip()
+
+    @classmethod
+    def _fix_math_blocks(cls, output, slot) -> "QuestionOutput":
+        """Repairs corrupted or unrenderable math blocks in output."""
+        if not hasattr(output, "math_blocks") or not output.math_blocks:
+            return output
+
+        clean_blocks = []
+        for b in output.math_blocks:
+            raw_latex = getattr(b, "latex", "") if hasattr(b, "latex") else b.get("latex", "") if isinstance(b, dict) else ""
+            healed = cls._heal_latex(raw_latex)
+            if hasattr(b, "latex"):
+                b.latex = healed
+            elif isinstance(b, dict):
+                b["latex"] = healed
+            clean_blocks.append(b)
+
+        output.math_blocks = clean_blocks
+        print(f"[AUTO-HEALER] Repaired math blocks syntax ({len(clean_blocks)} blocks)")
+        return output
 
     @classmethod
     def _fix_bloom_verb_start(cls, output, slot) -> "QuestionOutput":

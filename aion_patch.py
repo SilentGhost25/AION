@@ -114,19 +114,8 @@ class DualModeResult(tuple):
     @property
     def details(self): return {}
 
-# 2. Universal Linter & KaTeX Probe Bypass
-try:
-    for mod_name in list(sys.modules.keys()):
-        if any(k in mod_name for k in ["math_validator", "core.validation.math", "linter"]):
-            m = sys.modules[mod_name]
-            for attr in dir(m):
-                if attr in ["validate_math", "validate_math_block", "lint_math", "probe_katex", "_probe_katex"]:
-                    if "probe" in attr:
-                        setattr(m, attr, lambda *a, **kw: True)
-                    else:
-                        setattr(m, attr, lambda *a, **kw: DualModeResult(True, "Valid"))
-except Exception:
-    pass
+# 2. Universal Linter & KaTeX Probe Bypass (Deprecated - Handled natively by core.validation.math_validator)
+pass
 
 # 3. Pydantic Model slot_id Safeguard
 try:
@@ -194,6 +183,20 @@ SUBJECT_ARCHETYPES = {
         "directive": r"""[DOMAIN DIRECTIVE: SATELLITE COMMUNICATIONS & ASTRODYNAMICS]
 - Formulate orbital and look-angle calculation problems: Keplerian orbital period T^2 = \frac{4\pi^2 a^3}{\mu}, velocity in elliptical orbit, or eccentricity.
 - For Earth Stations: Calculate Elevation Angle \theta, Slant Range d, and Link Budget Carrier-to-Noise Ratio (C/N)."""
+    },
+    "iot_smart_systems": {
+        "aliases": [
+            "iot", "internet of things", "iot agriculture", "iot agriculture and health care",
+            "iot agriculture & health care", "smart agriculture", "precision agriculture",
+            "healthcare iot", "smart healthcare", "wireless sensor networks", "wsn",
+            "embedded systems", "sensors and actuators", "21cs81", "21ec81"
+        ],
+        "directive": r"""[DOMAIN DIRECTIVE: INTERNET OF THINGS (IOT), AGRICULTURE & HEALTHCARE]
+- Formulate quantitative and architectural engineering problems for IoT sensor telemetry, edge computing, and smart systems.
+- For Smart Agriculture: Formulate problems on sensor calibration (soil moisture, temperature, humidity), evapotranspiration calculations, NDVI (Normalized Difference Vegetation Index) spectral indices, or irrigation scheduling algorithms.
+- For Healthcare IoT: Formulate problems on biomedical telemetry (ECG/PPG sampling rates, heart rate variability, SpO2 calculation), wearable sensor power consumption, or secure patient data transmission (MQTT/CoAP bandwidth and latency).
+- For WSN/Networking: Calculate battery lifetime / energy harvesting requirements, duty cycle percentages, star/mesh topology link budgets, or packet delivery ratios.
+- Include appropriate engineering units (dBm, mW, kbps, %, nm, Hz) in calculations."""
     }
 }
 
@@ -210,6 +213,8 @@ COURSE_CODE_MAP = {
     "21cs44": "os_networks", "18cs44": "os_networks", "21cs52": "os_networks", "18cs52": "os_networks", "bis403": "os_networks",
     # AI / ML
     "21cs71": "ai_ml_data", "18cs71": "ai_ml_data", "21aiml": "ai_ml_data", "bcs601": "ai_ml_data",
+    # IoT / Smart Systems
+    "21cs81": "iot_smart_systems", "18cs81": "iot_smart_systems", "21ec81": "iot_smart_systems",
 }
 
 def resolve_subject_archetype(subject_name: str = "", topic_text: str = "") -> Optional[str]:
@@ -944,15 +949,8 @@ def _patch_pydantic_models():
 _patch_pydantic_models()
 
 
-# --- 7. FORCE RE-ROUTING LINTER AND FORMULA CHECKS ---
-def _patch_validators():
-    for mod_name, m in list(sys.modules.items()):
-        if any(k in mod_name for k in ["math_validator", "validation.math", "linter"]):
-            for attr in ["validate_math", "validate_math_block", "lint_math", "probe_katex", "_probe_katex"]:
-                if hasattr(m, attr):
-                    setattr(m, attr, lambda *a, **kw: UniversalValidationResult(True, "Valid"))
-
-_patch_validators()
+# --- 7. FORCE RE-ROUTING LINTER AND FORMULA CHECKS (Deprecated - Handled natively by core.validation.math_validator)
+pass
 
 # ==============================================================================
 # TWO-PASS REGISTRY, AXIOMATIC SYNTHESIZER & SEMANTIC GROUNDING GATE

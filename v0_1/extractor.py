@@ -182,10 +182,8 @@ def extract(pdf_or_text_path: str, **kwargs) -> Document:
     if not text or not text.strip():
         if file_type in ("txt", "md"):
             raw   = path.read_text(encoding="utf-8", errors="ignore")
-            filt  = AcademicContentFilter()
-            pages = raw.split("\n\n")
-            text, _ = filt.filter_text_pages(pages)
-            report = {"method": "text_filter", "word_count": len(text.split())}
+            text  = raw
+            report = {"method": "raw_text", "word_count": len(text.split())}
 
         elif file_type == "docx":
             try:

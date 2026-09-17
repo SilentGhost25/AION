@@ -235,9 +235,16 @@ class SlotOrchestrator:
 
 
     def _strip_math_markers(self, text: str) -> str:
-        """Remove [MATH:block_id] markers from a question text."""
+        """Remove [MATH:block_id], [FIGURE_ID:...], [KU:...] and orphan markers from question text."""
+        if not text:
+            return ""
         import re
-        return re.sub(r'\[MATH:[^\]]+\]', '', text).strip()
+        s = text
+        s = re.sub(r'\[MATH:[^\]]+\]', '', s)
+        s = re.sub(r'\[FIGURE_ID:[^\]]+\]', '', s)
+        s = re.sub(r'\[KU:[^\]]+\]', '', s)
+        s = re.sub(r'\[(?:calc|math)_\d+\]', '', s)
+        return re.sub(r'\s{2,}', ' ', s).strip()
 
     def _sanitize_question_text(self, text: str) -> str:
         """Removes internal slot identifiers or prompt scaffolding leaked into question text, and heals LaTeX tab escapes."""
@@ -983,6 +990,14 @@ class SlotOrchestrator:
                 import re as _re
                 
                 # Check for content violations that require hard template fallback
+                _math_failures = {
+                    "MATH_INCOMPLETE_FRAC", "MATH_RENDER_FAILURE", "MATH_UNCLOSED_BRACES",
+                    "MATH_UNBALANCED_BRACES", "MATH_CORRUPTED", "MATH_EMPTY",
+                    "MATH_RENDER_ERROR", "MATH_PLACEHOLDER_UNRESOLVED", "MATH_BLOCK_UNREFERENCED",
+                    "MATH_INTEGRITY_FAILURE"
+                }
+                _has_math_failure = bool(_math_failures & set(failure_history))
+
                 _content_defects = (
                     "DOMAIN_INTEGRITY_VIOLATION" in failure_history
                     or "PROMPT_SCAFFOLDING_LEAK" in failure_history
@@ -1006,27 +1021,49 @@ class SlotOrchestrator:
                     except Exception as _salvage_err:
                         LOG.warning(f"[ORCHESTRATOR] Final Bloom verb salvage skipped: {_salvage_err}")
 
-                try:
-                    if hasattr(candidate, 'math_blocks') and candidate.math_blocks:
+                # Math defects on exhaustion: salvage by stripping broken blocks, or fallback if prose is empty
+                if _has_math_failure:
+                    LOG.warning(f"[ORCHESTRATOR] Slot {attempt_slot.slot_id} exhausted on math defects ({failure_history}). Stripping math blocks to preserve slot.")
+                    try:
                         candidate.math_blocks = []
-                    if hasattr(candidate, 'question_text'):
-                        candidate.question_text = self._sanitize_question_text(self._strip_math_markers(candidate.question_text))
-                    if hasattr(candidate, 'instruction'):
-                        candidate.instruction = self._sanitize_question_text(candidate.instruction)
-                except Exception as e:
-                    LOG.warning(f"[ORCHESTRATOR] Could not clean candidate: {e}")
-                candidate.status = "PASS_WITH_WARNING"
-                return candidate
+                        if hasattr(candidate, 'output') and candidate.output is not None:
+                            candidate.output.math_blocks = []
+                        clean_text = self._sanitize_question_text(self._strip_math_markers(candidate.question_text))
+                        candidate.question_text = clean_text
+                        if hasattr(candidate, 'output') and candidate.output is not None:
+                            candidate.output.question_text = clean_text
+                        if hasattr(candidate, 'instruction') and candidate.instruction:
+                            clean_instr = self._sanitize_question_text(self._strip_math_markers(candidate.instruction))
+                            candidate.instruction = clean_instr
+                            if hasattr(candidate, 'output') and candidate.output is not None:
+                                candidate.output.instruction = clean_instr
+                    except Exception as e:
+                        LOG.warning(f"[ORCHESTRATOR] Math strip salvage failed: {e}. Falling back to template.")
+                        return self._generate_template_fallback(attempt_slot, evidence_pack)
 
+                # Final cleaning and synchronization on both candidate and candidate.output
                 try:
                     if hasattr(candidate, 'math_blocks') and candidate.math_blocks:
-                        candidate.math_blocks = []
+                        from core.validation.math_validator import validate_math_block_with_render
+                        valid_mbs = []
+                        for mb in candidate.math_blocks:
+                            chk = validate_math_block_with_render(mb)
+                            if chk.passed:
+                                valid_mbs.append(mb)
+                        candidate.math_blocks = valid_mbs
+                        if hasattr(candidate, 'output') and candidate.output is not None:
+                            candidate.output.math_blocks = valid_mbs
                     if hasattr(candidate, 'question_text'):
                         candidate.question_text = self._sanitize_question_text(self._strip_math_markers(candidate.question_text))
+                        if hasattr(candidate, 'output') and candidate.output is not None:
+                            candidate.output.question_text = candidate.question_text
                     if hasattr(candidate, 'instruction'):
-                        candidate.instruction = self._sanitize_question_text(candidate.instruction)
+                        candidate.instruction = self._sanitize_question_text(self._strip_math_markers(candidate.instruction))
+                        if hasattr(candidate, 'output') and candidate.output is not None:
+                            candidate.output.instruction = candidate.instruction
                 except Exception as e:
                     LOG.warning(f"[ORCHESTRATOR] Could not clean candidate: {e}")
+
                 candidate.status = "PASS_WITH_WARNING"
                 return candidate
 

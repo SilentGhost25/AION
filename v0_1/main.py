@@ -254,6 +254,7 @@ def run_pipeline(
     pipeline_trace:     Optional[Any] = None,
     sub_question_count: Optional[int] = None,  # 1, 2, or 3 — user-specified
     marks_split:        Optional[List[List[int]]] = None,  # User-specified marks partitions
+    subject:            Optional[str] = None,
 ) -> Tuple[List[dict], List[dict]]:
     artifact = None
     """
@@ -268,6 +269,8 @@ def run_pipeline(
     try:
         import aion_patch
         aion_patch.ACTIVE_FILE_PATH = file_path
+        if subject:
+            aion_patch.ACTIVE_SUBJECT = str(subject).strip()
     except Exception:
         pass
     if pipeline_trace:

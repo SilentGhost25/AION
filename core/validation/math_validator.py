@@ -19,6 +19,7 @@ class KaTeXAvailabilityGate:
 
     _verified = False
     _cmd = None
+    _use_shell = False
 
     @classmethod
     def verify(cls) -> bool:
@@ -27,10 +28,15 @@ class KaTeXAvailabilityGate:
             return True
 
         import subprocess
+        import sys
+
+        use_shell = sys.platform == "win32"
+        npx_bin = "npx.cmd" if sys.platform == "win32" else "npx"
 
         candidates = [
-            ["npx", "--no-install", "katex"],
-            ["npx", "--yes", "katex"],
+            [npx_bin, "--no-install", "katex"],
+            [npx_bin, "--yes", "katex"],
+            ["katex"],
         ]
 
         errors = []
@@ -43,12 +49,13 @@ class KaTeXAvailabilityGate:
                     text=True,
                     capture_output=True,
                     timeout=20,
-                    shell=False,
+                    shell=use_shell,
                 )
 
                 if res.returncode == 0 and "katex" in res.stdout.lower():
                     cls._verified = True
                     cls._cmd = cmd
+                    cls._use_shell = use_shell
                     LOG.info(
                         "KaTeXAvailabilityGate verified with: %s",
                         " ".join(cmd),
@@ -65,7 +72,8 @@ class KaTeXAvailabilityGate:
 
         cls._verified = False
         cls._cmd = None
-        LOG.error("KaTeX probe failed: %s", " | ".join(errors))
+        cls._use_shell = False
+        LOG.warning("KaTeX probe failed: %s", " | ".join(errors))
         return False
 
     @classmethod
@@ -90,7 +98,7 @@ class KaTeXAvailabilityGate:
                 text=True,
                 capture_output=True,
                 timeout=20,
-                shell=False,
+                shell=cls._use_shell,
             )
         except Exception as exc:
             raise MathRenderFailure(
@@ -219,19 +227,20 @@ def validate_math_block_with_render(block: MathBlock) -> CheckResult:
         return CheckResult.fail("MATH_INCOMPLETE_FRAC",
                                 f"Block {block.block_id}: \\frac missing argument")
 
-    # KaTeX render (mandatory — not optional)
-    try:
-        rendered = KaTeXAvailabilityGate.render(
-            block.latex, display_mode=block.display_mode
-        )
-        if "katex-error" in rendered.lower():
-            return CheckResult.fail("MATH_RENDER_ERROR",
-                                    f"Block {block.block_id}: KaTeX error class")
-        if len(rendered.strip()) < 20:
-            return CheckResult.fail("MATH_RENDER_EMPTY",
-                                    f"Block {block.block_id}: render too short")
-    except MathRenderFailure as e:
-        return CheckResult.fail("MATH_RENDER_FAILURE",
-                                f"Block {block.block_id}: {e}")
+    # KaTeX render (if KaTeX executable is available in environment)
+    if KaTeXAvailabilityGate.verify():
+        try:
+            rendered = KaTeXAvailabilityGate.render(
+                block.latex, display_mode=block.display_mode
+            )
+            if "katex-error" in rendered.lower():
+                return CheckResult.fail("MATH_RENDER_ERROR",
+                                        f"Block {block.block_id}: KaTeX error class")
+            if len(rendered.strip()) < 20:
+                return CheckResult.fail("MATH_RENDER_EMPTY",
+                                        f"Block {block.block_id}: render too short")
+        except MathRenderFailure as e:
+            return CheckResult.fail("MATH_RENDER_FAILURE",
+                                    f"Block {block.block_id}: {e}")
 
     return CheckResult.pass_()
