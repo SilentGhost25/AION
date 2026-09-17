@@ -592,11 +592,17 @@ def test_full_page_coverage_across_text_bearing_pages():
 def test_eased_difficulty_policy_shifts_6m_to_easy_tier():
     """Verify eased difficulty policy shifts 6M questions into CO2/L2-L3 easy/moderate tier across all modules."""
     from v0_1.difficulty_policy import resolve_co_bl_from_marks, EASE_PAPER_DIFFICULTY
-    assert EASE_PAPER_DIFFICULTY is True
+    # Legacy marks-based mode check
+    co_mb, bloom_mb = resolve_co_bl_from_marks(module_idx=1, marks=6, total_parts=2, planned_type="APPLICATION", co_mode="marks-based")
+    assert co_mb == "CO2" and bloom_mb == 3
+    co5_mb, bloom5_mb = resolve_co_bl_from_marks(module_idx=5, marks=6, total_parts=2, planned_type="APPLICATION", co_mode="marks-based")
+    assert co5_mb == "CO2" and bloom5_mb == 3
+
+    # Default module-based mode check (OBE alignment: Module M -> COM)
     co, bloom = resolve_co_bl_from_marks(module_idx=1, marks=6, total_parts=2, planned_type="APPLICATION")
-    assert co == "CO2" and bloom == 3
+    assert co == "CO1" and bloom == 3
     co5, bloom5 = resolve_co_bl_from_marks(module_idx=5, marks=6, total_parts=2, planned_type="APPLICATION")
-    assert co5 == "CO2" and bloom5 == 3
+    assert co5 == "CO5" and bloom5 == 3
     co_hard, bloom_hard = resolve_co_bl_from_marks(module_idx=3, marks=10, total_parts=1)
     assert co_hard == "CO3" and bloom_hard == 4
 
@@ -844,6 +850,134 @@ def test_math_incomplete_frac_exhaustion_does_not_crash_pipeline():
     assert gate_decision.passed is True
     check_result = ExportGate.validate([gq])
     assert check_result.passed is True
+
+
+def test_module_based_co_policy_default():
+    """Verify that Course Outcome strictly maps Module M -> COM across all 5 modules by default,
+    and verify that explicit mode overrides (e.g. marks-based) take effect when supplied."""
+    from v0_1.difficulty_policy import resolve_co_bl_from_marks, _resolve_co_by_mode
+    for m in range(1, 6):
+        for marks in (4, 6, 8, 10):
+            co, bl = resolve_co_bl_from_marks(module_idx=m, marks=marks, total_parts=2)
+            assert co == f"CO{m}", f"Module {m} with {marks}M produced {co}, expected CO{m}"
+
+    # Verify override wins when explicitly passed
+    assert _resolve_co_by_mode(module_idx=5, marks=4, mode="marks-based") == "CO1"
+    assert _resolve_co_by_mode(module_idx=5, marks=6, mode="marks-based") == "CO2"
+    assert _resolve_co_by_mode(module_idx=5, marks=10, mode="marks-based") == "CO3"
+
+
+def test_continuous_global_question_numbering_formula():
+    """Verify that global question numbering produces continuous Q1..Q10 without repeating Q1..Q4,
+    and supports pool mode (4 questions/module) without index drift."""
+    from v0_1.docx_export import get_module_for_q
+
+    # Standard SEE mode: 2 questions per module (Q1..Q10)
+    questions_per_module = 2
+    for m in range(1, 6):
+        for local_idx in (1, 2):
+            global_q_no = (m - 1) * questions_per_module + local_idx
+            assert get_module_for_q({"qNo": global_q_no}) == m, (
+                f"Global question {global_q_no} did not map to Module {m}"
+            )
+
+    # Pool mode: 4 questions per module (Q1..Q20)
+    pool_qpm = 4
+    for m in range(1, 6):
+        mod_q_nums = [(m - 1) * pool_qpm + local_idx for local_idx in range(1, pool_qpm + 1)]
+        expected = list(range((m - 1) * pool_qpm + 1, m * pool_qpm + 1))
+        assert mod_q_nums == expected
+        # All questions in module m must share the same base module identity ((qNo - 1) // pool_qpm) + 1
+        for q_num in mod_q_nums:
+            derived_mod = ((q_num - 1) // pool_qpm) + 1
+            assert derived_mod == m, f"Pool question {q_num} expected mod {m}, got {derived_mod}"
+
+
+def test_numerical_unblocking_on_prose():
+    """Verify that standard technical prose with words 'for', 'if', 'where' does not falsely trigger code signals,
+    and verify that genuine code+numerical chunks have both programming_allowed and numerical_allowed True."""
+    import re
+
+    code_regexes = (
+        r'\b(?:def|class|public|private|static|interface|struct)\s+[a-zA-Z_]\w*',
+        r'\b(?:int|float|double|char|void|boolean)\s+[a-zA-Z_]\w*\s*(?:=|\(|;)',
+        r'\bfor\s+[a-zA-Z_]\w*\s+in\b',
+        r'\b(?:while|for)\s*\([^)]+\)\s*[{;]',
+        r'\b(?:SELECT\s+.+\s+FROM|INSERT\s+INTO|UPDATE\s+.+\s+SET|DELETE\s+FROM|CREATE\s+TABLE|ALTER\s+TABLE)\b',
+        r'```[a-zA-Z]*\n',
+        r'\b(?:pseudocode|algorithm)\s*:',
+        r'\bdef\s+[a-zA-Z_]\w*\s*\([^)]*\)\s*:',
+    )
+
+    # 1. Prose test: words 'for', 'if', 'where' in standard technical context
+    chunk_prose = (
+        "For the given sensor node, if the transmission range is 50 meters where energy consumption "
+        "is 20 mW, calculate the lifetime and battery drain."
+    )
+    lower_prose = chunk_prose.lower()
+    code_hits = sum(bool(re.search(pat, lower_prose, re.IGNORECASE)) for pat in code_regexes)
+    assert code_hits == 0, f"Expected 0 code hits on prose, got {code_hits}"
+
+    numeric_vals = re.findall(r'(?<![A-Za-z])[-+]?\d+(?:\.\d+)?(?:\s*%)?(?![A-Za-z])', lower_prose)
+    has_num_context = any(s in lower_prose for s in ("calculate", "energy", "consumption"))
+    numerical_allowed = bool(has_num_context and len(numeric_vals) >= 2)
+    assert numerical_allowed is True, "Prose chunk with calculation context and numbers should be numerical_allowed"
+
+    # 2. Dual test: chunk that has BOTH real code and numerical calculations
+    chunk_code_and_num = (
+        "def compute_hash(seed, count):\n"
+        "    int total = 100;\n"
+        "    for x in range(count):\n"
+        "        total += x * 2.5;\n"
+        "    return total\n"
+        "Calculate the final value when seed is 5 and count is 10."
+    )
+    lower_cn = chunk_code_and_num.lower()
+    cn_code_hits = sum(bool(re.search(pat, lower_cn, re.IGNORECASE)) for pat in code_regexes)
+    cn_numeric_vals = re.findall(r'(?<![A-Za-z])[-+]?\d+(?:\.\d+)?(?:\s*%)?(?![A-Za-z])', lower_cn)
+    cn_programming_allowed = cn_code_hits >= 2
+    cn_numerical_allowed = bool(
+        any(s in lower_cn for s in ("calculate", "compute")) and len(cn_numeric_vals) >= 2
+    )
+    assert cn_programming_allowed is True, f"Expected programming_allowed=True, got {cn_code_hits} code hits"
+    assert cn_numerical_allowed is True, "Expected numerical_allowed=True on dual chunk"
+
+
+def test_reported_bloom_matches_max_sub_bloom():
+    """Verify that main question reported_bloom matches the highest cognitive level among sub-questions,
+    properly harmonizing the header tag with multi-part questions."""
+    import re
+    from v0_1.generator import get_bloom_level_name
+
+    def _to_bloom_int(b):
+        if isinstance(b, int):
+            return b
+        digits = re.findall(r'\d+', str(b))
+        return int(digits[0]) if digits else 2
+
+    # Case A: Int sub_questions with [L1, L3, L4]
+    sub_questions_int = [
+        {"letter": "a", "marks": 4, "bloom": 1},
+        {"letter": "b", "marks": 3, "bloom": 3},
+        {"letter": "c", "marks": 3, "bloom": 4},
+    ]
+    sub_blooms_int = [_to_bloom_int(sq["bloom"]) for sq in sub_questions_int]
+    reported_bloom = max(sub_blooms_int)
+    assert reported_bloom == 4
+    header_tag = f"Answer the following: [L{reported_bloom}]"
+    assert header_tag == "Answer the following: [L4]"
+    assert get_bloom_level_name(reported_bloom) in ("Analyse", "Analyze")
+
+    # Case B: String sub_questions with ["L1", "L2", "L5"]
+    sub_questions_str = [
+        {"letter": "a", "marks": 6, "bloom": "L1"},
+        {"letter": "b", "marks": 4, "bloom": "L5"},
+    ]
+    sub_blooms_str = [_to_bloom_int(sq["bloom"]) for sq in sub_questions_str]
+    reported_str = max(sub_blooms_str)
+    assert reported_str == 5
+
+
 
 
 

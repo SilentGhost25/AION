@@ -215,7 +215,7 @@ ASSESSMENT_PROFILES = {
 }
 
 
-from .difficulty_policy import resolve_co_bl_from_marks
+from .difficulty_policy import resolve_co_bl_from_marks, _resolve_co_by_mode
 
 
 
@@ -739,13 +739,6 @@ def run_pipeline(
             module_chunks_text = [validate_content(c).clean_text or c for c in module_chunks_text if c.strip()]
 
         # ── STRUCTURED CO/BLOOM BLUEPRINT ─────────────────────────────
-        _CO_BLUEPRINT = {
-            1: ('CO1', 'CO1'),   # mod1: pair1=CO1, pair2=CO1
-            2: ('CO1', 'CO1'),   # mod2: pair1=CO1, pair2=CO1
-            3: ('CO2', 'CO2'),   # mod3: pair1=CO2, pair2=CO2
-            4: ('CO2', 'CO2'),   # mod4: pair1=CO2, pair2=CO2
-            5: ('CO3', 'CO3'),   # mod5: pair1=CO3, pair2=CO3
-        }
         _BLOOM_BLUEPRINT = {
             1: (2, 4, 2, 4),   # mod1: Q1a=L2, Q1b=L4, Q2a=L2, Q2b=L4
             2: (1, 3, 2, 4),   # mod2: Q3a=L1, Q3b=L3, Q4a=L2, Q4b=L4
@@ -761,7 +754,6 @@ def run_pipeline(
             5: _bb[2], 6: _bb[3],
             7: _bb[2], 8: _bb[3],
         }
-        _pair1_co, _pair2_co = _CO_BLUEPRINT.get(mod_idx, ('CO1', 'CO2'))
 
         # Lock mark partitions per OR pair (Pair 1: Q1/Q2, Pair 2: Q3/Q4)
         has_override = False
@@ -844,16 +836,23 @@ def run_pipeline(
 
         # Sequential question generation within module: preserves chunk progression,
         # sibling similarity deduplication, and archetype rotation determinism.
-        for mq_idx in range(1, 5):
-            bloom     = bloom_levels[mq_idx - 1]
-            partition = partitions_for_questions[mq_idx - 1]
-            planned_sub_types = planned_types_by_question[mq_idx - 1]
+        # Questions map continuously: global_q_no = (mod_idx - 1) * questions_per_module + local_idx
+        # which satisfies the frontend/DOCX canonical formula ((qNo - 1) // 2) + 1 for 2-q/mod papers.
+        questions_per_module = len(partitions_for_questions)
+        assert questions_per_module > 0, f"Module {mod_idx} must have at least one question partition."
+        for local_idx in range(1, questions_per_module + 1):
+            global_q_no = (mod_idx - 1) * questions_per_module + local_idx
+            # Clamp bloom_levels index: handles pool mode (where questions_per_module may exceed
+            # predefined blueprint targets) by defaulting subsequent questions to the terminal Bloom target.
+            bloom     = bloom_levels[min(local_idx - 1, len(bloom_levels) - 1)]
+            partition = partitions_for_questions[local_idx - 1]
+            planned_sub_types = planned_types_by_question[local_idx - 1]
 
             best_chunk_obj = None
             selected_chunks = []
 
             if mapper and module_chunks:
-                prefer_img = (mq_idx == 1)
+                prefer_img = (local_idx == 1)
                 with _chunk_selection_lock:
                     top_tcs = mapper.get_top_n_chunks_for_question(
                         module_id      = module_id,
@@ -872,14 +871,14 @@ def run_pipeline(
                 avail_texts = [t for t in module_chunks_text if t not in selected_chunks]
                 if not avail_texts:
                     avail_texts = module_chunks_text
-                stride_idx = (mq_idx * len(partition) + len(selected_chunks)) % max(1, len(avail_texts))
+                stride_idx = (local_idx * len(partition) + len(selected_chunks)) % max(1, len(avail_texts))
                 selected_chunks.append(avail_texts[stride_idx])
 
             res = _generate_main_question(
-                mq_idx, partition, bloom, selected_chunks, target_marks,
+                global_q_no, partition, bloom, selected_chunks, target_marks,
                 diff_manager, best_chunk_obj, selector, module_id, mod_orchestrator,
                 planned_sub_types,
-                _pair1_co if mq_idx in (1, 2) else _pair2_co,
+                _resolve_co_by_mode(mod_idx, target_marks),
                 _slot_bloom_targets,
             )
             module_questions.append(res)
@@ -1217,14 +1216,16 @@ def _generate_main_question(
             # Keep numerical and programming eligibility independent.
             _chunk_lower = str(chunk).lower()
 
-            _code_signals = (
-                "syntax", "program", "programming", "algorithm", "pseudocode",
-                "function", "procedure", "method", "class ", "return ",
-                "query", "statement", "command", "script",
-                "select ", "insert ", "update ", "delete ", "create table",
-                "alter table", "drop table", "join ", "where ", "group by",
-                "having ", "trigger", "cursor", "stored procedure",
-                "for ", "while ", "if ", "else "
+            # Token-boundary regex patterns to avoid false positives on English prose (e.g. 'for ', 'if ', 'where ')
+            _code_regexes = (
+                r'\b(?:def|class|public|private|static|interface|struct)\s+[a-zA-Z_]\w*',
+                r'\b(?:int|float|double|char|void|boolean)\s+[a-zA-Z_]\w*\s*(?:=|\(|;)',
+                r'\bfor\s+[a-zA-Z_]\w*\s+in\b',
+                r'\b(?:while|for)\s*\([^)]+\)\s*[{;]',
+                r'\b(?:SELECT\s+.+\s+FROM|INSERT\s+INTO|UPDATE\s+.+\s+SET|DELETE\s+FROM|CREATE\s+TABLE|ALTER\s+TABLE)\b',
+                r'```[a-zA-Z]*\n',
+                r'\b(?:pseudocode|algorithm)\s*:',
+                r'\bdef\s+[a-zA-Z_]\w*\s*\([^)]*\)\s*:',
             )
 
             _numeric_context_signals = (
@@ -1239,8 +1240,7 @@ def _generate_main_question(
             )
 
             # Standalone numeric values only; do not count tokens such as 1NF/2NF/3NF.
-            import re as _re
-            _numeric_values = _re.findall(
+            _numeric_values = re.findall(
                 r'(?<![A-Za-z])[-+]?\d+(?:\.\d+)?(?:\s*%)?(?![A-Za-z])',
                 _chunk_lower
             )
@@ -1252,24 +1252,21 @@ def _generate_main_question(
             # Explicit code extraction or textual code/syntax signals make the
             # evidence suitable for a programming/query/application question.
             _chunk_code_blocks = getattr(chunk_obj, "code_blocks", None) if chunk_obj is not None else None
+            _code_hits = sum(bool(re.search(pat, _chunk_lower, re.IGNORECASE)) for pat in _code_regexes)
             programming_allowed = bool(
                 _chunk_code_blocks
-                or any(sig in _chunk_lower for sig in _code_signals)
+                or _code_hits >= 2
             )
 
-            # Do NOT treat programming evidence as numerical evidence.
+            # Numerical eligibility is decoupled from programming context.
             # For numerical eligibility require computational context with numbers,
-            # or a genuine extracted formula.
-            # NUMERICAL requires actual numeric inputs plus computational context.
-            # Prefer two or more values; one value is accepted only with an
-            # explicit calculation verb in the source evidence.
+            # or a genuine extracted formula / calculation verb.
             _explicit_calc = any(
                 sig in _chunk_lower
                 for sig in ("calculate", "compute", "solve", "determine", "evaluate")
             )
             numerical_allowed = bool(
-                (not programming_allowed)
-                and _has_numeric_context
+                _has_numeric_context
                 and (
                     len(_numeric_values) >= 2
                     or (len(_numeric_values) >= 1 and _explicit_calc)
@@ -1536,7 +1533,15 @@ def _generate_main_question(
         slots.append(slot)
 
     actual_total = sum(sq["marks"] for sq in sub_questions)
-    reported_bloom = sub_questions[0]["bloom"] if len(sub_questions) == 1 else bloom
+
+    def _to_bloom_int(b: Any) -> int:
+        if isinstance(b, int):
+            return b
+        digits = re.findall(r'\d+', str(b))
+        return int(digits[0]) if digits else 2
+
+    sub_blooms = [_to_bloom_int(sq.get("bloom", bloom)) for sq in sub_questions]
+    reported_bloom = max(sub_blooms) if sub_blooms else _to_bloom_int(bloom)
 
     return {
         "mq_index":      mq_idx,

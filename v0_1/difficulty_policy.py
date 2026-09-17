@@ -85,15 +85,15 @@ def format_co_and_rbt(co: Any = None, bloom: Any = None, module_idx: int = 1) ->
 def _resolve_co_by_mode(
     module_idx: int,
     marks: int,
-    mode: str = "marks-based",
+    mode: str | None = None,
 ) -> str:
     """
     Resolves Course Outcome (CO) based on the specified assignment mode:
-    - 'marks-based' (default): legacy backward-compatible OBE mapping (<=4M -> CO1, 6M -> CO2, 8M+ -> CO3)
-    - 'module-based': strict syllabus module outcome (Module M -> COM)
+    - 'module-based' (default): strict VTU institutional syllabus outcome (Module M -> COM)
+    - 'marks-based': legacy backward-compatible OBE mapping (<=4M -> CO1, 6M -> CO2, 8M+ -> CO3)
     - 'hybrid': module-based for modules 1-3, marks-based capped at CO3 for modules 4-5
     """
-    m_str = (mode or "marks-based").lower().strip()
+    m_str = (mode or os.getenv("AION_CO_MODE", "module-based")).lower().strip()
     if m_str == "module-based":
         return make_co(module_idx) if module_idx else "CO1"
     elif m_str == "hybrid":
@@ -118,8 +118,7 @@ def _resolve_co_bl_from_marks_original(
 ) -> tuple[str, int]:
     """ORIGINAL, UNMODIFIED policy — kept as permanent backup/reference."""
     ptype = (planned_type or "CONCEPTUAL").upper()
-    mode = co_mode or os.getenv("AION_CO_MODE", "marks-based")
-    co = _resolve_co_by_mode(module_idx, marks, mode)
+    co = _resolve_co_by_mode(module_idx, marks, co_mode)
     if marks <= 4:
         return co, (1 if ptype == "CONCEPTUAL" else 2)
     if marks <= 6:
@@ -143,8 +142,7 @@ def _resolve_co_bl_from_marks_eased(
     Applies uniformly across ALL mark splits (4M, 6M, 8M, 10M).
     """
     ptype = (planned_type or "CONCEPTUAL").upper()
-    mode = co_mode or os.getenv("AION_CO_MODE", "marks-based")
-    co = _resolve_co_by_mode(module_idx, marks, mode)
+    co = _resolve_co_by_mode(module_idx, marks, co_mode)
 
     # 4M -> foundational (L1-L2)
     if marks <= 4:

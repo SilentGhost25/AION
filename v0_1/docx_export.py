@@ -6,13 +6,16 @@ Converts the unified paper data structure directly into a professional .docx doc
 import io
 import re
 from typing import Any, Dict, List, Optional
-import docx
-from docx import Document
-from docx.shared import Inches, Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
-from docx.oxml import OxmlElement, parse_xml
-from docx.oxml.ns import nsdecls, qn
+try:
+    import docx
+    from docx import Document
+    from docx.shared import Inches, Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
+    from docx.oxml import OxmlElement, parse_xml
+    from docx.oxml.ns import nsdecls, qn
+except ImportError:
+    docx = None
 from v0_1.difficulty_policy import format_co_and_rbt
 
 
