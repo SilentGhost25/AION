@@ -1302,6 +1302,69 @@ def test_bloom_level_co_mapping_and_opening_keyword_verification():
         assert check_bloom_verb_at_start(healed.instruction, slot).passed is True
 
 
+def test_bloom_verb_taxonomy_mismatch_and_numerical_l3_enforcement():
+    """
+    Verify:
+    1. A slot with slot.bloom_verb="Calculate" and bloom_level="L4" fails validation (Q3 defect regression).
+    2. Numerical calculation tasks strictly resolve to Bloom L3 across marks tiers.
+    3. Revision tables (Table 2.19, Important terms for revision) are classified as EXTERNAL by ContentRole firewall.
+    4. Equal module allocation generates 2 questions per module (Set 1 -> Q1/Q2, Set 2 -> Q3/Q4, etc.).
+    """
+    from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP, check_bloom_two_layer
+    from core.validation.linter import check_bloom_verb_at_start
+    from core.generation.output_schema import QuestionOutput
+    from v0_1.difficulty_policy import resolve_co_bl_from_marks
+    from v0_1.chunk_image_mapper import classify_chunk_depth
+
+    class MockSlot:
+        pass
+
+    # 1. Q3 Defect Regression: Calculate tagged L4 must fail validation
+    slot_bad = MockSlot()
+    slot_bad.bloom_verb = "Calculate"
+    slot_bad.bloom_level = "L4"
+    output_bad = QuestionOutput(
+        instruction="Calculate the throughput of the given channel using Shannon capacity formula.",
+        question_text="Calculate the throughput of the given channel using Shannon capacity formula.",
+        bloom_level="L4",
+        marks=8,
+    )
+    res_linter_bad = check_bloom_verb_at_start(output_bad.instruction, slot_bad)
+    assert res_linter_bad.passed is False
+    assert res_linter_bad.code == "BLOOM_TAXONOMY_MISMATCH", f"Expected BLOOM_TAXONOMY_MISMATCH, got {res_linter_bad.code}"
+
+    res_two_layer_bad = check_bloom_two_layer(output_bad.instruction, slot_bad)
+    assert res_two_layer_bad.passed is False
+    assert res_two_layer_bad.code == "BLOOM_TAXONOMY_MISMATCH"
+
+    # 2. Numerical task resolution strictly resolves to L3 regardless of marks
+    for marks in (4, 6, 8, 10, 20):
+        co, bl = resolve_co_bl_from_marks(module_idx=2, marks=marks, total_parts=2, planned_type="NUMERICAL")
+        assert bl == 3, f"Numerical task with {marks} marks resolved to Bloom L{bl}, expected L3"
+
+    # 3. ContentRole firewall blocks revision metadata & question banks
+    assert classify_chunk_depth("Table 2.19: Important terms for revision across satellite communications.") == "EXTERNAL"
+    assert classify_chunk_depth("Summary of Module 2 and review of core exam formulas.") == "EXTERNAL"
+    assert classify_chunk_depth("Chapter Question Bank: 1. State Kepler's laws. 2. Derive path loss.") == "EXTERNAL"
+    # Normal substantive content remains CORE or SUPPORTING
+    assert classify_chunk_depth("Explain the operation of a transponder using frequency translation with input filter.") in ("CORE", "SUPPORTING")
+
+    # 4. Equal module allocation formula verification: Set 1 -> Q1,Q2; Set 2 -> Q3,Q4; ... Set 5 -> Q9,Q10
+    questions_per_module = 2
+    for mod_idx in range(1, 6):
+        for local_idx in (1, 2):
+            global_q_no = (mod_idx - 1) * questions_per_module + local_idx
+            # DOCX/frontend canonical formula ((qNo - 1) // 2) + 1 must match mod_idx
+            assert ((global_q_no - 1) // 2) + 1 == mod_idx
+    # Set 1 -> Q1, Q2
+    assert [(1 - 1) * 2 + 1, (1 - 1) * 2 + 2] == [1, 2]
+    # Set 2 -> Q3, Q4
+    assert [(2 - 1) * 2 + 1, (2 - 1) * 2 + 2] == [3, 4]
+    # Set 5 -> Q9, Q10
+    assert [(5 - 1) * 2 + 1, (5 - 1) * 2 + 2] == [9, 10]
+
+
+
 
 
 

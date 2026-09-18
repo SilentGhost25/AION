@@ -165,16 +165,48 @@ def find_bloom_verbs_in_clause(clause: str) -> List[Tuple[str, str, str]]:
 
 
 def check_bloom_verb_at_start(instruction: str, slot: QuestionSlot) -> CheckResult:
-    """H8 — Verifies instruction starts with the expected Bloom verb (case-insensitive)."""
-    verb = slot.bloom_verb.lower()
-    words = instruction.strip().split()
+    """
+    H8 — Verifies instruction starts with the expected Bloom verb (case-insensitive)
+    and strictly satisfies the cross-field Bloom verb-level invariant against BLOOM_VERB_LEVEL_MAP.
+    """
+    canonical_verbs = BLOOM_VERB_LEVEL_MAP.get(slot.bloom_level, set())
+    verb = slot.bloom_verb.lower() if hasattr(slot, "bloom_verb") else ""
+
+    # 1. Invariant: slot.bloom_verb must legally belong to slot.bloom_level
+    if canonical_verbs and verb and verb not in canonical_verbs:
+        return CheckResult.fail(
+            "BLOOM_TAXONOMY_MISMATCH",
+            f"Slot Bloom verb '{slot.bloom_verb}' is not in canonical verb set for {slot.bloom_level}. "
+            f"Allowed: {sorted(canonical_verbs)}",
+            action=RetryAction.REGENERATE_WITH_BLOOM_HINT,
+        )
+
+    # 2. Invariant: instruction must start with expected Bloom verb
+    words = instruction.strip().split() if instruction else []
     first_word = words[0].lower().rstrip(".,;:") if words else ""
-    if first_word != verb:
+    
+    # Accept standard spelling equivalents
+    EQUIVALENTS = {
+        "analyse": {"analyze", "analyse"},
+        "analyze": {"analyze", "analyse"},
+    }
+    accepted = EQUIVALENTS.get(verb, {verb}) if verb else set()
+
+    if first_word not in accepted:
         return CheckResult.fail(
             "BLOOM_VERB_NOT_AT_START",
             f"Instruction must start with expected Bloom verb '{slot.bloom_verb}'. Got: '{first_word}'",
-            action=RetryAction.REGENERATE_WITH_BLOOM_HINT
+            action=RetryAction.REGENERATE_WITH_BLOOM_HINT,
         )
+
+    # 3. Invariant: first word must also belong to the declared Bloom level
+    if canonical_verbs and first_word not in canonical_verbs and not (canonical_verbs & accepted):
+        return CheckResult.fail(
+            "BLOOM_TAXONOMY_MISMATCH",
+            f"Opening word '{first_word}' does not belong to declared Bloom level {slot.bloom_level}.",
+            action=RetryAction.REGENERATE_WITH_BLOOM_HINT,
+        )
+
     return CheckResult.pass_()
 
 

@@ -70,8 +70,21 @@ def check_bloom_two_layer(
     if not instruction or not instruction.strip():
         return BloomCheckResult(False, "INSTRUCTION_EMPTY", "Instruction is empty")
 
+    canonical_verbs = BLOOM_VERB_LEVEL_MAP.get(slot.bloom_level, set())
+    expected = slot.bloom_verb.lower() if hasattr(slot, "bloom_verb") else "explain"
+
+    if canonical_verbs and expected not in canonical_verbs:
+        return BloomCheckResult(
+            passed = False,
+            code   = "BLOOM_TAXONOMY_MISMATCH",
+            detail = (
+                f"Slot Bloom verb '{slot.bloom_verb}' is not in canonical verb set for {slot.bloom_level}. "
+                f"Allowed: {sorted(canonical_verbs)}."
+            ),
+            action = "REGENERATE_WITH_BLOOM_HINT"
+        )
+
     first_word = instruction.strip().split()[0].rstrip(".,;:").lower()
-    expected   = slot.bloom_verb.lower() if hasattr(slot, "bloom_verb") else "explain"
 
     # Accept British/American spelling variants
     EQUIVALENTS = {

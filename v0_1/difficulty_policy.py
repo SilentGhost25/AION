@@ -120,6 +120,8 @@ def _resolve_co_bl_from_marks_original(
     ptype = (planned_type or "CONCEPTUAL").upper()
     mode = co_mode or os.getenv("AION_CO_MODE", "marks-based")
     co = _resolve_co_by_mode(module_idx, marks, mode)
+    if ptype in ("NUMERICAL", "CALCULATION"):
+        return co, 3
     if marks <= 4:
         return co, (1 if ptype == "CONCEPTUAL" else 2)
     if marks <= 6:
@@ -148,7 +150,11 @@ def _resolve_co_bl_from_marks_eased(
 
     # 4M -> foundational (L1-L2)
     if marks <= 4:
-        return co, (1 if ptype == "CONCEPTUAL" else 2)
+        return co, (1 if ptype == "CONCEPTUAL" else (3 if ptype == "NUMERICAL" else 2))
+
+    # Numerical calculation tasks are procedural application (L3) across all marks tiers
+    if ptype in ("NUMERICAL", "CALCULATION"):
+        return co, 3
 
     # 6M -> moderate / easy-tier application (L2-L3) across ALL modules
     if marks <= 6:

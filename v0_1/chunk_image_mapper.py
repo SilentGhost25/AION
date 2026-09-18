@@ -199,6 +199,27 @@ def classify_chunk_depth(text: str, target_module_idx: int = 1) -> str:
 
     text_lower = text.lower()
 
+    # ContentRole Firewall: Filter out revision metadata, summary tables,
+    # glossaries, and end-of-chapter question banks from primary question evidence.
+    revision_patterns = [
+        r"\btable\s+\d+[\.\d]*\s*:\s*important\s+terms",
+        r"\bimportant\s+terms\s+for\s+revision\b",
+        r"\bterms\s+for\s+revision\b",
+        r"\bquick\s+revision\b",
+        r"\bchapter\s+summary\b",
+        r"\bmodule\s+summary\b",
+        r"\bsummary\s+of\s+(?:the\s+)?(?:module|chapter|\d+)\b",
+        r"\brevision\s+of\s+(?:the\s+)?(?:module|chapter|\d+)\b",
+        r"\bquestion\s+bank\b",
+        r"\bmodel\s+questions?\b",
+        r"\breview\s+questions?\b",
+        r"\bexercises?\s+for\s+(?:chapter|module)\b",
+        r"\bglossary\s+of\s+terms\b",
+        r"\bkey\s+terms\s+and\s+definitions\b",
+    ]
+    if any(re.search(pat, text_lower) for pat in revision_patterns):
+        return "EXTERNAL"
+
     # 1. Advanced technical detail / appendix / rigorous proof
     advanced_terms = {
         "appendix", "detailed proof", "derivation of", "mathematical formulation",

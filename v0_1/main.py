@@ -813,7 +813,20 @@ def run_pipeline(
                     pair1_partition = [target_marks]
                     pair2_partition = [target_marks]
 
-        partitions_for_questions = [pair1_partition, pair1_partition, pair2_partition, pair2_partition]
+        # Equal module allocation:
+        # Standard VTU SEE/IA papers across modules allocate exactly 2 questions per module/set:
+        # Set 1 / Module 1 -> Q1 & Q2
+        # Set 2 / Module 2 -> Q3 & Q4
+        # Set 3 / Module 3 -> Q5 & Q6
+        # Set 4 / Module 4 -> Q7 & Q8
+        # Set 5 / Module 5 -> Q9 & Q10
+        # Single-module pool mode retains 4 partitions for generation variety.
+        if (mode == "pool" or getattr(mod, "is_pool", False)) and len(modules) == 1:
+            partitions_for_questions = [pair1_partition, pair1_partition, pair2_partition, pair2_partition]
+        elif len(modules) >= 2 or exam_type.lower() in ("see", "vtu", "ia"):
+            partitions_for_questions = [pair1_partition, pair1_partition]
+        else:
+            partitions_for_questions = [pair1_partition, pair1_partition, pair2_partition, pair2_partition]
 
         # Calculate dynamic pedagogy-aware slot types for this module
         total_slots = sum(len(p) for p in partitions_for_questions)
@@ -1321,6 +1334,19 @@ def _generate_main_question(
                 'easy' if sub_bloom <= 2 else 'medium' if sub_bloom <= 4 else 'hard',
                 sub_bloom
             )
+            # Enforce strict cross-field invariant: verb must strictly belong to BLOOM_VERB_LEVEL_MAP[L{sub_bloom}]
+            # and numerical calculation tasks must never be elevated beyond L3.
+            from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
+            if q_type == "NUMERICAL" or (verb and verb.lower() in ("calculate", "solve", "determine", "compute", "find", "derive")):
+                sub_bloom = 3
+                canonical_pool = BLOOM_VERB_LEVEL_MAP["L3"]
+                if verb.lower() not in canonical_pool:
+                    verb = "Calculate"
+            else:
+                canonical_pool = BLOOM_VERB_LEVEL_MAP.get(f"L{sub_bloom}", set())
+                if canonical_pool and verb.lower() not in canonical_pool:
+                    verb = next(iter(canonical_pool)).capitalize()
+
             # Resolve slot topic first
             raw_slot_topic = (
                 str(chunk_obj.topic) if (chunk_obj and getattr(chunk_obj, "topic", None) and not re.match(r'^module_\d+', str(chunk_obj.topic)))
@@ -1340,7 +1366,7 @@ def _generate_main_question(
                 question_no=mq_idx,
                 sub_label=sub_letter,
                 or_pair_id=f"{module_id}_OR_{1 if mq_idx in (1, 2) else 2}",
-                is_alternative=(mq_idx in (2, 4)),
+                is_alternative=(mq_idx % 2 == 0),
                 module_id=_mod_num,
                 marks=marks,
                 bloom_level=f"L{sub_bloom}",
