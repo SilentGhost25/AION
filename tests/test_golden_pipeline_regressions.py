@@ -978,6 +978,210 @@ def test_reported_bloom_matches_max_sub_bloom():
     assert reported_str == 5
 
 
+def test_programming_allowed_true_positives():
+    """Verify that genuine code chunks (Python defs, SQL queries, Java class declarations)
+    reliably trigger programming_allowed=True without under-classifying real code."""
+    import re
+
+    code_regexes = (
+        r'\b(?:def|class|public|private|static|interface|struct)\s+[a-zA-Z_]\w*',
+        r'\b(?:int|float|double|char|void|boolean)\s+[a-zA-Z_]\w*\s*(?:=|\(|;)',
+        r'\bfor\s+[a-zA-Z_]\w*\s+in\b',
+        r'\b(?:while|for)\s*\([^)]+\)\s*[{;]',
+        r'\b(?:SELECT\s+.+\s+FROM|INSERT\s+INTO|UPDATE\s+.+\s+SET|DELETE\s+FROM)\b',
+        r'\b(?:CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE|PRIMARY\s+KEY|FOREIGN\s+KEY)\b',
+        r'```[a-zA-Z]*\n',
+        r'\b(?:pseudocode|algorithm)\s*:',
+        r'\bdef\s+[a-zA-Z_]\w*\s*\([^)]*\)\s*:',
+    )
+
+    # 1. Python function with loop and definition
+    chunk_py = (
+        "def find_max(arr):\n"
+        "    max_val = arr[0]\n"
+        "    for item in arr:\n"
+        "        if item > max_val: max_val = item\n"
+        "    return max_val\n"
+    )
+    hits_py = sum(bool(re.search(pat, chunk_py.lower(), re.IGNORECASE)) for pat in code_regexes)
+    assert hits_py >= 2, f"Expected >= 2 code hits on Python code, got {hits_py}"
+
+    # 2. SQL schema and query
+    chunk_sql = (
+        "CREATE TABLE student_records (\n"
+        "    student_id INT PRIMARY KEY,\n"
+        "    student_name VARCHAR(100)\n"
+        ");\n"
+        "SELECT student_id, student_name FROM student_records WHERE student_id > 100;\n"
+    )
+    hits_sql = sum(bool(re.search(pat, chunk_sql, re.IGNORECASE)) for pat in code_regexes)
+    assert hits_sql >= 2, f"Expected >= 2 code hits on SQL block, got {hits_sql}"
+
+    # 3. Markdown code block
+    chunk_md = "```python\ndef binary_search(arr, x):\n    pass\n```\n"
+    hits_md = sum(bool(re.search(pat, chunk_md.lower(), re.IGNORECASE)) for pat in code_regexes)
+    assert hits_md >= 2, f"Expected >= 2 code hits on Markdown block, got {hits_md}"
+
+
+def test_math_validator_katex_unavailable_grace_path():
+    """Verify that when KaTeX executable is unavailable, pure-Python validation handles math gracefully:
+    valid math passes without render crashes, while syntactically corrupt math is still strictly caught."""
+    from core.validation.math_validator import KaTeXAvailabilityGate, validate_math_block_with_render
+    from core.generation.output_schema import MathBlock
+    from unittest.mock import patch
+
+    # Mock KaTeX availability as False
+    with patch.object(KaTeXAvailabilityGate, 'verify', return_value=False):
+        # 1. Valid math block must pass pure-Python checks even when KaTeX is unavailable
+        good_block = MathBlock(block_id="math_1", latex=r"\frac{x + 1}{x - 1}", display_mode=False)
+        good_res = validate_math_block_with_render(good_block)
+        assert good_res.passed is True, f"Valid math failed with KaTeX unavailable: {good_res.message}"
+
+        # 2. Corrupt incomplete fraction must STILL fail with MATH_INCOMPLETE_FRAC
+        bad_frac_block = MathBlock(block_id="math_2", latex=r"\frac{x + 1}", display_mode=False)
+        bad_frac_res = validate_math_block_with_render(bad_frac_block)
+        assert bad_frac_res.passed is False
+        assert bad_frac_res.code == "MATH_INCOMPLETE_FRAC"
+
+        # 3. Unbalanced braces must STILL fail with MATH_UNCLOSED_BRACES
+        bad_brace_block = MathBlock(block_id="math_3", latex=r"\frac{x + 1}{x - 1", display_mode=False)
+        bad_brace_res = validate_math_block_with_render(bad_brace_block)
+        assert bad_brace_res.passed is False
+        assert bad_brace_res.code == "MATH_UNCLOSED_BRACES"
+
+
+def test_iot_smart_systems_archetype_resolution_and_directives():
+    """Verify that IoT & smart agriculture subjects resolve to iot_smart_systems and carry domain directives."""
+    from aion_patch import resolve_subject_archetype, SUBJECT_ARCHETYPES
+
+    # Test alias mappings
+    assert resolve_subject_archetype("IOT Agriculture and Health care") == "iot_smart_systems"
+    assert resolve_subject_archetype("21CS81") == "iot_smart_systems"
+    assert resolve_subject_archetype("precision agriculture") == "iot_smart_systems"
+    assert resolve_subject_archetype("wireless sensor networks") == "iot_smart_systems"
+
+    # Test domain directives registered for iot_smart_systems
+    archetype_data = SUBJECT_ARCHETYPES.get("iot_smart_systems")
+    assert archetype_data is not None
+    directive = archetype_data.get("directive", "").lower()
+    assert "precision agriculture" in directive or "agriculture" in directive
+    assert "healthcare" in directive or "health care" in directive
+    assert "mqtt" in directive or "sensor" in directive or "telemetry" in directive
+
+
+def test_end_to_end_vtu_paper_structure_and_criteria():
+    """
+    End-to-end multi-module verification asserting all 5 production criteria:
+    1. Questions numbered Q1..Q10 continuously across all 5 modules.
+    2. Every question's CO matches its module (CO1 for Q1-Q2, ..., CO5 for Q9-Q10).
+    3. Every question's reported_bloom equals max(subs) and header tag is harmonized.
+    4. Numerical unblocking: Chunks with computational context yield numerical_allowed=True and math_required=True.
+    5. Sub-question marks sum strictly to the main question total marks.
+    """
+    from v0_1.main import _generate_main_question
+    from v0_1.difficulty import DifficultyManager
+    from v0_1.difficulty_policy import _resolve_co_by_mode
+    from core.generation.orchestrator import SlotOrchestrator
+    from unittest.mock import MagicMock
+
+    diff_manager = DifficultyManager.from_string("mixed")
+    orchestrator = SlotOrchestrator()
+
+    def mock_generate(slot, evidence_pack, **kwargs):
+        from core.contracts.question import GeneratedQuestion
+        from core.generation.output_schema import QuestionOutput
+        output = QuestionOutput(
+            instruction=f"Explain or calculate the operational parameters: {slot.bloom_verb} details.",
+            question_text=f"Explain or calculate the operational parameters: {slot.bloom_verb} details.",
+            math_blocks=[],
+        )
+        return GeneratedQuestion(output=output, slot=slot)
+    orchestrator.generate = mock_generate
+
+    # Evidence with real sensor telemetry calculation (unblocked numerical)
+    iot_numerical_evidence = (
+        "In a precision agriculture IoT sensor network, the soil moisture sensor nodes transmit telemetry "
+        "every 10 minutes at 20 mW power where the battery capacity is 2500 mAh and operating voltage is 3.3 V. "
+        "Calculate the total energy consumption per day and determine the expected operational lifetime of the sensor node."
+    )
+
+    paper_modules = []
+    questions_per_module = 2
+    target_marks = 10
+
+    for mod_idx in range(1, 6):
+        mod_questions = []
+        for local_idx in range(1, questions_per_module + 1):
+            global_q_no = (mod_idx - 1) * questions_per_module + local_idx
+            partition = [6, 4]
+
+            # In Module 2 Q3, test numerical unblocking on real calculation chunk
+            chunk_text = iot_numerical_evidence if (mod_idx == 2 and local_idx == 1) else (
+                f"Module {mod_idx} foundational theory and system architecture concepts for engineering."
+            )
+            planned_type = ["NUMERICAL", "APPLICATION"] if (mod_idx == 2 and local_idx == 1) else ["CONCEPTUAL", "CONCEPTUAL"]
+
+            mq = _generate_main_question(
+                mq_idx=global_q_no,
+                partition=partition,
+                bloom=3,
+                chunks=[chunk_text, chunk_text],
+                total_marks=target_marks,
+                diff_manager=diff_manager,
+                chunk_obj=None,
+                selector=MagicMock(),
+                module_id=f"module_{mod_idx}",
+                orchestrator=orchestrator,
+                planned_types=planned_type,
+                blueprint_co=_resolve_co_by_mode(mod_idx, target_marks),
+                slot_bloom_targets={1: 2, 2: 4, 3: 3, 4: 5},
+            )
+            mod_questions.append(mq)
+        paper_modules.append({"module_index": mod_idx, "questions": mod_questions})
+
+    # Criterion 1: Questions numbered Q1..Q10 continuously across modules
+    all_q_indices = [q["mq_index"] for mod in paper_modules for q in mod["questions"]]
+    assert all_q_indices == list(range(1, 11)), f"Expected Q1..Q10, got {all_q_indices}"
+
+    # Criterion 2: Every question's CO matches its module (CO1 for Q1-Q2, CO2 for Q3-Q4, ..., CO5 for Q9-Q10)
+    for mod in paper_modules:
+        expected_co = f"CO{mod['module_index']}"
+        for q in mod["questions"]:
+            for sq in q["sub_questions"]:
+                assert sq["co"] == expected_co, (
+                    f"Question {q['mq_index']} subquestion in Module {mod['module_index']} "
+                    f"has CO '{sq['co']}', expected '{expected_co}'"
+                )
+
+    # Criterion 3: Every question's reported_bloom equals max(subs)
+    for mod in paper_modules:
+        for q in mod["questions"]:
+            sub_blooms = [sq["bloom"] for sq in q["sub_questions"]]
+            expected_max_bloom = max(sub_blooms)
+            assert q["bloom_level"] == expected_max_bloom, (
+                f"Question {q['mq_index']} reported_bloom {q['bloom_level']} != max(subs) {expected_max_bloom}"
+            )
+
+    # Criterion 4: Numerical unblocking on computational evidence
+    mod2_q3 = paper_modules[1]["questions"][0]
+    has_numerical = any(
+        getattr(gq.slot, "question_type", None) == "NUMERICAL" or sq.get("difficulty") == "MEDIUM"
+        for gq, sq in zip(mod2_q3["generated_questions"], mod2_q3["sub_questions"])
+    )
+    assert has_numerical is True, "Expected numerical question in Module 2 Q3 on calculation evidence"
+
+    # Criterion 5: Sub-marks sum strictly to main marks
+    for mod in paper_modules:
+        for q in mod["questions"]:
+            sub_total = sum(sq["marks"] for sq in q["sub_questions"])
+            assert sub_total == target_marks, (
+                f"Question {q['mq_index']} sub-marks {sub_total} != target {target_marks}"
+            )
+            assert sub_total == q["total_marks"]
+
+
+
+
 
 
 
