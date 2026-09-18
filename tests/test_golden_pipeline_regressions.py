@@ -1360,8 +1360,32 @@ def test_bloom_verb_taxonomy_mismatch_and_numerical_l3_enforcement():
     assert [(1 - 1) * 2 + 1, (1 - 1) * 2 + 2] == [1, 2]
     # Set 2 -> Q3, Q4
     assert [(2 - 1) * 2 + 1, (2 - 1) * 2 + 2] == [3, 4]
-    # Set 5 -> Q9, Q10
-    assert [(5 - 1) * 2 + 1, (5 - 1) * 2 + 2] == [9, 10]
+    # 5. Verify _print_exam_paper handles 2 questions per module without IndexError
+    from v0_1.main import _print_exam_paper
+    mock_paper = [
+        {
+            "module_index": mod_i,
+            "module_title": f"Module {mod_i}",
+            "questions": [
+                {
+                    "mq_index": (mod_i - 1) * 2 + 1,
+                    "bloom_level": 2,
+                    "bloom_name": "Understand",
+                    "sub_questions": [{"letter": "a", "text": "Explain concept.", "marks": 6, "difficulty": "easy"}],
+                },
+                {
+                    "mq_index": (mod_i - 1) * 2 + 2,
+                    "bloom_level": 3,
+                    "bloom_name": "Apply",
+                    "sub_questions": [{"letter": "a", "text": "Apply formula.", "marks": 6, "difficulty": "medium"}],
+                },
+            ],
+        }
+        for mod_i in range(1, 6)
+    ]
+    # Should execute cleanly without raising IndexError
+    _print_exam_paper(mock_paper, "IAT1")
+
 
 
 

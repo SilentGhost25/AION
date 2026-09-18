@@ -1632,15 +1632,14 @@ def _print_exam_paper(paper: List[dict], exam_type: str):
         print(f"\nMODULE {mod['module_index']}: {mod['module_title'].upper()}")
         print("-" * 80)
 
-        _print_mq(mod["questions"][0])
-        print(f"{' '*36}[OR]")
-        _print_mq(mod["questions"][1])
-
-        print("\n" + "· " * 40 + "\n")
-
-        _print_mq(mod["questions"][2])
-        print(f"{' '*36}[OR]")
-        _print_mq(mod["questions"][3])
+        questions = mod.get("questions") or []
+        for i, q in enumerate(questions):
+            _print_mq(q)
+            if i < len(questions) - 1:
+                if i % 2 == 0:
+                    print(f"{' '*36}[OR]")
+                else:
+                    print("\n" + "· " * 40 + "\n")
         print()
 
 
