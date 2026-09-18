@@ -592,17 +592,11 @@ def test_full_page_coverage_across_text_bearing_pages():
 def test_eased_difficulty_policy_shifts_6m_to_easy_tier():
     """Verify eased difficulty policy shifts 6M questions into CO2/L2-L3 easy/moderate tier across all modules."""
     from v0_1.difficulty_policy import resolve_co_bl_from_marks, EASE_PAPER_DIFFICULTY
-    # Legacy marks-based mode check
-    co_mb, bloom_mb = resolve_co_bl_from_marks(module_idx=1, marks=6, total_parts=2, planned_type="APPLICATION", co_mode="marks-based")
-    assert co_mb == "CO2" and bloom_mb == 3
-    co5_mb, bloom5_mb = resolve_co_bl_from_marks(module_idx=5, marks=6, total_parts=2, planned_type="APPLICATION", co_mode="marks-based")
-    assert co5_mb == "CO2" and bloom5_mb == 3
-
-    # Default module-based mode check (OBE alignment: Module M -> COM)
+    assert EASE_PAPER_DIFFICULTY is True
     co, bloom = resolve_co_bl_from_marks(module_idx=1, marks=6, total_parts=2, planned_type="APPLICATION")
-    assert co == "CO1" and bloom == 3
+    assert co == "CO2" and bloom == 3
     co5, bloom5 = resolve_co_bl_from_marks(module_idx=5, marks=6, total_parts=2, planned_type="APPLICATION")
-    assert co5 == "CO5" and bloom5 == 3
+    assert co5 == "CO2" and bloom5 == 3
     co_hard, bloom_hard = resolve_co_bl_from_marks(module_idx=3, marks=10, total_parts=1)
     assert co_hard == "CO3" and bloom_hard == 4
 
@@ -852,19 +846,34 @@ def test_math_incomplete_frac_exhaustion_does_not_crash_pipeline():
     assert check_result.passed is True
 
 
-def test_module_based_co_policy_default():
-    """Verify that Course Outcome strictly maps Module M -> COM across all 5 modules by default,
-    and verify that explicit mode overrides (e.g. marks-based) take effect when supplied."""
+def test_marks_and_bloom_based_co_policy_default():
+    """Verify that Course Outcome maps based on marks and bloom level by default (marks-based),
+    and verify that module-based mode can still be activated when explicitly configured."""
     from v0_1.difficulty_policy import resolve_co_bl_from_marks, _resolve_co_by_mode
-    for m in range(1, 6):
-        for marks in (4, 6, 8, 10):
-            co, bl = resolve_co_bl_from_marks(module_idx=m, marks=marks, total_parts=2)
-            assert co == f"CO{m}", f"Module {m} with {marks}M produced {co}, expected CO{m}"
 
-    # Verify override wins when explicitly passed
-    assert _resolve_co_by_mode(module_idx=5, marks=4, mode="marks-based") == "CO1"
-    assert _resolve_co_by_mode(module_idx=5, marks=6, mode="marks-based") == "CO2"
-    assert _resolve_co_by_mode(module_idx=5, marks=10, mode="marks-based") == "CO3"
+    # Default policy (marks-based):
+    # <=4M -> CO1
+    co_4m, bl_4m = resolve_co_bl_from_marks(module_idx=1, marks=4, total_parts=2, planned_type="CONCEPTUAL")
+    assert co_4m == "CO1" and bl_4m == 1
+    co_4m_app, bl_4m_app = resolve_co_bl_from_marks(module_idx=5, marks=4, total_parts=2, planned_type="APPLICATION")
+    assert co_4m_app == "CO1" and bl_4m_app == 2
+
+    # 6M -> CO2
+    co_6m, bl_6m = resolve_co_bl_from_marks(module_idx=1, marks=6, total_parts=2, planned_type="APPLICATION")
+    assert co_6m == "CO2" and bl_6m == 3
+    co_6m_m5, bl_6m_m5 = resolve_co_bl_from_marks(module_idx=5, marks=6, total_parts=2, planned_type="APPLICATION")
+    assert co_6m_m5 == "CO2" and bl_6m_m5 == 3
+
+    # 8M/10M -> CO3
+    co_10m, bl_10m = resolve_co_bl_from_marks(module_idx=3, marks=10, total_parts=1)
+    assert co_10m == "CO3" and bl_10m == 4
+
+    # Explicit module-based mode check (Module M -> COM)
+    assert _resolve_co_by_mode(module_idx=1, marks=10, mode="module-based") == "CO1"
+    assert _resolve_co_by_mode(module_idx=2, marks=6, mode="module-based") == "CO2"
+    assert _resolve_co_by_mode(module_idx=3, marks=4, mode="module-based") == "CO3"
+    assert _resolve_co_by_mode(module_idx=4, marks=6, mode="module-based") == "CO4"
+    assert _resolve_co_by_mode(module_idx=5, marks=10, mode="module-based") == "CO5"
 
 
 def test_continuous_global_question_numbering_formula():
@@ -1143,15 +1152,20 @@ def test_end_to_end_vtu_paper_structure_and_criteria():
     all_q_indices = [q["mq_index"] for mod in paper_modules for q in mod["questions"]]
     assert all_q_indices == list(range(1, 11)), f"Expected Q1..Q10, got {all_q_indices}"
 
-    # Criterion 2: Every question's CO matches its module (CO1 for Q1-Q2, CO2 for Q3-Q4, ..., CO5 for Q9-Q10)
+    # Criterion 2: Course Outcome is determined based on marks and bloom level
+    # 6M subquestions -> CO2 (moderate/application tier)
+    # 4M subquestions -> CO1 (foundational tier)
     for mod in paper_modules:
-        expected_co = f"CO{mod['module_index']}"
         for q in mod["questions"]:
             for sq in q["sub_questions"]:
-                assert sq["co"] == expected_co, (
-                    f"Question {q['mq_index']} subquestion in Module {mod['module_index']} "
-                    f"has CO '{sq['co']}', expected '{expected_co}'"
-                )
+                if sq["marks"] == 6:
+                    assert sq["co"] == "CO2", (
+                        f"Question {q['mq_index']} 6M subquestion has CO '{sq['co']}', expected 'CO2'"
+                    )
+                elif sq["marks"] == 4:
+                    assert sq["co"] == "CO1", (
+                        f"Question {q['mq_index']} 4M subquestion has CO '{sq['co']}', expected 'CO1'"
+                    )
 
     # Criterion 3: Every question's reported_bloom equals max(subs)
     for mod in paper_modules:
