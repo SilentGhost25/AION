@@ -1099,9 +1099,10 @@ def test_end_to_end_vtu_paper_structure_and_criteria():
     def mock_generate(slot, evidence_pack, **kwargs):
         from core.contracts.question import GeneratedQuestion
         from core.generation.output_schema import QuestionOutput
+        verb = slot.bloom_verb.strip().capitalize()
         output = QuestionOutput(
-            instruction=f"Explain or calculate the operational parameters: {slot.bloom_verb} details.",
-            question_text=f"Explain or calculate the operational parameters: {slot.bloom_verb} details.",
+            instruction=f"{verb} the operational parameters and system requirements in detail.",
+            question_text=f"{verb} the operational parameters and system requirements in detail.",
             math_blocks=[],
         )
         return GeneratedQuestion(output=output, slot=slot)
@@ -1192,6 +1193,113 @@ def test_end_to_end_vtu_paper_structure_and_criteria():
                 f"Question {q['mq_index']} sub-marks {sub_total} != target {target_marks}"
             )
             assert sub_total == q["total_marks"]
+
+    # Criterion 6: First word of every question matches its assigned Bloom level keywords
+    from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
+    for mod in paper_modules:
+        for q in mod["questions"]:
+            for sq in q["sub_questions"]:
+                first_word = sq["text"].strip().split()[0].rstrip(".,;:").lower()
+                sq_bloom_num = sq["bloom"]
+                assert first_word in BLOOM_VERB_LEVEL_MAP[f"L{sq_bloom_num}"], (
+                    f"First word '{first_word}' in question {q['mq_index']} does not match Bloom level L{sq_bloom_num} keywords: {BLOOM_VERB_LEVEL_MAP[f'L{sq_bloom_num}']}"
+                )
+
+
+def test_bloom_level_co_mapping_and_opening_keyword_verification():
+    """
+    Verify:
+    1. Every question's opening word matches canonical Bloom level keywords from BLOOM_VERB_LEVEL_MAP.
+    2. Tags for bloom level (L1..L5) and Course Outcome (CO1..CO3) correctly match question marks and cognitive tier.
+    3. The two-layer bloom validator and AutoHealer enforce opening keyword alignment with zero drift.
+    """
+    from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP, check_bloom_two_layer
+    from core.validation.linter import check_bloom_verb_at_start
+    from core.generation.auto_healer import AutoHealer
+    from core.generation.output_schema import QuestionOutput
+    from v0_1.difficulty import DifficultyManager
+    from v0_1.difficulty_policy import resolve_co_bl_from_marks, format_co_and_rbt
+
+    dm = DifficultyManager.from_string("mixed")
+
+    # 1. Test Bloom level and CO tagging across standard marks splits
+    test_cases = [
+        # (module_idx, marks, planned_type, expected_co, expected_blooms)
+        (1, 4, "CONCEPTUAL", "CO1", [1]),
+        (1, 4, "APPLICATION", "CO1", [2]),
+        (2, 6, "CONCEPTUAL", "CO2", [2]),
+        (2, 6, "APPLICATION", "CO2", [3]),
+        (3, 8, "ANALYTICAL", "CO3", [4]),
+        (4, 10, "EVALUATE", "CO3", [5]),
+    ]
+
+    for mod_idx, marks, q_type, expected_co, expected_blooms in test_cases:
+        co, bloom = resolve_co_bl_from_marks(
+            module_idx=mod_idx,
+            marks=marks,
+            total_parts=2,
+            planned_type=q_type,
+        )
+        assert co == expected_co, f"Marks {marks}M ({q_type}) resolved CO {co}, expected {expected_co}"
+        assert bloom in expected_blooms, f"Marks {marks}M ({q_type}) resolved Bloom {bloom}, expected {expected_blooms}"
+
+        # Safe formatting check
+        final_co, final_rbt = format_co_and_rbt(co, bloom, mod_idx)
+        assert final_co == expected_co
+        assert final_rbt == f"L{bloom}"
+
+        # Verify verb selection for this Bloom level
+        verb = dm.get_verb("mixed", bloom)
+        assert verb.lower() in BLOOM_VERB_LEVEL_MAP[f"L{bloom}"], (
+            f"Verb '{verb}' does not belong to Bloom level L{bloom} keywords: {BLOOM_VERB_LEVEL_MAP[f'L{bloom}']}"
+        )
+
+        # 2. Verify opening keyword enforcement
+        class MockSlot:
+            pass
+        slot = MockSlot()
+        slot.bloom_verb = verb
+        slot.bloom_level = f"L{bloom}"
+        slot.marks = marks
+        slot.co = co
+
+        # Valid question starting with the assigned keyword
+        valid_output = QuestionOutput(
+            instruction=f"{verb} the operational principles and architecture of the topic.",
+            question_text=f"{verb} the operational principles and architecture of the topic.",
+            bloom_level=f"L{bloom}",
+            marks=marks,
+        )
+
+        # Check passes both linter and two-layer bloom validator
+        res_linter = check_bloom_verb_at_start(valid_output.instruction, slot)
+        assert res_linter.passed is True, f"Valid opening verb '{verb}' failed linter: {res_linter.message}"
+
+        res_two_layer = check_bloom_two_layer(valid_output.instruction, slot)
+        assert res_two_layer.passed is True, f"Valid opening verb '{verb}' failed two-layer check: {res_two_layer.detail}"
+
+        # First word of question strictly matches the Bloom keyword
+        first_word = valid_output.question_text.strip().split()[0].rstrip(".,;:").lower()
+        assert first_word == verb.lower(), f"First word '{first_word}' != Bloom keyword '{verb.lower()}'"
+        assert first_word in BLOOM_VERB_LEVEL_MAP[f"L{bloom}"]
+
+        # 3. Test invalid opening keyword detection & AutoHealer recovery
+        invalid_output = QuestionOutput(
+            instruction="In order to understand the concepts, consider how the system functions.",
+            question_text="In order to understand the concepts, consider how the system functions.",
+            bloom_level=f"L{bloom}",
+            marks=marks,
+        )
+        res_invalid = check_bloom_verb_at_start(invalid_output.instruction, slot)
+        assert res_invalid.passed is False
+        assert res_invalid.code == "BLOOM_VERB_NOT_AT_START"
+
+        # AutoHealer resolves the invalid opening by prefixing the exact Bloom keyword
+        healed = AutoHealer.heal("BLOOM_VERB_NOT_AT_START", invalid_output, slot)
+        healed_first_word = healed.question_text.strip().split()[0].rstrip(".,;:").lower()
+        assert healed_first_word == verb.lower()
+        assert healed_first_word in BLOOM_VERB_LEVEL_MAP[f"L{bloom}"]
+        assert check_bloom_verb_at_start(healed.instruction, slot).passed is True
 
 
 
