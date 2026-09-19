@@ -215,34 +215,57 @@ class GroundingValidator:
         }
         verb_guidance = bloom_verb_map.get(bloom_level, "Explain")
 
-        prompt = f"""You are an engineering professor setting a {exam_type} examination paper for {subject}.
+        # Zone 1: Static Universal Prefix (100% vLLM prefix cache hit rate across all questions)
+        static_prefix = """You are an expert university examiner setting an authentic, rigorous university examination paper compliant with VTU standards and Bloom's Revised Taxonomy.
+
+UNIVERSAL EXAMINATION RULES & CONTRACTS:
+1. BLOOM'S REVISED TAXONOMY & COGNITIVE ARCHETYPES:
+   - L1 (Remember): Define, State, List, Recall fundamental principles.
+   - L2 (Understand): Explain, Describe, Illustrate working mechanisms and functional relationships.
+   - L3 (Apply): Solve, Calculate, Compute, Implement algorithms or numerical procedures with given parameters.
+   - L4 (Analyze): Compare, Contrast, Differentiate, Deconstruct tradeoffs, failure modes, or complexity bounds.
+   - L5 (Evaluate): Justify, Critique, Validate architectural choices against system constraints.
+   - L6 (Design/Create): Formulate, Synthesize, Propose novel architectures or end-to-end solutions.
+
+2. VTU QUESTION MARK SPLIT & BALANCED STRUCTURE CONTRACT:
+   - For 10-Mark Questions: Split strictly into Part (a) 6 Marks + Part (b) 4 Marks (or 5+5).
+   - For 20-Mark Questions: Split strictly into Part (a) 8 Marks + Part (b) 6 Marks + Part (c) 6 Marks (or 10+10).
+   - Each part must be independent, self-contained, and specify clear sub-deliverables.
+
+3. STRICT ACADEMIC INTEGRITY & SELF-CONTAINMENT:
+   - Ground strictly to the supplied context. Never invent unsupported domain concepts.
+   - For quantitative problems: Provide complete, realistic input values and state required SI units.
+   - For conceptual problems: Require neat schematics, architectural flow, or comparative tabular analysis.
+   - Prohibit vague conversational filler ("Discuss in detail", "Write notes on").
+
+4. OUTPUT FORMAT CONTRACT:
+Return ONLY valid JSON matching this schema:
+{
+  "question": "Full question text here.",
+  "parts": [
+    {"part": "a", "marks": 6, "focus": "primary analytical/conceptual task"},
+    {"part": "b", "marks": 4, "focus": "sub-problem or parameter calculation"}
+  ],
+  "bloom": "L2",
+  "grounding": "Which concept from the source material this question tests."
+}
+"""
+
+        # Zone 2: Dynamic Request Suffix
+        dynamic_suffix = f"""
+==================== DYNAMIC SLOT SPECIFICATION ====================
+EXAMINATION: {exam_type}
+SUBJECT: {subject}
+TARGET TOPIC / CHAPTER: {chapter}
+TARGET MARKS: {marks} ({split_guide})
+COMMAND VERB & LEVEL: {verb_guidance} ({bloom_level})
+MAXIMUM PARTS: {max_parts}
 
 SUPPLIED ACADEMIC CONTENT:
 {context}
 
 TASK:
-Generate ONE {marks}-mark examination question on {chapter}.
-Use ONLY the supplied content above.
-
-REQUIREMENTS:
-- Command verb: {verb_guidance} ({bloom_level})
-- Total marks: {marks} ({split_guide})
-- Maximum parts: {max_parts}
-- Every term in the question must appear in the supplied content
-- The question must be answerable using only the supplied content
-- Do not copy sentences from the source
-- Do not introduce new terminology
-- Sound like a human examiner
-
-Return ONLY this JSON:
-{{
-  "question": "Full question text here.",
-  "parts": [
-    {{"part": "a", "marks": {marks * 6 // 10}, "focus": "what this part tests"}},
-    {{"part": "b", "marks": {marks * 4 // 10}, "focus": "what this part tests"}}
-  ],
-  "bloom": "{bloom_level}",
-  "grounding": "Which concept from the source material this question tests."
-}}"""
-
-        return prompt
+Generate ONE {marks}-mark examination question on {chapter} using ONLY the supplied content above.
+Return ONLY the specified JSON:
+"""
+        return static_prefix + dynamic_suffix

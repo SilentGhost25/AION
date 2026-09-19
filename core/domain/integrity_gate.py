@@ -24,14 +24,21 @@ class IntegrityResult:
 class DomainIntegrityGate:
     """Verifies every technical entity in question is grounded."""
 
-    # Technical entity extraction: only domain-specific acronyms (all caps) and known phrases, not generic verbs
-    # Separate patterns: acronyms are case-sensitive (all caps), phrases are case-insensitive
+    # Technical entity extraction: acronyms (all caps) and candidate technical phrases
     ACRONYM_PATTERN = re.compile(r"\b[A-Z]{2,5}\b")
     PHRASE_PATTERN = re.compile(r"\b(?:binary tree|bst|avl|o2 sensor|maf sensor|ecu|dtc|dlc|can|misfire|catalyst|crankshaft|forging|lathe|satellite|antenna|beam|column|equ|esi)\b", re.I)
+    NAMED_TECH_PATTERN = re.compile(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b")
 
     STOP_ENTITIES = {"The", "This", "That", "With", "From", "Module", "Chapter", "Section", "Figure", "Table", "Marks", "Marks."}
 
-    SCENARIO_WHITELIST = {"vehicle", "technician", "student", "case", "scenario", "study", "explain", "describe", "analyse", "illustrate", "binary", "tree"}
+    SCENARIO_WHITELIST = {
+        "vehicle", "technician", "student", "case", "scenario", "study", "explain", "describe",
+        "analyse", "illustrate", "binary", "tree", "patient", "hospital", "doctor", "user",
+        "client", "customer", "account", "bank", "transaction", "firm", "company", "organization",
+        "industry", "factory", "warehouse", "robot", "sensor", "device", "server", "network",
+        "system", "model", "parameter", "dataset", "employee", "store", "order", "environment",
+        "application", "contract", "agreement", "process", "service", "algorithm", "architecture"
+    }
 
     def check(self, question: str, knowledge_unit_concepts: Set[str], retrieved_evidence: str, subject_profile=None) -> IntegrityResult:
         # Extract entities from question
@@ -95,12 +102,15 @@ class DomainIntegrityGate:
         return IntegrityResult(passed=passed, score=round(score, 2), violations=violations, unseen_entities=unseen)
 
     def _extract_entities(self, question: str) -> List[str]:
-        # Extract only domain-specific technical entities, not generic verbs like Support
+        # Extract domain-specific technical entities and candidate proper technical terms
         candidates = []
         # Acronyms: only all-caps like ECU, DTC, DLC, BST, AVL
         for m in self.ACRONYM_PATTERN.finditer(question):
             candidates.append(m.group())
         # Domain phrases: case-insensitive
         for m in self.PHRASE_PATTERN.finditer(question):
+            candidates.append(m.group())
+        # Multi-word technical titles (e.g. "B-Tree", "Support Vector Machine")
+        for m in self.NAMED_TECH_PATTERN.finditer(question):
             candidates.append(m.group())
         return list(set(candidates))

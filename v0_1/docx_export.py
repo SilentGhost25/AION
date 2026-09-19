@@ -4,7 +4,9 @@ Converts the unified paper data structure directly into a professional .docx doc
 """
 
 import io
+import os
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 try:
     import docx
@@ -38,6 +40,96 @@ def _set_cell_margins(cell, top=100, bottom=100, left=150, right=150):
         f'</w:tcMar>'
     )
     tc_pr.append(tc_mar)
+
+
+_XSLT_TRANSFORM = None
+
+def _get_xslt_transform():
+    global _XSLT_TRANSFORM
+    if _XSLT_TRANSFORM is not None:
+        return _XSLT_TRANSFORM
+    try:
+        from lxml import etree
+        candidate_paths = [
+            Path("C:/Program Files/Microsoft Office/root/Office16/MML2OMML.XSL"),
+            Path("C:/Program Files (x86)/Microsoft Office/root/Office16/MML2OMML.XSL"),
+            Path(".aion_cache/MML2OMML.XSL"),
+        ]
+        for p in candidate_paths:
+            if p.exists():
+                _XSLT_TRANSFORM = etree.XSLT(etree.parse(str(p)))
+                break
+    except Exception:
+        pass
+    return _XSLT_TRANSFORM
+
+
+def latex_to_omml_element(latex_code: str):
+    """Converts a LaTeX math snippet into a native Word Office OpenXML Math element."""
+    transform = _get_xslt_transform()
+    if not transform:
+        return None
+    try:
+        from latex2mathml.converter import convert
+        from lxml import etree
+        clean_latex = latex_code.strip()
+        if clean_latex.startswith("$") and clean_latex.endswith("$"):
+            clean_latex = clean_latex[1:-1].strip()
+        if clean_latex.startswith("\\[") and clean_latex.endswith("\\]"):
+            clean_latex = clean_latex[2:-2].strip()
+        mml = convert(clean_latex)
+        dom = etree.fromstring(mml)
+        return transform(dom).getroot()
+    except Exception:
+        return None
+
+
+def add_formatted_text_to_paragraph(p, text: str):
+    """Adds text runs with native Office Math (OMML) blocks where LaTeX math is detected."""
+    math_pattern = re.compile(r'(\$[^\$]+\$|\\\[.+?\\\])')
+    tokens = math_pattern.split(text)
+    
+    for token in tokens:
+        if not token:
+            continue
+        if (token.startswith("$") and token.endswith("$") and len(token) > 2) or \
+           (token.startswith("\\[") and token.endswith("\\]") and len(token) > 4):
+            omml_elem = latex_to_omml_element(token)
+            if omml_elem is not None:
+                p._element.append(omml_elem)
+            else:
+                p.add_run(_clean_latex_math_for_doc(token))
+        else:
+            p.add_run(_clean_latex_math_for_doc(token))
+
+
+def add_formatted_content_to_cell(cell, text: str, image_path: Optional[str] = None, caption: Optional[str] = None):
+    """
+    Renders text with inline Office Math (OMML) blocks where LaTeX math is detected.
+    Falls back gracefully to unicode clean text.
+    Also embeds images if provided.
+    """
+    p = cell.paragraphs[0]
+    p.paragraph_format.space_after = Pt(2)
+    add_formatted_text_to_paragraph(p, text)
+            
+    if image_path and Path(image_path).exists():
+        try:
+            p_img = cell.add_paragraph()
+            p_img.paragraph_format.space_before = Pt(4)
+            p_img.paragraph_format.space_after = Pt(2)
+            p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run_img = p_img.add_run()
+            run_img.add_picture(str(image_path), width=Inches(3.2))
+            if caption:
+                p_cap = cell.add_paragraph()
+                p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                p_cap.paragraph_format.space_after = Pt(2)
+                r_cap = p_cap.add_run(f"Figure: {caption}")
+                r_cap.font.size = Pt(8.5)
+                r_cap.font.italic = True
+        except Exception as e:
+            print(f"[DOCX] Image embed error: {e}", flush=True)
 
 
 def _clean_latex_math_for_doc(text: str) -> str:
@@ -232,7 +324,7 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
         # Strip redundant leading module label if present (e.g. "Module 1: Advanced Topics" -> "Advanced Topics")
         clean_title = re.sub(r"^module[\s_-]*\d+\s*[:\-]\s*", "", clean_title, flags=re.IGNORECASE).strip()
 
-        # Avoid redundant placeholder banner strings like "MODULE - 1: MODULE 1"
+        m_idx = mod.get("module_index") or mod_idx
         if re.match(r"^module[\s_-]*\d+$", clean_title, re.IGNORECASE) or not clean_title:
             banner_text = f"MODULE - {m_idx}"
         else:
@@ -276,7 +368,9 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
 
             if not sub_qs:
                 # Single question without sub-questions
-                q_text = _clean_latex_math_for_doc(q.get("text") or q.get("question_text") or "")
+                q_raw_text = q.get("text") or q.get("question_text") or ""
+                q_img = q.get("image_path") or q.get("figure_path")
+                q_cap = q.get("image_caption") or q.get("figure_caption")
                 q_marks = q.get("marks") or 10
                 q_co_raw = q.get("co") or f"CO{min(mod_idx, 5)}"
                 q_rbt_raw = q.get("bloom") or q.get("bloom_level") or q.get("rbt") or "L2"
@@ -291,7 +385,7 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
                 cells[0].paragraphs[0].add_run(f"Q{curr_q_no}").bold = True
                 cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
                 cells[1].paragraphs[0].add_run("-").alignment = WD_ALIGN_PARAGRAPH.CENTER
-                cells[2].paragraphs[0].add_run(q_text)
+                add_formatted_content_to_cell(cells[2], q_raw_text, image_path=q_img, caption=q_cap)
                 cells[3].paragraphs[0].add_run(str(q_marks)).alignment = WD_ALIGN_PARAGRAPH.CENTER
                 cells[4].paragraphs[0].add_run(str(q_co)).alignment = WD_ALIGN_PARAGRAPH.CENTER
                 cells[5].paragraphs[0].add_run(str(q_rbt)).alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -299,7 +393,9 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
                 letters = ["a", "b", "c", "d", "e"]
                 for s_idx, sq in enumerate(sub_qs):
                     s_label = sq.get("label") or sq.get("sub_label") or (letters[s_idx] if s_idx < len(letters) else f"({s_idx+1})")
-                    s_text = _clean_latex_math_for_doc(sq.get("text") or sq.get("question_text") or "")
+                    s_raw_text = sq.get("text") or sq.get("question_text") or ""
+                    s_img = sq.get("image_path") or sq.get("figure_path") or q.get("image_path") or q.get("figure_path")
+                    s_cap = sq.get("image_caption") or sq.get("figure_caption") or q.get("image_caption") or q.get("figure_caption")
                     s_marks = sq.get("marks") or (6 if s_idx == 0 else 4)
                     s_co_raw = sq.get("co") or f"CO{min(mod_idx, 5)}"
                     s_rbt_raw = sq.get("bloom") or sq.get("bloom_level") or sq.get("rbt") or "L2"
@@ -322,7 +418,7 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
                     p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     p1.add_run(f"({s_label})").bold = True
 
-                    cells[2].paragraphs[0].add_run(s_text)
+                    add_formatted_content_to_cell(cells[2], s_raw_text, image_path=s_img, caption=s_cap)
                     
                     p3 = cells[3].paragraphs[0]
                     p3.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -492,6 +588,183 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
             if row_idx == 0:
                 _set_cell_background(c, "E2E8F0")
             _set_cell_margins(c, top=40, bottom=40, left=50, right=50)
+
+    # --- 7. Examiner Answer Key & 4-Part Scheme of Valuation Appendix ---
+    doc.add_page_break()
+    ak_heading = doc.add_paragraph()
+    ak_heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    ak_heading.paragraph_format.space_after = Pt(2)
+    ak_h_run = ak_heading.add_run("EXAMINER ANSWER KEY & SCHEME OF VALUATION")
+    ak_h_run.bold = True
+    ak_h_run.font.size = Pt(13)
+    ak_h_run.font.name = "Calibri"
+
+    ak_sub = doc.add_paragraph()
+    ak_sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    ak_sub.paragraph_format.space_after = Pt(8)
+    ak_s_run = ak_sub.add_run(f"Subject: {subject_name} ({subject_code}) | {exam_full_title} | Maximum Marks: {max_marks}")
+    ak_s_run.font.italic = True
+    ak_s_run.font.size = Pt(9.5)
+    ak_s_run.font.name = "Calibri"
+
+    # Rubric Criteria Box
+    rubric_tbl = doc.add_table(rows=1, cols=1)
+    rubric_tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+    rubric_cell = rubric_tbl.rows[0].cells[0]
+    rubric_cell.width = Inches(7.0)
+    _set_cell_background(rubric_cell, "F1F5F9")
+    _set_cell_margins(rubric_cell, top=80, bottom=80, left=100, right=100)
+    rp = rubric_cell.paragraphs[0]
+    rp.paragraph_format.space_after = Pt(2)
+    rp_bold = rp.add_run("Standard VTU 4-Part Valuation Framework:\n")
+    rp_bold.bold = True
+    rp_bold.font.size = Pt(9.5)
+    rp.add_run(
+        "• Part 1 (Formula / Governing Principles): Formulation, governing laws, and problem definition.\n"
+        "• Part 2 (Substitution / Diagram): Given parameters with SI units or labeled schematic architecture.\n"
+        "• Part 3 (Execution / Derivation): Step-by-step intermediate analytical derivation or algorithmic trace.\n"
+        "• Part 4 (Final Answer / Conclusion): Precise numerical outcome with correct units or summary synthesis."
+    ).font.size = Pt(9.0)
+
+    doc.add_paragraph().paragraph_format.space_after = Pt(6)
+
+    def _get_4part_marks(total_m: int) -> list[int]:
+        m = max(1, int(total_m))
+        if m == 10:
+            return [2, 3, 3, 2]
+        elif m == 8:
+            return [2, 2, 2, 2]
+        elif m == 6:
+            return [1, 2, 2, 1]
+        elif m == 4:
+            return [1, 1, 1, 1]
+        elif m == 5:
+            return [1, 1, 2, 1]
+        elif m == 7:
+            return [2, 2, 2, 1]
+        else:
+            p = m // 4
+            rem = m % 4
+            res = [p] * 4
+            for i in range(rem):
+                res[1 + (i % 2)] += 1
+            return res
+
+    q_counter_ak = 1
+    for mod_idx, mod in enumerate(modules_data, start=1):
+        m_head = doc.add_paragraph()
+        m_head.paragraph_format.space_before = Pt(8)
+        m_head.paragraph_format.space_after = Pt(3)
+        mh_run = m_head.add_run(f"MODULE {mod_idx} ANSWER KEY & RUBRIC")
+        mh_run.bold = True
+        mh_run.font.size = Pt(11)
+        mh_run.font.color.rgb = RGBColor(0x1E, 0x3A, 0x8A)
+
+        mod_questions = mod.get("questions") or []
+        for mq_idx, q in enumerate(mod_questions):
+            sub_qs = q.get("sub_questions") or q.get("subQuestions") or []
+            curr_q_no = q.get("question_number") or q.get("questionNumber") or q.get("qNo") or q_counter_ak
+
+            items_to_render = []
+            if not sub_qs:
+                items_to_render.append({
+                    "label": "-",
+                    "text": q.get("text") or q.get("question_text") or "",
+                    "marks": q.get("marks") or 10,
+                    "co": q.get("co") or f"CO{min(mod_idx, 5)}",
+                    "bloom": q.get("bloom") or q.get("bloom_level") or q.get("rbt") or "L2",
+                    "solution": q.get("solution") or q.get("answer") or q.get("model_answer"),
+                })
+            else:
+                letters = ["a", "b", "c", "d", "e"]
+                for s_idx, sq in enumerate(sub_qs):
+                    s_lbl = sq.get("label") or sq.get("sub_label") or (letters[s_idx] if s_idx < len(letters) else f"({s_idx+1})")
+                    items_to_render.append({
+                        "label": f"({s_lbl})",
+                        "text": sq.get("text") or sq.get("question_text") or "",
+                        "marks": sq.get("marks") or (6 if s_idx == 0 else 4),
+                        "co": sq.get("co") or f"CO{min(mod_idx, 5)}",
+                        "bloom": sq.get("bloom") or sq.get("bloom_level") or sq.get("rbt") or "L2",
+                        "solution": sq.get("solution") or sq.get("answer") or sq.get("model_answer"),
+                    })
+
+            for item in items_to_render:
+                m_co, m_rbt = format_co_and_rbt(item["co"], item["bloom"], mod_idx)
+                
+                # Question header
+                qp = doc.add_paragraph()
+                qp.paragraph_format.space_before = Pt(6)
+                qp.paragraph_format.space_after = Pt(2)
+                q_title_run = qp.add_run(f"Q{curr_q_no} {item['label']} [Marks: {item['marks']} | {m_co} | {m_rbt}]")
+                q_title_run.bold = True
+                q_title_run.font.size = Pt(10)
+
+                # Question statement
+                q_desc = doc.add_paragraph()
+                q_desc.paragraph_format.space_after = Pt(3)
+                add_formatted_text_to_paragraph(q_desc, item["text"])
+
+                # Worked solution
+                sol_p = doc.add_paragraph()
+                sol_p.paragraph_format.space_after = Pt(2)
+                s_bold = sol_p.add_run("Model Solution / Key Milestones:")
+                s_bold.bold = True
+                s_bold.font.size = Pt(9.5)
+
+                sol_text = item["solution"]
+                if sol_text:
+                    sp_text = doc.add_paragraph()
+                    sp_text.paragraph_format.space_after = Pt(3)
+                    sp_text.paragraph_format.left_indent = Inches(0.2)
+                    add_formatted_text_to_paragraph(sp_text, str(sol_text))
+                else:
+                    sp_text = doc.add_paragraph()
+                    sp_text.paragraph_format.space_after = Pt(3)
+                    sp_text.paragraph_format.left_indent = Inches(0.2)
+                    sp_text.add_run(
+                        f"1. State fundamental definitions, governing laws, and model principles relevant to the question.\n"
+                        f"2. Formulate labeled schematic / architecture diagram and identify input parameters.\n"
+                        f"3. Present step-by-step intermediate analytical derivation or state execution.\n"
+                        f"4. State exact final evaluated result / conclusion and discuss technical implications."
+                    ).font.size = Pt(9.0)
+
+                # 4-Part Scheme of Valuation Table
+                part_marks = _get_4part_marks(item["marks"])
+                v_table = doc.add_table(rows=5, cols=3)
+                v_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+                v_table.autofit = False
+                v_widths = [Inches(2.5), Inches(3.5), Inches(1.0)]
+
+                v_hdr = v_table.rows[0].cells
+                v_hdr[0].paragraphs[0].add_run("Evaluation Component").bold = True
+                v_hdr[1].paragraphs[0].add_run("Grading Criteria / Deliverables").bold = True
+                v_hdr[2].paragraphs[0].add_run("Marks").bold = True
+                v_hdr[2].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+                rubric_specs = [
+                    ("1. Formula / Governing Law", "Correct formulation, governing relations, and initial setup", part_marks[0]),
+                    ("2. Substitution / Schematic", "Accurate given parameters with SI units or neat labeled diagram", part_marks[1]),
+                    ("3. Intermediate Execution", "Step-by-step mathematical derivation or procedural workflow", part_marks[2]),
+                    ("4. Final Answer / Summary", "Exact numerical result with units or critical analytical synthesis", part_marks[3]),
+                ]
+
+                for r_idx, (comp, desc, m_val) in enumerate(rubric_specs, start=1):
+                    rcells = v_table.rows[r_idx].cells
+                    rcells[0].paragraphs[0].add_run(comp)
+                    rcells[1].paragraphs[0].add_run(desc)
+                    rcells[2].paragraphs[0].add_run(f"{m_val}M")
+                    rcells[2].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+                for r_idx, r in enumerate(v_table.rows):
+                    for ci, c in enumerate(r.cells):
+                        c.width = v_widths[ci]
+                        if r_idx == 0:
+                            _set_cell_background(c, "E2E8F0")
+                        _set_cell_margins(c, top=30, bottom=30, left=50, right=50)
+
+                doc.add_paragraph().paragraph_format.space_after = Pt(4)
+
+            q_counter_ak += 1
 
     # Save to BytesIO
     buffer = io.BytesIO()

@@ -863,6 +863,15 @@ def generate_stream():
         else:
             target_modules = list(range(1, 6))
 
+        def _clean_mod_header(fname: str, m_num: int) -> str:
+            clean = re.sub(r'\.(?:pdf|docx?|txt|md)$', '', str(fname).strip(), flags=re.IGNORECASE)
+            clean = re.sub(r'(?i)\b(?:notes?|syllabus|handout|module|unit|chapter|part)\b', ' ', clean)
+            clean = re.sub(r'[-_]+', ' ', clean).strip()
+            clean = re.sub(r'\s+', ' ', clean).strip()
+            if len(clean) < 3 or re.match(r'^\d+$', clean) or (getattr(gen_req, "subject", None) and clean.lower() == str(gen_req.subject).lower()):
+                return f"Module {m_num}"
+            return f"Module {m_num}: {clean}"
+
         for m_idx in target_modules:
             fid = module_files_int.get(m_idx)
             if fid:
@@ -870,7 +879,8 @@ def generate_stream():
                 if manifest:
                     text = get_document_text(fid, store=store)
                     filename = getattr(manifest.source, "filename", f"Module_{m_idx}")
-                    combined_parts.append(f"Module {m_idx}: {filename}\n{text}")
+                    mod_hdr = _clean_mod_header(filename, m_idx)
+                    combined_parts.append(f"{mod_hdr}\n{text}")
                 else:
                     n_txt = existing_module_notes.get(m_idx)
                     if n_txt:
@@ -905,7 +915,11 @@ def generate_stream():
                     f"below the 50-word minimum for reliable segmentation."
                 )
             filename = getattr(manifest.source, "filename", f"module_{i+1}")
-            combined_parts.append(f"Module {i+1}: {filename}\n{text}")
+            clean = re.sub(r'\.(?:pdf|docx?|txt|md)$', '', str(filename).strip(), flags=re.IGNORECASE)
+            clean = re.sub(r'(?i)\b(?:notes?|syllabus|handout|module|unit|chapter|part)\b', ' ', clean)
+            clean = re.sub(r'[-_]+', ' ', clean).strip()
+            hdr = f"Module {i+1}: {clean}" if len(clean) >= 3 and not re.match(r'^\d+$', clean) else f"Module {i+1}"
+            combined_parts.append(f"{hdr}\n{text}")
         notes_text_override = "\n\n".join(combined_parts)
         print(f"[MULTI-FILE] Synthesized {len(gen_req.file_ids)} modules into combined notes ({len(notes_text_override)} chars)", flush=True)
         print(f"[MULTI-FILE] Synthesized {len(gen_req.file_ids)} modules as text-only. "
@@ -1386,6 +1400,12 @@ def generate_async():
             file_path = record["storedPath"]
         else:
             return jsonify({"error": "File not found"}), 404
+
+        # Extraction race condition guard: wait up to 15s if extraction is in progress
+        if doc and getattr(doc, "status", None) == DocumentStatus.EXTRACTING:
+            start_w = time.time()
+            while doc.status == DocumentStatus.EXTRACTING and (time.time() - start_w) < 15.0:
+                time.sleep(0.5)
 
     if not file_path or not Path(file_path).exists():
         return jsonify({"error": f"File not found: '{file_path}'"}), 404

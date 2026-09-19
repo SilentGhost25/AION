@@ -170,23 +170,23 @@ CO_KEYWORD_MAP: Dict[str, int] = {
 }
 
 
-def infer_co(question_text: str, default_co: int = 1) -> int:
+def infer_co(question_text: str, default_co: int = 1, custom_co_map: Optional[Dict[str, int]] = None) -> int:
     """
-    Scan question text for CO-indicative keywords.
-    Returns the CO number with the most keyword hits.
-    Falls back to default_co if nothing matches.
+    Returns the Course Outcome (CO) number for the question.
+    In universal university syllabus standards (e.g. VTU), COs map 1:1 with modules
+    (CO1 for Module 1, CO2 for Module 2, etc.).
+    Preserves default_co from module assignment, only overriding if custom_co_map is provided.
     """
-    text = question_text.lower()
-    co_scores: Dict[int, int] = {}
+    if custom_co_map:
+        text = question_text.lower()
+        co_scores: Dict[int, int] = {}
+        for keyword, co_num in custom_co_map.items():
+            if keyword in text:
+                co_scores[co_num] = co_scores.get(co_num, 0) + 1
+        if co_scores:
+            return max(co_scores, key=lambda k: co_scores[k])
 
-    for keyword, co_num in CO_KEYWORD_MAP.items():
-        if keyword in text:
-            co_scores[co_num] = co_scores.get(co_num, 0) + 1
-
-    if not co_scores:
-        return default_co
-
-    return max(co_scores, key=lambda k: co_scores[k])
+    return max(default_co, 1)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

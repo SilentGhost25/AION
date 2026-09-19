@@ -336,9 +336,21 @@ def check_visual_policy(question: GeneratedQuestion, slot: QuestionSlot) -> Chec
             action=RetryAction.REGENERATE
         )
     elif not slot.visual_required and has_diagram:
+        # Check if diagram is student deliverable (e.g. prompt asks "with a neat diagram" / "draw")
+        # Deliverable diagrams are legitimate student instructions, not forbidden stimulus assets
+        req_type = getattr(question.diagram_request, "diagram_type", "") if question.diagram_request else ""
+        desc = getattr(question.diagram_request, "description", "") if question.diagram_request else ""
+        is_deliverable = (
+            "deliverable" in str(req_type).lower()
+            or "student" in str(desc).lower()
+            or any(w in (getattr(question, "question_text", "") or "").lower() for w in ("neat diagram", "draw and explain", "illustrate with a neat"))
+        )
+        if is_deliverable:
+            return CheckResult.pass_()
+
         return CheckResult.fail(
             "VISUAL_POLICY_VIOLATION",
-            "Visual policy is FORBIDDEN, but candidate question contains a diagram request.",
+            "Visual policy is FORBIDDEN, but candidate question contains a stimulus diagram request.",
             action=RetryAction.REGENERATE
         )
     return CheckResult.pass_()

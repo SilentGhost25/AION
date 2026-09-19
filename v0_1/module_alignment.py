@@ -50,7 +50,18 @@ class ModuleAlignmentValidator:
                 reason="EMPTY_TEXT",
             )
 
-        syllabus = custom_syllabus_map or DEFAULT_MODULE_CONCEPTS
+        if not custom_syllabus_map:
+            # Subject-agnostic: without an explicit module concept map from the document syllabus,
+            # do not falsely penalize questions with arbitrary CS module boundaries.
+            return ModuleAlignmentResult(
+                passed=True,
+                module_index=target_module,
+                detected_concepts=[],
+                conflicting_modules=[],
+                reason="COMPLIANT",
+            )
+
+        syllabus = custom_syllabus_map
         q_low = question_text.lower()
 
         detected = []

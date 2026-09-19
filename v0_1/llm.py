@@ -188,15 +188,33 @@ def assert_model_ready(
 
 
 def _get_concurrency() -> int:
-    """Read concurrency from environment or active RuntimeProfile, defaulting to 2."""
+    """
+    Read concurrency from environment or active RuntimeProfile, with dynamic NVML VRAM throttling.
+    If free VRAM drops below 10GB on GPU, throttles down to 4 concurrency.
+    """
+    target_c = 2
     env_c = os.getenv("AION_CONCURRENCY")
     if env_c and env_c.strip().isdigit():
-        return max(1, int(env_c.strip()))
+        target_c = max(1, int(env_c.strip()))
+    else:
+        try:
+            from runtime import get_active_profile
+            target_c = get_active_profile().concurrency
+        except Exception:
+            target_c = 2
+
+    # Dynamic NVML VRAM Throttling
     try:
-        from runtime import get_active_profile
-        return get_active_profile().concurrency
+        import torch
+        if torch.cuda.is_available():
+            free_bytes, _ = torch.cuda.mem_get_info()
+            free_gb = free_bytes / (1024 ** 3)
+            if free_gb < 10.0 and target_c > 4:
+                return 4
     except Exception:
-        return 2
+        pass
+
+    return target_c
 
 
 # Bounded concurrency semaphore — value set from runtime profile or env
