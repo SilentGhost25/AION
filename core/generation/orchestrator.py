@@ -545,16 +545,6 @@ class SlotOrchestrator:
                             for _lp in _leak_trailing:
                                 _val = re.sub(_lp, '', _val).strip()
 
-                            _vb = attempt_slot.bloom_verb.lower() if hasattr(attempt_slot, 'bloom_verb') else ''
-                            if _vb and len(_val.split()) > 35 and _vb in _val.lower():
-                                _pos = _val.lower().find(_vb)
-                                if _pos > 15:
-                                    _pre = _val[:_pos].strip()
-                                    if any(_pre.endswith(p) for p in ('.', ';', ':', ',')) or len(_pre.split()) >= 4:
-                                        _cand = _val[_pos:].strip()
-                                        if len(_cand.split()) >= 8:
-                                            _val = _cand[0].upper() + _cand[1:]
-
                             data[_f] = re.sub(r'\s+', ' ', _val).strip()
                 
                     # 2. Normalize diagram_request
@@ -1103,27 +1093,13 @@ class SlotOrchestrator:
         math_policy = "REQUIRED" if slot.math_required else "FORBIDDEN"
         visual_policy = "REQUIRED" if slot.visual_required else "FORBIDDEN"
         
-        allowed_sec = ", ".join(slot.task_signature.allowed_secondary_operations) if slot.task_signature.allowed_secondary_operations else "none"
+        if slot.task_signature.allowed_secondary_operations:
+            allowed_ops = f"{slot.bloom_operation}, {', '.join(slot.task_signature.allowed_secondary_operations)}"
+        else:
+            allowed_ops = str(slot.bloom_operation)
         
         from core.contracts.demand_profile import DemandProfile
         profile = DemandProfile.from_contract(slot.to_contract())
-        min_dims = profile.min_dimensions
-        
-        # Determine a compliant second verb for the few-shot example
-        from core.validation.linter import VERB_OPERATION_MAP
-        sec_verb = None
-        if slot.task_signature.allowed_secondary_operations:
-            for verb, op in VERB_OPERATION_MAP.items():
-                if op in slot.task_signature.allowed_secondary_operations:
-                    sec_verb = verb.capitalize()
-                    break
-        if not sec_verb:
-            for verb, op in VERB_OPERATION_MAP.items():
-                if op == slot.bloom_operation and verb.lower() != slot.bloom_verb.lower():
-                    sec_verb = verb.capitalize()
-                    break
-        if not sec_verb:
-            sec_verb = "List" if slot.bloom_verb.lower() != "list" else "Define"
 
         # Ground the example topic dynamically on the slot's actual domain with varied phrasing
         raw_topic = str(slot.topic or "").strip()
@@ -1137,64 +1113,35 @@ class SlotOrchestrator:
 
         _qtype = str(getattr(slot, "question_type", "THEORY")).upper()
 
+        # Pure Single-Task Archetype Examples (no compound "and", no mechanism leaks)
         if _qtype == "NUMERICAL":
-            if min_dims > 1:
-                if archetype_idx == 0:
-                    example_text = f"{slot.bloom_verb} the governing parameters of {clean_ex_topic} and {sec_verb.lower()} the resulting output value."
-                elif archetype_idx == 1:
-                    example_text = f"{slot.bloom_verb} the mathematical relationship in {clean_ex_topic} and {sec_verb.lower()} the final metric."
-                elif archetype_idx == 2:
-                    example_text = f"{slot.bloom_verb} the required unknown value for {clean_ex_topic} and {sec_verb.lower()} the system response."
-                else:
-                    example_text = f"{slot.bloom_verb} the performance metrics associated with {clean_ex_topic} and {sec_verb.lower()} the calculated results."
+            if archetype_idx == 0:
+                example_text = f"{slot.bloom_verb} the governing parameters of {clean_ex_topic} given the operating conditions."
+            elif archetype_idx == 1:
+                example_text = f"{slot.bloom_verb} the mathematical relationship in {clean_ex_topic} using the governing equations."
+            elif archetype_idx == 2:
+                example_text = f"{slot.bloom_verb} the numerical output for {clean_ex_topic} based on the specified parameters."
             else:
-                if archetype_idx == 0:
-                    example_text = f"{slot.bloom_verb} the unknown parameter of {clean_ex_topic} given the input values."
-                elif archetype_idx == 1:
-                    example_text = f"{slot.bloom_verb} the numerical output for {clean_ex_topic} using the governing equations."
-                elif archetype_idx == 2:
-                    example_text = f"{slot.bloom_verb} the required values in {clean_ex_topic} based on the specified parameters."
-                else:
-                    example_text = f"{slot.bloom_verb} the quantitative result for {clean_ex_topic}."
+                example_text = f"{slot.bloom_verb} the quantitative result for {clean_ex_topic}."
         elif _qtype == "APPLICATION":
-            if min_dims > 1:
-                if archetype_idx == 0:
-                    example_text = f"{slot.bloom_verb} a practical scenario utilizing {clean_ex_topic} and {sec_verb.lower()} its implementation requirements."
-                elif archetype_idx == 1:
-                    example_text = f"{slot.bloom_verb} the configuration of {clean_ex_topic} in real-world contexts and {sec_verb.lower()} how it compares to standard alternatives."
-                elif archetype_idx == 2:
-                    example_text = f"{slot.bloom_verb} the practical workflow for {clean_ex_topic} and {sec_verb.lower()} the critical factors determining deployment success."
-                else:
-                    example_text = f"{slot.bloom_verb} the application of {clean_ex_topic} under specified conditions and {sec_verb.lower()} the expected outcomes."
+            if archetype_idx == 0:
+                example_text = f"{slot.bloom_verb} how {clean_ex_topic} is implemented in practical scenarios."
+            elif archetype_idx == 1:
+                example_text = f"{slot.bloom_verb} the operational constraints of {clean_ex_topic}."
+            elif archetype_idx == 2:
+                example_text = f"{slot.bloom_verb} the execution steps necessary for {clean_ex_topic}."
             else:
-                if archetype_idx == 0:
-                    example_text = f"{slot.bloom_verb} how {clean_ex_topic} is implemented in practical scenarios."
-                elif archetype_idx == 1:
-                    example_text = f"{slot.bloom_verb} the practical advantages and operational constraints of {clean_ex_topic}."
-                elif archetype_idx == 2:
-                    example_text = f"{slot.bloom_verb} the execution steps necessary for {clean_ex_topic}."
-                else:
-                    example_text = f"{slot.bloom_verb} the deployment considerations associated with {clean_ex_topic}."
+                example_text = f"{slot.bloom_verb} the deployment considerations associated with {clean_ex_topic}."
         else:
-            # Universal Conceptual / Theory archetypes (natural across STEM, Law, Ethics, Management)
-            if min_dims > 1:
-                if archetype_idx == 0:
-                    example_text = f"{slot.bloom_verb} the fundamental principles governing {clean_ex_topic} and {sec_verb.lower()} the role of its primary aspects."
-                elif archetype_idx == 1:
-                    example_text = f"{slot.bloom_verb} the key distinctions and perspectives in {clean_ex_topic} and {sec_verb.lower()} how they compare to alternative views."
-                elif archetype_idx == 2:
-                    example_text = f"{slot.bloom_verb} the structural framework and provisions of {clean_ex_topic} and {sec_verb.lower()} their significance."
-                else:
-                    example_text = f"{slot.bloom_verb} the role and function of {clean_ex_topic} and {sec_verb.lower()} its underlying framework."
+            # Universal Conceptual / Theory archetypes (single-task, no compound clauses or secondary tasks)
+            if archetype_idx == 0:
+                example_text = f"{slot.bloom_verb} the fundamental principles governing {clean_ex_topic}."
+            elif archetype_idx == 1:
+                example_text = f"{slot.bloom_verb} the key distinctions and perspectives in {clean_ex_topic}."
+            elif archetype_idx == 2:
+                example_text = f"{slot.bloom_verb} the structural framework and provisions of {clean_ex_topic}."
             else:
-                if archetype_idx == 0:
-                    example_text = f"{slot.bloom_verb} the fundamental concepts and significance of {clean_ex_topic}."
-                elif archetype_idx == 1:
-                    example_text = f"{slot.bloom_verb} the primary scope and key provisions associated with {clean_ex_topic}."
-                elif archetype_idx == 2:
-                    example_text = f"{slot.bloom_verb} the governing principles of {clean_ex_topic} in modern practice."
-                else:
-                    example_text = f"{slot.bloom_verb} the core elements essential for {clean_ex_topic}."
+                example_text = f"{slot.bloom_verb} the role and function of {clean_ex_topic}."
 
         math_example = (
             '[{"block_id":"calc_1","latex":"x^2 + y^2","display_mode":true}]'
@@ -1225,14 +1172,13 @@ Course Outcome (CO): {slot.co}
 Marks: {slot.marks}
 Difficulty: {slot.difficulty}
 Question Type: {slot.question_type}
-Allowed Operations: {slot.bloom_operation} and {allowed_sec}
+Allowed Operations: {allowed_ops}
 Math Policy: {math_policy}
 Visual Policy: {visual_policy}
-Min Clauses: {min_dims} (requires at least {min_dims} distinct parts split by 'and', 'or', 'as well as', or commas)
 
 CRITICAL INSTRUCTIONS FOR QUESTION QUALITY:
-1. QUESTION LENGTH GUIDELINE: Keep the question concise, direct, and focused (ideally around 20 to 50 words, avoiding unnecessary textbook filler, conversational preambles, or paragraph-long context dumps). Begin directly with the required Bloom action verb.
-2. ABSOLUTE PROHIBITION ON ANSWER LEAKAGE: NEVER reveal the answer, solution, derivation, or result in the question text. The student must solve the problem. Provide only the task and necessary inputs; never explain why or what the result is.
+1. QUESTION LENGTH & SINGLE-TASK FOCUS: Keep the question concise, direct, and focused on ONE single task (target length: 15 to 30 words). Never string multiple sub-tasks together with 'and' or commas. Avoid unnecessary textbook filler, conversational preambles, or paragraph-long context dumps. Begin directly with the required Bloom action verb.
+2. ABSOLUTE PROHIBITION ON ANSWER LEAKAGE: NEVER reveal the answer, solution, derivation, or result in the question text. The student must solve the problem. Provide only the task and necessary inputs; never explain why or what the result is. Do not include mechanism clauses (e.g., 'by doing X to prevent Y').
 3. COMPLETENESS & GRAMMATICAL INTEGRITY: Every question MUST be a complete, grammatically sound sentence that can stand alone. Do NOT truncate mid-sentence. Do NOT include table fragments (e.g. '| 14 Overall Data |'), raw pipe characters, or dangling phrases.
 4. SYNTACTIC VARIETY (AVOID REPETITIVE 'HOW' QUESTIONS): Do NOT format every question as '{slot.bloom_verb} how [topic] operates...'. Formulate varied, natural questions such as:
    - '{slot.bloom_verb} the principles and key characteristics of [topic]...'
@@ -1249,13 +1195,20 @@ MATH ARTIFACTS:
 {math_artifacts}
 
 EXAMPLE OF A VALID OUTPUT FORMAT:
-If the Topic was "{clean_ex_topic}", Bloom Verb was "{slot.bloom_verb}", and Min Clauses was {min_dims}, a valid output would be:
+If the Topic was "{clean_ex_topic}" and Bloom Verb was "{slot.bloom_verb}", a valid output would be:
 {{
   "instruction": "{example_text}",
   "question_text": "{example_text}",
   "math_blocks": {math_example},
   "diagram_request": null
 }}
+
+EXAMPLE OF AN INVALID OUTPUT (do NOT produce questions like this):
+{{
+  "instruction": "Explain the role of hysteresis in temperature control and describe how it prevents relay chatter.",
+  "question_text": "Explain the role of hysteresis in temperature control and describe how it prevents relay chatter."
+}}
+WHY INVALID: This question contains two tasks joined by 'and' and includes a mechanism clause ('how it prevents relay chatter') that reveals the answer. Always ask a single, direct question without explaining or solving the mechanism.
 
 PREVIOUSLY GENERATED QUESTIONS (do NOT generate anything similar to these):
 {previously_generated}
@@ -1309,7 +1262,7 @@ PREVIOUSLY GENERATED QUESTIONS (do NOT generate anything similar to these):
             # Syntax/programming indicators. These are language-agnostic signals,
             # with common executable/query constructs included as evidence clues.
             _code_signals = (
-                "pseudocode", "python code", "def ", "class ", "dockerfile", 
+                "pseudocode", "python code", "dockerfile", 
                 "sql query", "relational algebra", "stored procedure"
             )
 
@@ -1324,7 +1277,12 @@ PREVIOUSLY GENERATED QUESTIONS (do NOT generate anything similar to these):
                 "score", "time step", "page size", "block size"
             )
 
-            _has_code = any(_x in _ae for _x in _code_signals)
+            _has_code_syntax = bool(
+                re.search(r"\bclass\s+[A-Z]\w*\s*[:\(]", evidence_text) or
+                re.search(r"\bdef\s+\w+\s*\(", evidence_text)
+            ) if isinstance(evidence_text, str) else False
+
+            _has_code = any(_x in _ae for _x in _code_signals) or _has_code_syntax
             _has_numeric = any(_x in _ae for _x in _numeric_signals)
 
             # Programming/syntax gets priority when both occur. This avoids

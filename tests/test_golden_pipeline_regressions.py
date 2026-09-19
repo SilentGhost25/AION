@@ -1387,6 +1387,192 @@ def test_bloom_verb_taxonomy_mismatch_and_numerical_l3_enforcement():
     _print_exam_paper(mock_paper, "IAT1")
 
 
+# ==============================================================================
+# STEP 0 REGRESSION TESTS: QUESTION LENGTH, LEAKAGE & PREAMBLE DEFENSES
+# ==============================================================================
+
+def test_prompt_does_not_request_min_clauses():
+    """Verify that _format_prompt does not inject 'Min Clauses' directive or compound multi-clause examples."""
+    from core.generation.orchestrator import SlotOrchestrator
+    from core.contracts.question_slot import QuestionSlot
+    from core.contracts.budgets import AnswerBudget, QuestionBudget
+    from core.contracts.task_signature import TaskSignature
+
+    slot = QuestionSlot(
+        slot_id="mod_1_q1_a",
+        question_no=1,
+        sub_label="a",
+        or_pair_id="or_1",
+        is_alternative=False,
+        module_id=1,
+        marks=6,
+        bloom_level="L2",
+        bloom_verb="Explain",
+        bloom_operation="EXPLAIN",
+        co="CO1",
+        difficulty="MEDIUM",
+        question_type="THEORY",
+        topic="Satellite transponder architecture",
+        evidence_ids=("chunk_1",),
+        answer_budget=AnswerBudget.from_marks_and_bloom(6, "L2"),
+        question_budget=QuestionBudget.from_bloom("L2", 6),
+        task_signature=TaskSignature.from_bloom_marks_type("L2", 6, "THEORY"),
+        math_required=False,
+    )
+
+    class MockEvidencePack:
+        combined_text = "Transponders receive, amplify and transmit signals."
+        math_artifacts = "none"
+
+    orch = SlotOrchestrator()
+    prompt = orch._format_prompt(slot, MockEvidencePack(), extra_hints="")
+    assert "Min Clauses" not in prompt
+    assert "Min Clauses was" not in prompt
+
+
+def test_normalizer_preserves_numerical_givens():
+    """Verify normalizer does not chop leading numerical givens when verb is later in sentence (>35 words, >15 chars)."""
+    from core.generation.orchestrator import SlotOrchestrator
+    from core.contracts.question_slot import QuestionSlot
+    from core.contracts.budgets import AnswerBudget, QuestionBudget
+    from core.contracts.task_signature import TaskSignature
+    import json
+
+    slot = QuestionSlot(
+        slot_id="mod_2_q3_a",
+        question_no=3,
+        sub_label="a",
+        or_pair_id="or_2",
+        is_alternative=False,
+        module_id=2,
+        marks=8,
+        bloom_level="L3",
+        bloom_verb="Calculate",
+        bloom_operation="APPLY",
+        co="CO2",
+        difficulty="HARD",
+        question_type="NUMERICAL",
+        topic="Earth Station Antenna Gain",
+        evidence_ids=("chunk_antenna",),
+        answer_budget=AnswerBudget.from_marks_and_bloom(8, "L3"),
+        question_budget=QuestionBudget.from_bloom("L3", 8),
+        task_signature=TaskSignature.from_bloom_marks_type("L3", 8, "NUMERICAL"),
+        math_required=True,
+    )
+    raw_given_text = (
+        "Assuming that an earth station antenna operates with an efficiency of 60 percent "
+        "and has an aperture diameter of 3.0 meters operating at an uplink frequency of 6 GHz, "
+        "calculate the effective isotropic radiated power and antenna gain."
+    )
+    assert len(raw_given_text.split()) > 35
+    assert raw_given_text.lower().find("calculate") > 15
+
+    orch = SlotOrchestrator()
+    orch._call_llm = lambda *args, **kwargs: json.dumps({
+        "instruction": raw_given_text,
+        "question_text": raw_given_text,
+        "math_blocks": [{"block_id": "calc_1", "latex": "G = \\eta (\\pi D / \\lambda)^2"}],
+        "diagram_request": None
+    })
+
+    class MockEvidencePack:
+        combined_text = "Antenna efficiency is 60 percent, diameter is 3 meters, frequency is 6 GHz."
+        math_artifacts = "none"
+
+    gq = orch.generate(slot, MockEvidencePack())
+    assert "Assuming that an earth station antenna operates" in gq.question_text
+
+
+def test_autohealer_does_not_append_canned_filler():
+    """Verify AutoHealer does not mechanically append canned filler on INSUFFICIENT_DECLARED_DIMENSIONS."""
+    from core.generation.auto_healer import AutoHealer
+    from core.generation.output_schema import QuestionOutput
+    from core.contracts.question_slot import QuestionSlot
+    from core.contracts.budgets import AnswerBudget, QuestionBudget
+    from core.contracts.task_signature import TaskSignature
+
+    slot = QuestionSlot(
+        slot_id="mod_1_q1_a",
+        question_no=1,
+        sub_label="a",
+        or_pair_id="or_1",
+        is_alternative=False,
+        module_id=1,
+        marks=6,
+        bloom_level="L2",
+        bloom_verb="Explain",
+        bloom_operation="EXPLAIN",
+        co="CO1",
+        difficulty="MEDIUM",
+        question_type="THEORY",
+        topic="Satellite transponder architecture",
+        evidence_ids=("chunk_1",),
+        answer_budget=AnswerBudget.from_marks_and_bloom(6, "L2"),
+        question_budget=QuestionBudget.from_bloom("L2", 6),
+        task_signature=TaskSignature.from_bloom_marks_type("L2", 6, "THEORY"),
+    )
+    initial_output = QuestionOutput(
+        instruction="Explain the architecture of a satellite transponder.",
+        question_text="Explain the architecture of a satellite transponder.",
+        math_blocks=[]
+    )
+    healed = AutoHealer.heal(
+        failure_code="INSUFFICIENT_DECLARED_DIMENSIONS",
+        output=initial_output,
+        slot=slot,
+        failure_message="Instruction requires at least 3 dimensions"
+    )
+    # Must NOT contain canned filler phrases
+    assert "explaining the underlying principles" not in healed.instruction
+    assert "analyzing the key factors involved" not in healed.instruction
+    assert healed.instruction == initial_output.instruction
+
+
+def test_autohealer_does_not_prepend_verb_when_preamble_present():
+    """Verify AutoHealer does not prepend a Bloom verb to create double verbs when a preamble is present."""
+    from core.generation.auto_healer import AutoHealer
+    from core.generation.output_schema import QuestionOutput
+    from core.contracts.question_slot import QuestionSlot
+    from core.contracts.budgets import AnswerBudget, QuestionBudget
+    from core.contracts.task_signature import TaskSignature
+
+    slot = QuestionSlot(
+        slot_id="mod_1_q1_a",
+        question_no=1,
+        sub_label="a",
+        or_pair_id="or_1",
+        is_alternative=False,
+        module_id=1,
+        marks=6,
+        bloom_level="L4",
+        bloom_verb="Analyze",
+        bloom_operation="ANALYZE",
+        co="CO2",
+        difficulty="HARD",
+        question_type="THEORY",
+        topic="Satellite Communications",
+        evidence_ids=("chunk_1",),
+        answer_budget=AnswerBudget.from_marks_and_bloom(6, "L4"),
+        question_budget=QuestionBudget.from_bloom("L4", 6),
+        task_signature=TaskSignature.from_bloom_marks_type("L4", 6, "THEORY"),
+    )
+    raw_output = QuestionOutput(
+        instruction="In satellite communications, explain the transponder architecture.",
+        question_text="In satellite communications, explain the transponder architecture.",
+        math_blocks=[]
+    )
+    healed = AutoHealer.heal(
+        failure_code="BLOOM_VERB_NOT_AT_START",
+        output=raw_output,
+        slot=slot,
+        failure_message="Bloom verb 'Analyze' not at start"
+    )
+    # Must NOT prepend to create double-verb nonsense like "Analyze in satellite communications, explain..."
+    assert not healed.instruction.lower().startswith("analyze in satellite communications")
+    assert "analyze in satellite communications, explain" not in healed.instruction.lower()
+
+
+
 
 
 

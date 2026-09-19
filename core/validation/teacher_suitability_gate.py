@@ -53,15 +53,21 @@ class TeacherSuitabilityGate:
             mod_idx = int(match.group(1))
             from v0_1.module_alignment import DEFAULT_MODULE_CONCEPTS
             core_concepts = DEFAULT_MODULE_CONCEPTS.get(mod_idx, [])
-            matched_concepts = sum(1 for concept in core_concepts if concept.lower() in combined)
-            if matched_concepts == 0:
-                syllabus_dist = 0.4  # Outside core module syllabus concepts
-            elif matched_concepts == 1:
-                syllabus_dist = 0.2
+            all_cs_concepts = set().union(*DEFAULT_MODULE_CONCEPTS.values())
+            # Only apply CS syllabus distance check if the question or topic pertains to CS concepts
+            is_cs_domain = any(c in combined for c in all_cs_concepts) or any(c in (slot.topic or "").lower() for c in all_cs_concepts)
+            if is_cs_domain:
+                matched_concepts = sum(1 for concept in core_concepts if concept.lower() in combined)
+                if matched_concepts == 0:
+                    syllabus_dist = 0.4  # Outside core module syllabus concepts
+                elif matched_concepts == 1:
+                    syllabus_dist = 0.2
+                else:
+                    syllabus_dist = 0.0
             else:
                 syllabus_dist = 0.0
         else:
-            syllabus_dist = 0.2
+            syllabus_dist = 0.0
 
         # Combined specialization score (weights: 40% density, 30% rarity, 30% distance)
         spec_score = (tech_density * 0.4) + (rarity_score * 0.3) + (syllabus_dist * 0.3)

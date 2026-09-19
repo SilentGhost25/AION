@@ -296,6 +296,11 @@ def self_heal_ollama(ollama_url: str = "http://127.0.0.1:11434") -> bool:
     """
     Attempts to diagnose and self-heal Ollama by restarting it if it is unresponsive or saturated (HTTP 503).
     """
+    backend = os.environ.get("AION_BACKEND", "ollama").lower().strip()
+    if backend != "ollama":
+        print(f"[SELF-HEAL] Active backend is '{backend}'. Skipping Ollama process restart.")
+        return False
+
     import subprocess
     import sys
     import shutil
@@ -380,18 +385,23 @@ for module_path in ["v0_1.llm", "core.generation.robust_llm_caller"]:
 
             def make_universal_call(orig_func, is_kwargs_accepting, valid_params):
                 def _universal_call(self, prompt, *args, **kwargs):
+                    is_req = hasattr(prompt, "prompt")
+                    prompt_str = prompt.prompt if is_req else prompt
+                    if not isinstance(prompt_str, str):
+                        return orig_func(self, prompt, *args, **kwargs)
+
                     # Safeguard against huge context lengths (Resource resilience)
-                    words = prompt.split()
+                    words = prompt_str.split()
                     if len(words) > 8000:
                         print(f"[LLM] [WARNING] Prompt length ({len(words)} words) exceeds production threshold. Pruning context...")
-                        prompt = " ".join(words[:3000]) + "\n\n[... CONTEXT TRUNCATED FOR RESOURCE LIMITS ...]\n\n" + " ".join(words[-3000:])
+                        prompt_str = " ".join(words[:3000]) + "\n\n[... CONTEXT TRUNCATED FOR RESOURCE LIMITS ...]\n\n" + " ".join(words[-3000:])
 
                     opts = kwargs.get("options", {}) or {}
                     opts["temperature"] = 0.1
                     opts["top_p"] = 0.95
                     kwargs["options"] = opts
 
-                    topic_m = re.search(r'(?i)\btopic\s*:\s*([^\n]+)', prompt)
+                    topic_m = re.search(r'(?i)\btopic\s*:\s*([^\n]+)', prompt_str)
                     topic_text = topic_m.group(1).strip() if topic_m else ""
                     subject_name = kwargs.get("subject", "") or kwargs.get("subject_code", "") or getattr(sys.modules.get(__name__), "ACTIVE_SUBJECT", "")
                     
@@ -416,15 +426,22 @@ for module_path in ["v0_1.llm", "core.generation.robust_llm_caller"]:
                             "3. Reference them in the question text using [MATH:calc_1], [MATH:calc_2], etc.\n"
                             "===============================================================================================\n\n"
                         )
-                        prompt = header + prompt
+                        prompt_str = header + prompt_str
                     else:
                         general_directive = (
-                            "\n=== [ENGINEERING & QUANTITATIVE EXAMINATION DIRECTIVE] ===\n"
-                            "If the context contains equations, numerical parameters, or algorithms, formulate concrete computational problems.\n"
-                            "Preserve all LaTeX notation inside 'math_blocks' and reference them with [MATH:math_1].\n"
-                            "===========================================================\n\n"
+                            "\n=== [ACADEMIC DOMAIN DIRECTIVE] ===\n"
+                            "Formulate questions matching the academic register and methodology of the provided subject context.\n"
+                            "If the context contains equations, numerical parameters, or algorithms, formulate concrete computational problems;\n"
+                            "if the context is legal, philosophical, biomedical, or analytical, formulate rigorous domain-appropriate evaluative tasks.\n"
+                            "Preserve all LaTeX notation inside 'math_blocks' and reference them with [MATH:math_1] when quantitative expressions occur.\n"
+                            "====================================\n\n"
                         )
-                        prompt = general_directive + prompt
+                        prompt_str = general_directive + prompt_str
+
+                    if is_req:
+                        prompt.prompt = prompt_str
+                    else:
+                        prompt = prompt_str
 
                     if not is_kwargs_accepting:
                         safe_kwargs = {k: v for k, v in kwargs.items() if k in valid_params}
@@ -565,10 +582,23 @@ class UniversalValidationResult:
 # --- 2. RESILIENT LOCAL OLLAMA CLIENT FALLBACK ---
 def query_local_llm(prompt: str, json_format: bool = False) -> str:
     """Queries either the active RobustLLMCaller or falls back to Ollama running on localhost."""
-    # Attempt local Ollama endpoint query directly
-    url = "http://127.0.0.1:11434/api/generate"
+    try:
+        from core.generation.robust_llm_caller import RobustLLMCaller, LLMRequest
+        from core.config.production_model import get_production_model
+        model = os.environ.get("AION_MODEL") or get_production_model()
+        caller = RobustLLMCaller()
+        req = LLMRequest(model=model, prompt=prompt)
+        res = caller.call(req)
+        if res.success and res.text:
+            return res.text
+    except Exception as e:
+        logger.debug(f"[query_local_llm] RobustLLMCaller fallback: {e}")
+
+    # Fallback to direct local Ollama query if RobustLLMCaller fails or is unconfigured
+    ollama_url = (os.environ.get("OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or "http://127.0.0.1:11434").rstrip("/")
+    url = f"{ollama_url}/api/generate"
     payload = {
-        "model": "qwen2.5:14b",
+        "model": os.environ.get("AION_MODEL", "qwen2.5:14b"),
         "prompt": prompt,
         "stream": False
     }
@@ -601,6 +631,7 @@ def query_local_llm(prompt: str, json_format: bool = False) -> str:
         except Exception as ex:
             logger.error(f"[VisualRAG API Fallback Error] {ex}")
             return ""
+
 
 
 # --- 3. DIAGRAM EXTRACTION & SEMANTIC GATE ENGINE ---
@@ -771,6 +802,127 @@ Respond STRICTLY with a valid JSON block:
 
 
 # --- 5. DYNAMIC CALLER HOOK ---
+def _build_augmented_prompt(prompt, kwargs: Optional[dict] = None) -> str:
+    if kwargs is None:
+        kwargs = {}
+    if hasattr(prompt, "prompt"):
+        prompt_text = prompt.prompt
+    elif isinstance(prompt, str):
+        prompt_text = prompt
+    else:
+        return str(prompt)
+
+    p_lower = prompt_text.lower()
+    
+    # Hook only generation tasks
+    is_gen = any(k in p_lower for k in ["question", "generate", "mcq", "problem", "numerical", "exam", "blueprint"])
+    if not is_gen:
+        return prompt_text
+
+    file_path = getattr(sys.modules[__name__], "ACTIVE_FILE_PATH", None)
+    file_id = kwargs.get("file_id")
+    if not file_id and file_path:
+        parts = Path(file_path).parts
+        if "uploads" in parts:
+            idx = parts.index("uploads")
+            if idx + 1 < len(parts):
+                file_id = parts[idx + 1]
+        if not file_id:
+            file_id = Path(file_path).stem
+
+    if not file_id:
+        fid_match = re.search(r'uploads/([a-f0-9\-]+)/', prompt_text)
+        if fid_match:
+            file_id = fid_match.group(1)
+
+    anchors = []
+    if file_id:
+        if file_path and Path(file_path).stem == file_id:
+            pdf_path = file_path
+        else:
+            pdf_path = os.path.join(_BASE_DIR, f"workspace/uploads/{file_id}/original.pdf")
+        anchors = extract_and_qualify_diagram_anchors(file_id, pdf_path)
+
+    # Discard image anchors before prompt assembly to eliminate image processing latency,
+    # while keeping formula and KaTeX block extraction below 100% active.
+    active_anchor = None
+    # Also attach extracted equations/math if available
+    equations_ctx = []
+    try:
+        if file_id:
+            if file_path and Path(file_path).stem == file_id:
+                pdf_path = file_path
+            else:
+                pdf_path = os.path.join(_BASE_DIR, f"workspace/uploads/{file_id}/original.pdf")
+            upload_dir = Path(_BASE_DIR) / f"workspace/uploads/{file_id}"
+            # Look for structured json with equations
+            for jpath in upload_dir.rglob("*.json"):
+                try:
+                    jd = json.loads(jpath.read_text(encoding="utf-8", errors="ignore"))
+                    # Common MinerU structures
+                    for key in ["equations","math","maths","formula"]:
+                        if key in jd and isinstance(jd[key], list) and jd[key]:
+                            equations_ctx.extend([str(x) for x in jd[key][:10]])
+                    if equations_ctx: break
+                except Exception:
+                    pass
+            # Also scan md
+            if not equations_ctx:
+                for mpath in upload_dir.rglob("*.md"):
+                    mtxt = mpath.read_text(encoding="utf-8", errors="ignore")
+                    # extract latex blocks
+                    eqs = re.findall(r'\$\$[\s\S]*?\$\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]', mtxt)
+                    if eqs:
+                        equations_ctx.extend(eqs[:8])
+                        break
+    except Exception:
+        pass
+
+    header = ""
+    if equations_ctx:
+        header += "\n[EXTRACTED EQUATIONS TO CONSIDER]\n"
+        for i,eq in enumerate(equations_ctx,1):
+            header += f"{i}. {eq}\n"
+        header += "If these equations are relevant, create NUMERICAL/DERIVATION questions using them. Put the key equations in 'math_blocks' with proper LaTeX and reference via [MATH:...] in question_text.\n"
+
+    topic_m = re.search(r'(?i)\btopic\s*:\s*([^\n]+)', prompt_text)
+    topic_text = topic_m.group(1).strip() if topic_m else ""
+    subject_name = kwargs.get("subject", "") or kwargs.get("subject_code", "") or getattr(sys.modules.get(__name__), "ACTIVE_SUBJECT", "")
+    
+    matched_arch = resolve_subject_archetype(subject_name, topic_text)
+    matched_domains = []
+    if matched_arch and matched_arch in SUBJECT_ARCHETYPES:
+        matched_domains.append(SUBJECT_ARCHETYPES[matched_arch]["directive"])
+        logger.info(f"[ARCHETYPE] Subject: '{subject_name}' | Topic: '{topic_text}' -> Matched: {matched_arch}. Injected directive.")
+    else:
+        logger.info(f"[ARCHETYPE] Fail-closed: Subject '{subject_name}' | Topic '{topic_text}' not in registry. Injected 0 domain directives.")
+
+    # --- Inject strict university exam template directives ---
+    header += "\n=== [VTU EXAM PATTERN & DIAGRAM INJECTOR DIRECTIVE] ===\n"
+    header += "You are acting as the Chair of the Visvesvaraya Technological University (VTU) Board of Examiners.\n"
+    header += "Generate rigorous analytical, methodological, or domain-appropriate examination problems aligned with the syllabus.\n"
+
+    if active_anchor:
+        imgp = active_anchor.get('image_path') or ''
+        header += f"\n[MANDATORY FIGURE USAGE DIRECTIVE]\n"
+        header += f"- Figure Label: {active_anchor.get('label')}\n"
+        header += f"- Diagram Type: {active_anchor.get('diagram_type')}\n"
+        header += f"- Technical Summary: {active_anchor.get('technical_summary')}\n"
+        header += f"- Image Path (MUST PRESERVE EXACTLY): {imgp}\n"
+        header += "YOU MUST generate AT LEAST ONE question that EXPLICITLY refers to this figure (e.g. 'Refer to Fig. 1...', 'With reference to the given diagram...').\n"
+        header += "In the OUTPUT JSON, you MUST populate BOTH 'image_path' and 'associated_image' with the EXACT image path above.\n"
+        header += "Do NOT omit the diagram reference or the image path under any circumstance.\n"
+
+    if matched_domains:
+        header += "\n[SUBJECT-SPECIFIC INSTRUCTION]\n" + "\n".join(matched_domains) + "\n"
+
+    header += "\n[QUESTION CONCISENESS & NO-ANSWER-LEAKAGE GUIDELINE]\n"
+    header += "Aim for a concise question (typically 20 to 50 words). Do NOT include derivations, answers, or solutions in the question text. The student must solve the problem.\n"
+    header += "========================================================================\n\n"
+
+    return header + prompt_text
+
+
 def _install_llm_hook():
     try:
         import core.generation.robust_llm_caller as _cm
@@ -780,120 +932,12 @@ def _install_llm_hook():
 
         orig_call = caller_cls.call
 
-        def _build_augmented_prompt(prompt: str, kwargs: dict) -> str:
-            p_lower = prompt.lower()
-            
-            # Hook only generation tasks
-            is_gen = any(k in p_lower for k in ["question", "generate", "mcq", "problem", "numerical", "exam", "blueprint"])
-            if not is_gen:
-                return prompt
-
-            file_path = getattr(sys.modules[__name__], "ACTIVE_FILE_PATH", None)
-            file_id = kwargs.get("file_id")
-            if not file_id and file_path:
-                parts = Path(file_path).parts
-                if "uploads" in parts:
-                    idx = parts.index("uploads")
-                    if idx + 1 < len(parts):
-                        file_id = parts[idx + 1]
-                if not file_id:
-                    file_id = Path(file_path).stem
-
-            if not file_id:
-                fid_match = re.search(r'uploads/([a-f0-9\-]+)/', prompt)
-                if fid_match:
-                    file_id = fid_match.group(1)
-
-            anchors = []
-            if file_id:
-                if file_path and Path(file_path).stem == file_id:
-                    pdf_path = file_path
-                else:
-                    pdf_path = os.path.join(_BASE_DIR, f"workspace/uploads/{file_id}/original.pdf")
-                anchors = extract_and_qualify_diagram_anchors(file_id, pdf_path)
-
-            # Discard image anchors before prompt assembly to eliminate image processing latency,
-            # while keeping formula and KaTeX block extraction below 100% active.
-            active_anchor = None
-            # Also attach extracted equations/math if available
-            equations_ctx = []
-            try:
-                if file_id:
-                    if file_path and Path(file_path).stem == file_id:
-                        pdf_path = file_path
-                    else:
-                        pdf_path = os.path.join(_BASE_DIR, f"workspace/uploads/{file_id}/original.pdf")
-                    upload_dir = Path(_BASE_DIR) / f"workspace/uploads/{file_id}"
-                    # Look for structured json with equations
-                    for jpath in upload_dir.rglob("*.json"):
-                        try:
-                            jd = json.loads(jpath.read_text(encoding="utf-8", errors="ignore"))
-                            # Common MinerU structures
-                            for key in ["equations","math","maths","formula"]:
-                                if key in jd and isinstance(jd[key], list) and jd[key]:
-                                    equations_ctx.extend([str(x) for x in jd[key][:10]])
-                            if equations_ctx: break
-                        except Exception:
-                            pass
-                    # Also scan md
-                    if not equations_ctx:
-                        for mpath in upload_dir.rglob("*.md"):
-                            mtxt = mpath.read_text(encoding="utf-8", errors="ignore")
-                            # extract latex blocks
-                            eqs = re.findall(r'\$\$[\s\S]*?\$\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]', mtxt)
-                            if eqs:
-                                equations_ctx.extend(eqs[:8])
-                                break
-            except Exception:
-                pass
-
-            if equations_ctx:
-                header += "\n[EXTRACTED EQUATIONS TO CONSIDER]\n"
-                for i,eq in enumerate(equations_ctx,1):
-                    header += f"{i}. {eq}\n"
-                header += "If these equations are relevant, create NUMERICAL/DERIVATION questions using them. Put the key equations in 'math_blocks' with proper LaTeX and reference via [MATH:...] in question_text.\n"
-
-
-            topic_m = re.search(r'(?i)\btopic\s*:\s*([^\n]+)', prompt)
-            topic_text = topic_m.group(1).strip() if topic_m else ""
-            subject_name = kwargs.get("subject", "") or kwargs.get("subject_code", "") or getattr(sys.modules.get(__name__), "ACTIVE_SUBJECT", "")
-            
-            matched_arch = resolve_subject_archetype(subject_name, topic_text)
-            matched_domains = []
-            if matched_arch and matched_arch in SUBJECT_ARCHETYPES:
-                matched_domains.append(SUBJECT_ARCHETYPES[matched_arch]["directive"])
-                logger.info(f"[ARCHETYPE] Subject: '{subject_name}' | Topic: '{topic_text}' -> Matched: {matched_arch}. Injected directive.")
-            else:
-                logger.info(f"[ARCHETYPE] Fail-closed: Subject '{subject_name}' | Topic '{topic_text}' not in registry. Injected 0 domain directives.")
-
-            # --- Inject strict engineering exam template directives ---
-            header = "\n=== [VTU EXAM PATTERN & DIAGRAM INJECTOR DIRECTIVE] ===\n"
-            header += "You are acting as the Chair of the Visvesvaraya Technological University (VTU) Board of Examiners.\n"
-            header += "Generate rigorous analytical and quantitative problems. Avoid descriptive, theoretical, or purely textual tasks.\n"
-
-            if active_anchor:
-                imgp = active_anchor.get('image_path') or ''
-                header += f"\n[MANDATORY FIGURE USAGE DIRECTIVE]\n"
-                header += f"- Figure Label: {active_anchor.get('label')}\n"
-                header += f"- Diagram Type: {active_anchor.get('diagram_type')}\n"
-                header += f"- Technical Summary: {active_anchor.get('technical_summary')}\n"
-                header += f"- Image Path (MUST PRESERVE EXACTLY): {imgp}\n"
-                header += "YOU MUST generate AT LEAST ONE question that EXPLICITLY refers to this figure (e.g. 'Refer to Fig. 1...', 'With reference to the given diagram...').\n"
-                header += "In the OUTPUT JSON, you MUST populate BOTH 'image_path' and 'associated_image' with the EXACT image path above.\n"
-                header += "Do NOT omit the diagram reference or the image path under any circumstance.\n"
-
-            if matched_domains:
-                header += "\n[SUBJECT-SPECIFIC INSTRUCTION]\n" + "\n".join(matched_domains) + "\n"
-
-            header += "\n[QUESTION CONCISENESS & NO-ANSWER-LEAKAGE GUIDELINE]\n"
-            header += "Aim for a concise question (typically 20 to 50 words). Do NOT include derivations, answers, or solutions in the question text. The student must solve the problem.\n"
-            header += "========================================================================\n\n"
-
-            return header + prompt
-
         # Hook both Sync & Async callers to handle FastAPI & Flask engines seamlessly
         if inspect.iscoroutinefunction(orig_call):
             async def _async_wrapped_call(self, prompt, *args, **kwargs):
+                if hasattr(prompt, "prompt"):
+                    prompt.prompt = _build_augmented_prompt(prompt, kwargs)
+                    return await orig_call(self, prompt, *args, **kwargs)
                 opts = kwargs.setdefault("options", {}) or {}
                 opts["temperature"] = opts.get("temperature", 0.1)
                 new_prompt = _build_augmented_prompt(prompt, kwargs)
@@ -901,6 +945,9 @@ def _install_llm_hook():
             caller_cls.call = _async_wrapped_call
         else:
             def _sync_wrapped_call(self, prompt, *args, **kwargs):
+                if hasattr(prompt, "prompt"):
+                    prompt.prompt = _build_augmented_prompt(prompt, kwargs)
+                    return orig_call(self, prompt, *args, **kwargs)
                 opts = kwargs.setdefault("options", {}) or {}
                 opts["temperature"] = opts.get("temperature", 0.1)
                 new_prompt = _build_augmented_prompt(prompt, kwargs)

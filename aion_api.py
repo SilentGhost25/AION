@@ -198,7 +198,17 @@ job_store:     dict = {}
 
 ALLOWED = {".pdf", ".txt", ".docx", ".pptx", ".md"}
 
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+def get_backend_name() -> str:
+    return os.environ.get("AION_BACKEND", "ollama").lower().strip()
+
+
+def get_backend_url() -> str:
+    if get_backend_name() == "vllm":
+        return (os.environ.get("AION_LLM_HOST") or os.environ.get("VLLM_URL") or "http://localhost:8000").rstrip("/")
+    return (os.environ.get("OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or os.environ.get("AION_LLM_HOST") or "http://localhost:11434").rstrip("/")
+
+
+OLLAMA_URL = get_backend_url()
 
 
 def warmup_model():
@@ -213,27 +223,44 @@ def warmup_model():
         model = os.environ.get("AION_MODEL", "qwen2.5:7b")
     print(f"[AION] Warming up '{model}'...", flush=True)
 
-    try:
-        payload = json.dumps({
-            "model":      model,
-            "messages":   [{"role": "user", "content": "hi"}],
-            "keep_alive": -1,
-            "stream":     False,
-            "options":    {
-                "num_predict": 200,
-                "num_ctx":     2048  # Force context on load
-            }
-        }).encode("utf-8")
+    backend = get_backend_name()
+    host = get_backend_url()
 
+    try:
         import urllib.request
-        req = urllib.request.Request(
-            f"{OLLAMA_URL}/api/chat",
-            data    = payload,
-            headers = {"Content-Type": "application/json"}
-        )
-        with urllib.request.urlopen(req, timeout=30) as r:
-            status = "OK" if r.status == 200 else f"status={r.status}"
-            print(f"[AION] Warmup {status}", flush=True)
+        if backend == "vllm":
+            payload = json.dumps({
+                "model":      model,
+                "messages":   [{"role": "user", "content": "hi"}],
+                "max_tokens": 10,
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                f"{host}/v1/chat/completions",
+                data    = payload,
+                headers = {"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=15) as r:
+                status = "OK" if r.status == 200 else f"status={r.status}"
+                print(f"[AION] Warmup (vLLM) {status}", flush=True)
+        else:
+            payload = json.dumps({
+                "model":      model,
+                "messages":   [{"role": "user", "content": "hi"}],
+                "keep_alive": -1,
+                "stream":     False,
+                "options":    {
+                    "num_predict": 200,
+                    "num_ctx":     2048  # Force context on load
+                }
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                f"{host}/api/chat",
+                data    = payload,
+                headers = {"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=30) as r:
+                status = "OK" if r.status == 200 else f"status={r.status}"
+                print(f"[AION] Warmup (Ollama) {status}", flush=True)
 
     except Exception as e:
         print(f"[AION] Warmup skipped ({e})", flush=True)
@@ -313,9 +340,18 @@ def run_startup_checks() -> None:
 
 @app.route("/api/tags", methods=["GET"])
 def get_tags():
+    backend = get_backend_name()
+    host = get_backend_url()
     try:
-        r = requests.get(f"{OLLAMA_URL.rstrip('/')}/api/tags", timeout=3)
-        return jsonify(r.json() if r.status_code == 200 else {"models": []})
+        if backend == "vllm":
+            r = requests.get(f"{host}/v1/models", timeout=3)
+            if r.status_code == 200:
+                raw_models = [m.get("id") for m in r.json().get("data", [])]
+                return jsonify({"models": [{"name": m} for m in raw_models if m]})
+            return jsonify({"models": []})
+        else:
+            r = requests.get(f"{host}/api/tags", timeout=3)
+            return jsonify(r.json() if r.status_code == 200 else {"models": []})
     except Exception as e:
         return jsonify({"models": [], "error": str(e)})
 
@@ -328,22 +364,32 @@ def health():
     Detailed health check endpoint reporting profile, backend, memory, and gate readiness.
     Returns 200 if ready, 503 if blocked or critically low memory.
     """
-    ollama_ok = False
-    model_ok  = False
+    backend = get_backend_name()
+    host = get_backend_url()
+    llm_ok   = False
+    model_ok = False
     try:
-        r = requests.get(f"{OLLAMA_URL.rstrip('/')}/api/tags", timeout=3)
-        if r.ok:
-            ollama_ok = True
-            models = [m.get("name", "") for m in r.json().get("models", [])]
-            model_ok = any(active_profile.model_name in m for m in models) or active_profile.model_name == "AUTO"
+        if backend == "vllm":
+            r = requests.get(f"{host}/v1/models", timeout=3)
+            if r.ok:
+                llm_ok = True
+                models = [m.get("id", "") for m in r.json().get("data", [])]
+                target = active_profile.model_name
+                model_ok = any(target == m or target in m for m in models if m) or target == "AUTO"
+        else:
+            r = requests.get(f"{host}/api/tags", timeout=3)
+            if r.ok:
+                llm_ok = True
+                models = [m.get("name", "") for m in r.json().get("models", [])]
+                target = active_profile.model_name
+                model_ok = any(target in m for m in models if m) or target == "AUTO"
     except Exception:
         pass
-# pass  # removed useless statement
 
     mem_state = memory_governor.state()
     katex_ok  = KaTeXAvailabilityGate._available if hasattr(KaTeXAvailabilityGate, "_available") else True
     ready     = (
-        ollama_ok and
+        llm_ok and
         katex_ok and
         mem_state.value != "CRITICAL"
     )
@@ -352,10 +398,11 @@ def health():
         "ready"               : ready,
         "profile"             : active_profile.name,
         "model"               : active_profile.model_name,
-        "backend"             : active_profile.backend,
+        "backend"             : backend,
         "concurrency"         : active_profile.concurrency,
         "memory_state"        : mem_state.value,
-        "ollama_available"    : ollama_ok,
+        "llm_available"       : llm_ok,
+        "ollama_available"    : llm_ok,  # Backward compatibility for frontend
         "model_available"     : model_ok,
         "katex_available"     : katex_ok,
         "extraction_available": AdapterRegistry.capabilities.get("PYMUPDF", None) is not None if hasattr(AdapterRegistry, "capabilities") else True,
@@ -442,44 +489,64 @@ def ready():
         pass
 # pass  # removed useless statement
 
-    # 4. Probe Ollama & Model
+    # 4. Probe Backend LLM & Model
     resolution = get_resolution_info()
     primary_model = resolution["resolved_model"]
-    ollama_ok = False
+    backend = get_backend_name()
+    host = get_backend_url()
+    llm_ok = False
     models = []
     try:
-        r = requests.get("http://127.0.0.1:11434/api/tags", timeout=3)
-        ollama_ok = r.status_code == 200
-        models = [m["name"] for m in r.json().get("models", [])]
+        if backend == "vllm":
+            r = requests.get(f"{host}/v1/models", timeout=3)
+            llm_ok = r.status_code == 200
+            models = [m.get("id", "") for m in r.json().get("data", []) if m.get("id")]
+        else:
+            r = requests.get(f"{host}/api/tags", timeout=3)
+            llm_ok = r.status_code == 200
+            models = [m["name"] for m in r.json().get("models", [])]
     except Exception:
-        ollama_ok = False
+        llm_ok = False
 
-    model_loaded = primary_model in models or any(primary_model in m for m in models)
+    model_loaded = primary_model in models or any(primary_model in m for m in models) or primary_model == "AUTO"
 
     # 4b. Perform a tiny warmup inference check to confirm the model is usable and responding
     model_usable = False
-    if ollama_ok and model_loaded:
+    if llm_ok and model_loaded:
         try:
-            r_warmup = requests.post(
-                "http://127.0.0.1:11434/api/generate",
-                json={
-                    "model":  primary_model,
-                    "prompt": "healthcheck",
-                    "stream": False,
-                    "options": {
-                        "num_predict": 200
-                    }
-                },
-                timeout=5
-            )
-            if r_warmup.status_code == 200:
-                model_usable = True
+            if backend == "vllm":
+                test_model = primary_model if primary_model != "AUTO" else (models[0] if models else "default")
+                r_warmup = requests.post(
+                    f"{host}/v1/chat/completions",
+                    json={
+                        "model": test_model,
+                        "messages": [{"role": "user", "content": "healthcheck"}],
+                        "max_tokens": 10,
+                    },
+                    timeout=5,
+                )
+                if r_warmup.status_code == 200:
+                    model_usable = True
+            else:
+                r_warmup = requests.post(
+                    f"{host}/api/generate",
+                    json={
+                        "model":  primary_model,
+                        "prompt": "healthcheck",
+                        "stream": False,
+                        "options": {
+                            "num_predict": 200
+                        }
+                    },
+                    timeout=5
+                )
+                if r_warmup.status_code == 200:
+                    model_usable = True
         except Exception:
             pass
-# pass  # removed useless statement
 
     # 5. Authoritative Readiness Status
-    ready_status = gateway_ok and orchestrator_ok and export_gate_ok and ollama_ok and model_loaded and model_usable and katex_ok
+    ready_status = gateway_ok and orchestrator_ok and export_gate_ok and llm_ok and model_loaded and model_usable and katex_ok
 
     return jsonify({
         "ready":             ready_status,
@@ -495,8 +562,16 @@ def ready():
         "katex": {
             "available": katex_ok
         },
+        "llm": {
+            "backend":        backend,
+            "online":         llm_ok,
+            "resolved_model": primary_model,
+            "model_loaded":   model_loaded,
+            "model_usable":   model_usable,
+            "models":         models
+        },
         "ollama": {
-            "online":         ollama_ok,
+            "online":         llm_ok,
             "resolved_model": primary_model,
             "model_loaded":   model_loaded,
             "model_usable":   model_usable,

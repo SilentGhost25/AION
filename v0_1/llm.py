@@ -31,23 +31,23 @@ _MODEL_CAPABILITY: Dict[str, str] = {}
 _CAPABILITY_LOCK = threading.Lock()
 
 
+def get_llm_backend() -> str:
+    return os.environ.get("AION_BACKEND", "ollama").lower().strip()
+
+
+def get_llm_host(default_ollama: str = "http://127.0.0.1:11434") -> str:
+    if get_llm_backend() == "vllm":
+        return (os.environ.get("AION_LLM_HOST") or os.environ.get("VLLM_URL") or "http://localhost:8000").rstrip("/")
+    return (os.environ.get("OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or os.environ.get("AION_LLM_HOST") or default_ollama).rstrip("/")
+
+
 def probe_model_capability(
     model: str,
-    ollama_url: str = "http://127.0.0.1:11434",
+    ollama_url: Optional[str] = None,
 ) -> str:
     """
-    Determine which Ollama API endpoint a model supports.
-    Returns "chat", "generate", or "none".
-
-    Strategy (ordered by cost):
-      1. Return cached result immediately if already probed.
-      2. Call /api/show: if 'template' field is non-empty -> "chat".
-      3. Otherwise probe /api/generate with empty prompt -> "generate".
-      4. If both fail -> "none".
-
-    The /api/generate probe uses an empty prompt to minimise latency
-    (only runs if the template check fails). Results are cached for
-    the process lifetime so repeated calls are effectively free.
+    Determine which LLM API endpoint a model supports.
+    Returns "vllm_chat", "chat", "generate", or "none".
     """
     if model == "AUTO":
         try:
@@ -59,10 +59,28 @@ def probe_model_capability(
         if model in _MODEL_CAPABILITY:
             return _MODEL_CAPABILITY[model]
 
+    server_url = (ollama_url or get_llm_host()).rstrip("/")
+    backend = get_llm_backend()
+
+    if backend == "vllm":
+        try:
+            r = requests.get(f"{server_url}/v1/models", timeout=3)
+            if r.status_code == 200:
+                available = [m.get("id") for m in r.json().get("data", [])]
+                if model in available:
+                    with _CAPABILITY_LOCK:
+                        _MODEL_CAPABILITY[model] = "vllm_chat"
+                    return "vllm_chat"
+        except Exception:
+            pass
+        with _CAPABILITY_LOCK:
+            _MODEL_CAPABILITY[model] = "none"
+        return "none"
+
     try:
         # Step 1: Check for chat template via /api/show
         r = requests.post(
-            f"{ollama_url}/api/show",
+            f"{server_url}/api/show",
             json={"name": model},
             timeout=5,
         )
@@ -81,7 +99,7 @@ def probe_model_capability(
 
         # Step 2: Template absent — probe /api/generate (min-latency empty prompt)
         g = requests.post(
-            f"{ollama_url}/api/generate",
+            f"{server_url}/api/generate",
             json={"model": model, "prompt": "", "stream": False},
             timeout=8,
         )
@@ -97,16 +115,43 @@ def probe_model_capability(
 
 def assert_model_ready(
     model: str,
-    ollama_url: str = "http://127.0.0.1:11434",
+    ollama_url: Optional[str] = None,
 ) -> str:
     """
-    Verify the model is usable. Returns the capability ("chat" or "generate").
+    Verify the model is usable. Returns the capability ("vllm_chat", "chat", or "generate").
 
     If the model is not available or supports neither API, raises RuntimeError
-    with the EXACT ollama pull command the user should run.
-    This function never pulls a model automatically.
+    with exact operational guidance.
     """
-    cap = probe_model_capability(model, ollama_url)
+    backend = get_llm_backend()
+    server_url = (ollama_url or get_llm_host()).rstrip("/")
+
+    if backend == "vllm":
+        try:
+            res = requests.get(f"{server_url}/v1/models", timeout=3)
+        except Exception as e:
+            raise RuntimeError(
+                f"\n[LLM STARTUP GATE] Could not connect to vLLM server at {server_url}: {e}\n"
+                f"Ensure vLLM is running:\n"
+                f"  python -m vllm.entrypoints.openai.api_server --model {model} --port 8000\n"
+            )
+        if not res.ok:
+            raise RuntimeError(
+                f"\n[LLM STARTUP GATE] vLLM server at {server_url} returned HTTP {res.status_code}: {res.text[:200]}\n"
+            )
+        available = [m.get("id") for m in res.json().get("data", [])]
+        if model not in available:
+            raise RuntimeError(
+                f"\n[LLM STARTUP GATE] vLLM is running at {server_url} but does not serve model '{model}'.\n"
+                f"Available models: {available}\n"
+                f"Either update AION_MODEL or restart vLLM with the correct --model flag.\n"
+            )
+        print(f"[LLM] Model {model!r}: capability=vllm_chat [OK]")
+        with _CAPABILITY_LOCK:
+            _MODEL_CAPABILITY[model] = "vllm_chat"
+        return "vllm_chat"
+
+    cap = probe_model_capability(model, server_url)
     if cap != "none":
         print(f"[LLM] Model {model!r}: capability={cap} [OK]")
         return cap
@@ -129,6 +174,7 @@ def assert_model_ready(
         f"Then set AION_MODEL to the model you pulled, e.g.:\n"
         f"  $env:AION_MODEL = '{instruct_variant}'\n"
     )
+
 
 
 def _get_concurrency() -> int:
@@ -244,7 +290,8 @@ def get_best_llm():
             f"  Action          : BLOCK — generation refused\n"
         )
     cap = assert_model_ready(model)       # blocks if not usable
-    print(f"[LLM] Using Standard RobustLLMCaller (Ollama / Production L40 GPU server): {model} ({cap})")
+    backend = get_llm_backend()
+    print(f"[LLM] Using Standard RobustLLMCaller ({backend.upper()} / Production L40 GPU server): {model} ({cap})")
     return RobustLLMCaller(primary_model=model)
 
 
@@ -264,18 +311,19 @@ class RobustLLMCaller:
         fallback_models: Optional[list[str]] = None,
         timeout_sec:     int = 180,
         max_retries:     int = 2,
-        ollama_url:      str = "http://127.0.0.1:11434",
+        ollama_url:      Optional[str] = None,
         allow_fallback:  bool = False,
     ):
+        self.backend        = get_llm_backend()
         self.primary_model  = primary_model or get_production_model()
         self.fallback_models = fallback_models or []
         self.allow_fallback  = allow_fallback
         self.timeout_sec    = timeout_sec
         self.max_retries    = max_retries
-        self.ollama_url     = ollama_url.rstrip("/")
+        self.ollama_url     = (ollama_url or get_llm_host()).rstrip("/")
         self._consecutive_failures = 0
         self.MAX_CONSECUTIVE_FAILURES = 3
-        print(f"[LLM] RobustLLMCaller initialized — primary: {self.primary_model} "
+        print(f"[LLM] RobustLLMCaller initialized — backend: {self.backend}, primary: {self.primary_model} on {self.ollama_url} "
               f"(fallback={'enabled' if self.allow_fallback else 'DISABLED'})")
 
     def call(
@@ -312,9 +360,15 @@ class RobustLLMCaller:
 
             self._consecutive_failures += 1
             if self._consecutive_failures >= self.MAX_CONSECUTIVE_FAILURES:
+                server_name = "vLLM" if self.backend == "vllm" else "Ollama"
+                hint = (
+                    f"Ensure: python -m vllm.entrypoints.openai.api_server --model {get_production_model()} --port 8000"
+                    if self.backend == "vllm"
+                    else f"Ensure: ollama serve && ollama pull {get_production_model()}"
+                )
                 raise RuntimeError(
                     f"[LLM] ABORT: {self._consecutive_failures} consecutive LLM failures. "
-                    f"Is Ollama running? Ensure: ollama serve && ollama pull {get_production_model()}"
+                    f"Is {server_name} running? {hint}"
                 )
 
             return None
@@ -332,7 +386,35 @@ class RobustLLMCaller:
 
         def _worker():
             try:
-                if capability == "chat":
+                try:
+                    seed_val = int(os.environ.get("AION_SEED", "42"))
+                except (ValueError, TypeError):
+                    seed_val = 42
+
+                if capability == "vllm_chat" or self.backend == "vllm":
+                    r = requests.post(
+                        f"{self.ollama_url}/v1/chat/completions",
+                        json={
+                            "model":       model,
+                            "messages":    [{"role": "user", "content": prompt}],
+                            "max_tokens":  max_tokens,
+                            "temperature": 0.1,
+                            "seed":        seed_val,
+                        },
+                        timeout=timeout,
+                    )
+                    if r.status_code == 200:
+                        data = r.json()
+                        choices = data.get("choices", [])
+                        content = ""
+                        if choices:
+                            content = choices[0].get("message", {}).get("content", "").strip()
+                        result_queue.put(content if content else None)
+                    else:
+                        print(f"[LLM] vLLM HTTP {r.status_code}: {r.text[:200]}")
+                        result_queue.put(None)
+
+                elif capability == "chat":
                     r = requests.post(
                         f"{self.ollama_url}/api/chat",
                         json={
@@ -342,6 +424,7 @@ class RobustLLMCaller:
                             "options": {
                                 "num_predict":    min(max_tokens, 350),
                                 "temperature":    0.1,
+                                "seed":           seed_val,
                                 "top_p":          0.9,
                                 "top_k":          40,
                                 "repeat_penalty": 1.1,
@@ -416,9 +499,10 @@ class RobustLLMCaller:
 class AIONLLM:
     """Wrapper around RobustLLMCaller providing generate() interface."""
 
-    def __init__(self, model: Optional[str] = None, host: str = "http://127.0.0.1:11434"):
+    def __init__(self, model: Optional[str] = None, host: Optional[str] = None):
         self.preferred_model = model or os.environ.get("AION_MODEL", get_production_model())
-        self.caller = RobustLLMCaller(primary_model=self.preferred_model, ollama_url=host)
+        self.caller = RobustLLMCaller(primary_model=self.preferred_model, ollama_url=host or get_llm_host())
+
 
     def generate(
         self,

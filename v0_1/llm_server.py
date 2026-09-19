@@ -21,13 +21,13 @@ def get_server_llm():
     Falls back to standard llm if not in server mode.
     """
     from core.config.production_model import get_production_model
-    from v0_1.llm import RobustLLMCaller
+    from v0_1.llm import RobustLLMCaller, get_llm_host
 
     model = os.environ.get("AION_MODEL") or get_production_model()
 
     caller = RobustLLMCaller(
         primary_model = model,
-        ollama_url    = "http://127.0.0.1:11434",
+        ollama_url    = get_llm_host(),
         timeout_sec   = 300,     # server can wait longer
     )
 
