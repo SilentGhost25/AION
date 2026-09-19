@@ -32,12 +32,22 @@ _CAPABILITY_LOCK = threading.Lock()
 
 
 def get_llm_backend() -> str:
-    return os.environ.get("AION_BACKEND", "ollama").lower().strip()
+    env_backend = os.environ.get("AION_BACKEND") or os.environ.get("LLM_BACKEND") or os.environ.get("BACKEND")
+    if env_backend:
+        return env_backend.lower().strip()
+    # Auto-detect running vLLM server on localhost:8000
+    try:
+        r = requests.get("http://localhost:8000/v1/models", timeout=0.3)
+        if r.status_code == 200:
+            return "vllm"
+    except Exception:
+        pass
+    return "ollama"
 
 
 def get_llm_host(default_ollama: str = "http://127.0.0.1:11434") -> str:
     if get_llm_backend() == "vllm":
-        return (os.environ.get("AION_LLM_HOST") or os.environ.get("VLLM_URL") or "http://localhost:8000").rstrip("/")
+        return (os.environ.get("AION_LLM_HOST") or os.environ.get("LLM_BASE_URL") or os.environ.get("LLM_HOST") or os.environ.get("VLLM_URL") or "http://localhost:8000").rstrip("/")
     return (os.environ.get("OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or os.environ.get("AION_LLM_HOST") or default_ollama).rstrip("/")
 
 
@@ -392,10 +402,13 @@ class RobustLLMCaller:
                     seed_val = 42
 
                 if capability == "vllm_chat" or self.backend == "vllm":
+                    vllm_model = model
+                    if (":" in vllm_model or not vllm_model.startswith("Qwen/")) and os.environ.get("AION_MODEL"):
+                        vllm_model = os.environ.get("AION_MODEL")
                     r = requests.post(
                         f"{self.ollama_url}/v1/chat/completions",
                         json={
-                            "model":       model,
+                            "model":       vllm_model,
                             "messages":    [{"role": "user", "content": prompt}],
                             "max_tokens":  max_tokens,
                             "temperature": 0.1,

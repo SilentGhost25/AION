@@ -1186,11 +1186,10 @@ def _generate_main_question(
             _math_lower = _math_chunk.lower()
 
             _strong_code_signals = (
-                "select ", "insert ", "update ", "delete ", "create table",
-                "alter table", "drop table", "join ", "where ", "group by",
-                "having ", "trigger", "cursor", "stored procedure",
-                "declare ", "begin ", "end;", "while ", "loop",
-                "fetch ", "open ", "close ", "procedure ", "function "
+                "select distinct", "insert into", "update set", "delete from", "create table",
+                "alter table", "drop table", "group by", "stored procedure", "create trigger",
+                "create procedure", "declare cursor", "begin transaction", "commit;", "rollback;",
+                "```sql", "```python", "```c", "```java", "```cpp"
             )
 
             _strong_math_signals = (
@@ -1200,8 +1199,13 @@ def _generate_main_question(
                 "$$", "\\["
             )
 
-            _looks_like_code = any(
-                _sig in _math_lower for _sig in _strong_code_signals
+            _looks_like_code = (
+                any(_sig in _math_lower for _sig in _strong_code_signals)
+                or any(bool(re.search(pat, _math_lower, re.IGNORECASE)) for pat in (
+                    r'\b(?:def|class|public\s+static|private\s+void)\b',
+                    r'\b(?:SELECT\s+.+\s+FROM|INSERT\s+INTO|UPDATE\s+.+\s+SET)\b',
+                    r'```[a-zA-Z]+\n'
+                ))
             )
 
             _looks_like_real_math = any(
@@ -1253,14 +1257,29 @@ def _generate_main_question(
                 "turnaround time", "hit ratio", "miss ratio"
             )
 
-            # Standalone numeric values only; do not count tokens such as 1NF/2NF/3NF.
-            _numeric_values = re.findall(
-                r'(?<![A-Za-z])[-+]?\d+(?:\.\d+)?(?:\s*%)?(?![A-Za-z])',
-                _chunk_lower
+            # Clean section/figure/table references so structural numbering (e.g. Section 2.3, Fig 2.8, Table 3.1)
+            # is not falsely classified as numeric question parameters.
+            _clean_num_text = re.sub(
+                r'\b(?:section|sec|figure|fig|table|module|unit|chapter|page|p)\.?\s*[-+]?\d+(?:\.\d+)*\b',
+                ' ',
+                _chunk_lower,
+                flags=re.IGNORECASE
             )
+            _clean_num_text = re.sub(r'(?:^|\n)\s*\d+[\.\)]\s+', ' ', _clean_num_text)
+
+            # Standalone numeric values only; do not count tokens such as 1NF/2NF/3NF or section citations.
+            _raw_num_tokens = re.findall(
+                r'(?<![A-Za-z0-9_])[-+]?\d+(?:\.\d+)?(?:\s*%)?(?![A-Za-z0-9_])',
+                _clean_num_text
+            )
+            # Filter single digits that are typically footnotes or list indicators unless accompanied by % or operators
+            _numeric_values = [
+                v.strip() for v in _raw_num_tokens
+                if len(v.strip()) > 1 or "%" in v or any(c in _clean_num_text for c in ("+", "-", "*", "/", "="))
+            ]
             _has_digit = bool(_numeric_values)
             _has_numeric_context = any(
-                sig in _chunk_lower for sig in _numeric_context_signals
+                sig in _clean_num_text for sig in _numeric_context_signals
             )
 
             # Explicit code extraction or textual code/syntax signals make the
@@ -1347,14 +1366,50 @@ def _generate_main_question(
                 if canonical_pool and verb.lower() not in canonical_pool:
                     verb = next(iter(canonical_pool)).capitalize()
 
-            # Resolve slot topic first
-            raw_slot_topic = (
-                str(chunk_obj.topic) if (chunk_obj and getattr(chunk_obj, "topic", None) and not re.match(r'^module_\d+', str(chunk_obj.topic)))
-                else (str(chunk_obj.concept_tags[0]) if (chunk_obj and getattr(chunk_obj, "concept_tags", None) and chunk_obj.concept_tags)
-                else next((re.sub(r'^[#*\-\s\d\.]+', '', _l).strip() for _l in str(chunk).splitlines() if 4 <= len(re.sub(r'^[#*\-\s\d\.]+', '', _l).strip()) <= 60 and not re.match(r'^(module_\d+|Q\d+|\[|\()', _l.strip(), re.I)), f"Module {_mod_num} Core Topics"))
-            )
+            # Robust slot topic resolution
+            raw_slot_topic = None
+            if chunk_obj and getattr(chunk_obj, "topic", None):
+                cand = str(chunk_obj.topic).strip()
+                if not re.match(r'^module_\d+', cand) and not cand.lower().endswith(('.pdf', '.txt', '.docx', '.md')):
+                    raw_slot_topic = cand
+            if not raw_slot_topic and chunk_obj and getattr(chunk_obj, "concept_tags", None) and chunk_obj.concept_tags:
+                raw_slot_topic = str(chunk_obj.concept_tags[0]).strip()
+
+            if not raw_slot_topic:
+                # Scan lines in chunk for genuine headings or concise topic noun phrases
+                # Reject sentence fragments, instructions, table borders, and logic formulas
+                invalid_topic_line = re.compile(
+                    r'^(?:otherwise|if|when|suppose|consider|assume|note|let|for example|where|table|figure|fig|p\.)\b|'
+                    r'[?!\.:;]$|'
+                    r'[|∀∃⇔⊆⇒∧∨¬={}]|'
+                    r'^(?:[ivx]+\.|\d+[\.\)])\s+|'
+                    r'\.(?:pdf|docx?|txt|md)\b',
+                    re.IGNORECASE
+                )
+                for _l in str(chunk).splitlines():
+                    _clean_l = re.sub(r'^[#*\-\s\d\.]+', '', _l).strip()
+                    _clean_l = re.sub(r'\*+', '', _clean_l).strip()
+                    if (
+                        5 <= len(_clean_l) <= 45
+                        and not invalid_topic_line.search(_l.strip())
+                        and not invalid_topic_line.search(_clean_l)
+                        and not re.match(r'^(?:module_\d+|Q\d+|\[|\()', _clean_l, re.I)
+                        and not re.search(r'\b(?:is|are|was|were|will|can|should|corresponds|presents?)\b', _clean_l, re.I)
+                    ):
+                        raw_slot_topic = _clean_l
+                        break
+
+            if not raw_slot_topic:
+                # Use top technical multi-word term from chunk if available
+                from v0_1.chunk_image_mapper import _extract_technical_terms
+                cand_terms = [t for t in _extract_technical_terms(str(chunk)) if len(t.split()) >= 2 and len(t) <= 40]
+                if cand_terms:
+                    raw_slot_topic = cand_terms[0]
+                else:
+                    raw_slot_topic = f"Module {_mod_num} Core Topics"
+
             slot_topic = _strip_module_header(raw_slot_topic)
-            if not slot_topic:
+            if not slot_topic or slot_topic.lower() in ("core topics", "module", "notes"):
                 slot_topic = f"Module {_mod_num} Core Topics"
 
             # Topic-aware domain keyword extraction from chunk

@@ -351,4 +351,82 @@ def test_aion_api_tags_and_health_vllm_mode():
             assert data_health["llm_available"] is True
 
 
+def test_iai_archetype_resolution():
+    """Verify subject 'IAI' and VTU code '21cs54' resolve to ai_ml_data archetype."""
+    from aion_patch import resolve_subject_archetype, SUBJECT_ARCHETYPES
+    arch_iai = resolve_subject_archetype("IAI", "")
+    assert arch_iai == "ai_ml_data"
+    arch_code = resolve_subject_archetype("21CS54", "")
+    assert arch_code == "ai_ml_data"
+    directive = SUBJECT_ARCHETYPES["ai_ml_data"]["directive"]
+    assert "Intelligent Agents" in directive
+    assert "Search Algorithms" in directive
+
+
+def test_strip_module_header_removes_pdf_extension_and_notes():
+    """Verify filenames and notes suffix are stripped from topics."""
+    from core.contracts.module_identity import strip_module_header
+    assert strip_module_header("Module 2: IAI-MODULE-2-NOTES.pdf") == "IAI-MODULE-2"
+    assert strip_module_header("Module 4: IAI-MODULE-4-NOTES.pdf") == "IAI-MODULE-4"
+    assert strip_module_header("Chapter 1: notes.pdf") == ""
+
+
+def test_high_marks_prompt_specifies_analytical_depth():
+    """Verify 10-mark slots receive 25 to 50 word depth requirement, while standard slots do not."""
+    from core.generation.orchestrator import SlotOrchestrator
+    from core.contracts.question_slot import QuestionSlot, AnswerBudget, QuestionBudget, TaskSignature
+
+    orch = SlotOrchestrator()
+    slot_10m = QuestionSlot(
+        slot_id="module_3_q5",
+        question_no=5,
+        sub_label="",
+        or_pair_id="or_3",
+        is_alternative=False,
+        module_id=3,
+        marks=10,
+        bloom_level="L4",
+        bloom_verb="Analyze",
+        bloom_operation="ANALYZE",
+        co="CO3",
+        difficulty="EASY",
+        question_type="CONCEPTUAL",
+        topic="Intelligent Agents",
+        evidence_ids=("chunk_1",),
+        answer_budget=AnswerBudget.from_marks_and_bloom(10, "L4"),
+        question_budget=QuestionBudget.from_bloom("L4", 10),
+        task_signature=TaskSignature.from_bloom_marks_type("L4", 10, "CONCEPTUAL"),
+    )
+    class DummyEvidencePack:
+        combined_text = "An agent is anything that can be viewed as perceiving its environment through sensors."
+        math_blocks = []
+
+    prompt_10m = orch._format_prompt(slot_10m, DummyEvidencePack(), extra_hints="")
+    assert "HIGH-MARKS 10M" in prompt_10m
+    assert "target length: 25 to 50 words" in prompt_10m
+
+
+def test_looks_code_ignores_english_ai_prose():
+    """Verify generic English words in AI (where, open, loop, function) do not trigger looks_code."""
+    import re
+    ai_text = "The agent function maps percepts to actions where the open list and closed list are tracked in a loop."
+    _math_lower = ai_text.lower()
+    _strong_code_signals = (
+        "select distinct", "insert into", "update set", "delete from", "create table",
+        "alter table", "drop table", "group by", "stored procedure", "create trigger",
+        "create procedure", "declare cursor", "begin transaction", "commit;", "rollback;",
+        "```sql", "```python", "```c", "```java", "```cpp"
+    )
+    _looks_like_code = (
+        any(_sig in _math_lower for _sig in _strong_code_signals)
+        or any(bool(re.search(pat, _math_lower, re.IGNORECASE)) for pat in (
+            r'\b(?:def|class|public\s+static|private\s+void)\b',
+            r'\b(?:SELECT\s+.+\s+FROM|INSERT\s+INTO|UPDATE\s+.+\s+SET)\b',
+            r'```[a-zA-Z]+\n'
+        ))
+    )
+    assert _looks_like_code is False
+
+
+
 
