@@ -703,14 +703,20 @@ def run_pipeline(
 
         # Dedicated per-module orchestrator and difficulty manager (thread-isolated with shared dedup registry)
         from core.generation.orchestrator import SlotOrchestrator
-        mod_orchestrator = SlotOrchestrator(
-            artifact=artifact,
-            marks_split=marks_split,
-            profile=_profile,
-            shared_generated_texts=shared_generated_texts,
-            shared_texts_lock=shared_texts_lock,
-            subject=subject or ""
-        )
+        import inspect
+        _orch_sig = inspect.signature(SlotOrchestrator.__init__).parameters
+        _orch_kwargs = {
+            "artifact": artifact,
+            "marks_split": marks_split,
+            "profile": _profile,
+            "shared_generated_texts": shared_generated_texts,
+            "shared_texts_lock": shared_texts_lock,
+        }
+        if "subject" in _orch_sig:
+            _orch_kwargs["subject"] = subject or ""
+        mod_orchestrator = SlotOrchestrator(**_orch_kwargs)
+        if not hasattr(mod_orchestrator, "subject") or not mod_orchestrator.subject:
+            mod_orchestrator.subject = subject or ""
         diff_manager = DifficultyManager.from_string(difficulty)
 
         if mapper:
