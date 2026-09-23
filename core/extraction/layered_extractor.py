@@ -52,6 +52,9 @@ class LayeredExtractionResult:
     figures_detected: int
     tables_detected: int
     warnings: List[str]
+    figures: List[Any] = field(default_factory=list)
+    tables: List[Any] = field(default_factory=list)
+    equations: List[Any] = field(default_factory=list)
     output_path: Optional[Path] = None  # clean_text.txt location
 
     def save_clean_text(self, out_dir: Path | str = "extracted_output") -> Path:

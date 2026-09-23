@@ -1428,6 +1428,30 @@ def _generate_main_question(
                 else:
                     raw_slot_topic = f"Module {_mod_num} Core Topics"
 
+            # Multi-Domain Topic Validity Gate (Phase C.4)
+            try:
+                from core.generation.topic_validator import MultiDomainTopicValidator
+                _tv = MultiDomainTopicValidator()
+                _active_domain = "IOT_AGRICULTURE"
+                _sub_low = str(subject or "").lower()
+                if "cloud" in _sub_low:
+                    _active_domain = "CLOUD_COMPUTING"
+                elif "network" in _sub_low:
+                    _active_domain = "COMPUTER_NETWORKS"
+                elif "os" in _sub_low or "operating" in _sub_low:
+                    _active_domain = "OPERATING_SYSTEMS"
+                elif "db" in _sub_low or "database" in _sub_low:
+                    _active_domain = "DATABASE_SYSTEMS"
+                elif "machine" in _sub_low or "learning" in _sub_low or "ai" in _sub_low:
+                    _active_domain = "MACHINE_LEARNING"
+
+                _val_res = _tv.validate_topic(raw_slot_topic, current_domain=_active_domain)
+                if not _val_res.is_valid:
+                    print(f"[TOPIC_VALIDATOR] Rejected topic candidate '{raw_slot_topic}': {_val_res.reason}. Reverting to module core topic.", flush=True)
+                    raw_slot_topic = f"Module {_mod_num} Core Topics"
+            except Exception as _tv_err:
+                LOG.debug(f"[TOPIC_VALIDATOR] Validation skipped: {_tv_err}")
+
             slot_topic = _strip_module_header(raw_slot_topic)
             if not slot_topic or slot_topic.lower() in ("core topics", "module", "notes"):
                 slot_topic = f"Module {_mod_num} Core Topics"

@@ -1,0 +1,10 @@
+{"id": "cn_1", "role": "BODY", "text": "Transmission Control Protocol (TCP) provides reliable, ordered, and error-checked byte stream delivery between applications over IP networks.", "label": "good"}
+{"id": "cn_2", "role": "BODY", "text": "Distance vector routing algorithms like RIP exchange distance vectors with neighbors and update routing tables using Bellman-Ford equation.", "label": "good"}
+{"id": "cn_3", "role": "BODY", "text": "Domain Name System (DNS) maps human-readable domain names into numerical IP addresses using a hierarchical tree of authoritative name servers.", "label": "good"}
+{"id": "cn_4", "role": "BODY", "text": "Border Gateway Protocol (BGP) is the de facto exterior gateway routing protocol that maintains routing information among autonomous systems.", "label": "good"}
+{"id": "cn_5", "role": "BODY", "text": "Open Shortest Path First (OSPF) is an interior gateway protocol using Dijkstra's shortest path algorithm for link-state route calculation.", "label": "good"}
+{"id": "cn_6", "role": "BODY", "text": "Sliding window protocol enables flow control and pipelined packet transmission with cumulative selective repeat acknowledgments.", "label": "good"}
+{"id": "cn_7", "role": "EXERCISE", "text": "Draw Figure 3.1: Sequence diagram of three-way TCP handshake connection establishment.", "label": "bad"}
+{"id": "cn_8", "role": "METADATA", "text": "Course Code: 21CS52 | Computer Networks | VTU Belagavi 2024 Scheme", "label": "bad"}
+{"id": "cn_9", "role": "ADMIN", "text": "Answer any FIVE full questions choosing ONE question from each module.", "label": "bad"}
+{"id": "cn_10", "role": "BIBLIOGRAPHY", "text": "[1] Kurose, J. F., & Ross, K. W. (2021). Computer Networking: A Top-Down Approach (8th ed.). Pearson.", "label": "bad"}

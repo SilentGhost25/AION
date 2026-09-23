@@ -129,6 +129,7 @@ class TextBlock:
     adapter_id    : ExtractionAdapterID = ExtractionAdapterID.PYMUPDF
     page          : int = 1
     confidence    : float = 1.0
+    block_id      : Optional[str] = None
 
 
 @dataclass

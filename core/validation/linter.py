@@ -547,6 +547,7 @@ def run_linter(
     sibling_texts: list of already-generated question texts in the same OR pair / module
     """
     from core.validation.teacher_suitability_gate import TeacherSuitabilityGate
+    from core.validation.verb_task_linter import VerbTaskCoherenceLinter
     checks = {
         "bloom_verb_start"   : check_bloom_verb_at_start(output.instruction, slot),
         "answer_demand"      : DemandValidator.validate(output, contract),
@@ -567,5 +568,11 @@ def run_linter(
         "evidence_binding"   : check_evidence_binding(question, slot),
         "module_isolation"   : check_module_isolation(question, slot),
         "teacher_suitability": TeacherSuitabilityGate.validate(question, slot, evidence_text=evidence_text),
+        "verb_task_coherence": VerbTaskCoherenceLinter.lint_instruction(
+            instruction=output.instruction,
+            question_text=output.question_text,
+            math_required=getattr(slot, "math_required", False),
+            visual_required=getattr(slot, "visual_required", False),
+        ),
     }
     return LintReport(slot.slot_id, checks)

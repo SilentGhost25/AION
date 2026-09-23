@@ -1,0 +1,73 @@
+{
+  "domains": {
+    "IOT_AGRICULTURE": {
+      "title": "IoT, Sensor Systems and Smart Agriculture",
+      "keywords": [
+        "iot", "sensor", "actuator", "irrigation", "soil", "moisture", "greenhouse",
+        "drip", "lorawan", "transducer", "esp32", "microcontroller", "evapotranspiration",
+        "telemetry", "solenoid", "crop", "biomass", "humidity", "temperature", "capacitive",
+        "resistive", "valve", "hydroponics", "ndvi", "vegetation", "wireless", "wsn", "mqtt"
+      ]
+    },
+    "CLOUD_COMPUTING": {
+      "title": "Cloud Computing and Distributed Infrastructure",
+      "keywords": [
+        "cloud", "virtualization", "hypervisor", "iaas", "paas", "saas", "container",
+        "docker", "kubernetes", "microservices", "elasticity", "multitenancy", "s3",
+        "storage", "datacenter", "cluster", "load balancing", "serverless", "distributed",
+        "openstack", "aws", "azure", "bare-metal", "orchestration", "quorum", "paxos",
+        "namespaces", "cgroups", "autoscaling", "consul"
+      ]
+    },
+    "COMPUTER_NETWORKS": {
+      "title": "Computer Communication Networks",
+      "keywords": [
+        "network", "protocol", "packet", "routing", "tcp", "udp", "ip", "ethernet",
+        "sdn", "openflow", "congestion", "switch", "router", "lan", "wan", "socket",
+        "dns", "bgp", "ospf", "subnet", "ipv4", "ipv6", "bandwidth", "latency",
+        "rip", "distance vector", "bellman-ford", "sliding window", "flow control", "handshake"
+      ]
+    },
+    "OPERATING_SYSTEMS": {
+      "title": "Operating Systems and Kernel Architectures",
+      "keywords": [
+        "process", "thread", "scheduling", "deadlock", "mutex", "semaphore", "paging",
+        "segmentation", "virtual memory", "page fault", "system call", "kernel", "ipc",
+        "fork", "file system", "inode", "device driver", "banker's algorithm",
+        "memory management", "page replacement"
+      ]
+    },
+    "DATABASE_SYSTEMS": {
+      "title": "Database Management Systems",
+      "keywords": [
+        "database", "sql", "relational", "acid", "transaction", "normalization", "b-tree",
+        "query", "join", "lock", "concurrency", "recovery", "nosql", "schema", "table",
+        "foreign key", "primary key", "two-phase commit", "wal", "logging"
+      ]
+    },
+    "MACHINE_LEARNING": {
+      "title": "Machine Learning and Deep Neural Networks",
+      "keywords": [
+        "learning", "training", "dataset", "neural", "convolution", "gradient", "loss",
+        "classification", "regression", "clustering", "supervised", "unsupervised",
+        "backpropagation", "cnn", "rnn", "transformer", "attention", "overfitting"
+      ]
+    },
+    "MECHANICAL_CIVIL": {
+      "title": "Mechanical and Civil Engineering (Foreign)",
+      "keywords": [
+        "thermodynamics", "refrigeration", "entropy", "beam", "concrete", "cantilever",
+        "surveying", "stress", "strain", "welding", "lathe", "casting", "cements",
+        "combustion", "turbines", "gear", "viscosity", "fluid dynamics", "quarry"
+      ]
+    },
+    "ADMIN_METADATA": {
+      "title": "Administrative, Examination and Metadata Artifacts (Negative)",
+      "keywords": [
+        "usn", "marks", "duration", "hours", "examination", "vtu", "belagavi", "visvesvaraya",
+        "instructions", "signature", "isbn", "copyright", "author", "dr.", "prof.", "dean",
+        "iqac", "accredited", "autonomous", "scheme", "evaluation", "internal assessment"
+      ]
+    }
+  }
+}
