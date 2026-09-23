@@ -1,12 +1,41 @@
 # core/contracts/question_slot.py
 
 from dataclasses import dataclass, field, replace
+from enum import Enum
 import logging
 from typing import Tuple
 from core.contracts.budgets import AnswerBudget, QuestionBudget
 from core.contracts.task_signature import TaskSignature
 
 LOG = logging.getLogger("aion.question_slot")
+
+
+class SlotStatus(str, Enum):
+    """
+    Lifecycle status of a QuestionSlot during generation.
+    - PENDING: Slot initialized, generation not yet attempted.
+    - GENERATED: LLM produced a candidate, awaiting validation.
+    - PASS: Validated and accepted against all authoritative contracts.
+    - UNRESOLVED: Failed validation or exhausted retries without recovery; fail-closed.
+    - FAILED: Fatal pipeline failure or unrecoverable error for this slot.
+    """
+    PENDING = "PENDING"
+    GENERATED = "GENERATED"
+    PASS = "PASS"
+    UNRESOLVED = "UNRESOLVED"
+    FAILED = "FAILED"
+
+
+class UnresolvedSlotException(Exception):
+    """
+    Raised when a QuestionSlot exhausts retry attempts on content, teacher-suitability,
+    or grounding defects without resolving, triggering fail-closed pipeline halting.
+    """
+    def __init__(self, slot: "QuestionSlot", failure_code: str = "EXHAUSTION_CRITICAL"):
+        slot_id = getattr(slot, "slot_id", "unknown_slot")
+        super().__init__(f"Slot {slot_id} unresolved after retries (failure_code={failure_code}). Generation fail-closed.")
+        self.slot = slot
+        self.failure_code = failure_code
 
 
 @dataclass(frozen=True)
@@ -33,6 +62,7 @@ class QuestionContract:
     visual_required      : bool = False
     keywords             : Tuple[str, ...] = field(default_factory=tuple)
     co_assignment_mode   : str = "marks-based"
+    status               : str = SlotStatus.PENDING.value
 
 
 @dataclass(frozen=True)
@@ -64,6 +94,7 @@ class QuestionSlot:
     generation_seed      : int = 0  # 0 = random
     keywords             : Tuple[str, ...] = field(default_factory=tuple)
     co_assignment_mode   : str = "marks-based"
+    status               : str = SlotStatus.PENDING.value
 
     def __post_init__(self):
         if self.marks <= 0:
@@ -101,4 +132,5 @@ class QuestionSlot:
             visual_required      = self.visual_required,
             keywords             = self.keywords,
             co_assignment_mode   = self.co_assignment_mode,
+            status               = self.status,
         )

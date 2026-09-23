@@ -38,11 +38,13 @@ class DemandValidator:
 
         # H1 — FAIL, not warn
         if declared_dims < required_dims:
-            print(
-                f"[DEMAND] INSUFFICIENT_DECLARED_DIMENSIONS warning: {contract.slot_id} — "
-                f"requires {required_dims} dims, declared {declared_dims}, proceeding with warning"
+            return CheckResult.fail(
+                "INSUFFICIENT_DECLARED_DIMENSIONS",
+                f"Contract: {contract.marks}M/{contract.bloom_level} "
+                f"requires at least {required_dims} dimensions. "
+                f"Declared {declared_dims}: {dims}",
+                action=RetryAction.REGENERATE
             )
-            return CheckResult.pass_()
 
         if profile.requires_comparison:
             has_comp = (

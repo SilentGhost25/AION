@@ -1015,6 +1015,9 @@ def run_pipeline(
     from core.validation.export_gate import ExportGate
     export_result = ExportGate.validate(all_gqs)
     if not export_result.passed:
+        if os.getenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "false").lower() in ("true", "1", "yes"):
+            print(f"[EXPORT GATE FAIL-CLOSED] Export blocked: {export_result.message}", flush=True)
+            raise RuntimeError(f"[EXPORT GATE] Generation fail-closed: {export_result.message}")
         print(f"[EXPORT GATE WARNING] Initial validation failed ({export_result.message}). Attempting emergency slot salvage...", flush=True)
         salvaged_count = 0
         for idx, gq in enumerate(all_gqs):
@@ -1463,11 +1466,22 @@ def _generate_main_question(
             evidence_pack = SafeEvidencePack(combined_text=str(chunk or ""), math_artifacts="none")
 
             t_slot = time.time()
-            gq = orchestrator.generate(
-                slot=slot,
-                evidence_pack=evidence_pack,
-                excluded_concepts=set()
-            )
+            try:
+                gq = orchestrator.generate(
+                    slot=slot,
+                    evidence_pack=evidence_pack,
+                    excluded_concepts=set()
+                )
+            except Exception as exc:
+                from core.contracts.question_slot import UnresolvedSlotException, SlotStatus
+                if isinstance(exc, UnresolvedSlotException):
+                    print(f"[ASSEMBLY FAIL-CLOSED] Slot {slot.slot_id} unresolved ({exc.failure_code}). Capturing slot for ExportGate.", flush=True)
+                    from dataclasses import replace
+                    slot = replace(slot, status=SlotStatus.UNRESOLVED.value)
+                    from core.contracts.question import GeneratedQuestion
+                    gq = GeneratedQuestion.create_unresolved(slot=slot, failure_code=exc.failure_code, reason=str(exc))
+                else:
+                    raise
             _mark(f"slot_{slot.slot_id}_inference", t_slot)
 
             # AION image binder: attach extracted image path to generated question when available

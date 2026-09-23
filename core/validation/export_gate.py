@@ -1,5 +1,6 @@
 # core/validation/export_gate.py
 
+import os
 import logging
 from dataclasses import dataclass, field
 from typing import List, Optional, Any
@@ -9,6 +10,9 @@ from core.validation.math_validator import validate_math_consistency, validate_m
 from core.validation.linter import check_multi_slot_contamination, check_unicode_integrity
 
 LOG = logging.getLogger("aion.export_gate")
+
+DEFAULT_FAITHFULNESS_THRESHOLD: float = 0.75
+DEFAULT_QA_THRESHOLD: float = 75.0
 
 
 @dataclass
@@ -58,6 +62,34 @@ class ExportGate:
     def validate(cls, questions: List[GeneratedQuestion]) -> CheckResult:
         if not questions:
             return CheckResult.fail("EMPTY_PAPER", "Paper contains no questions.")
+
+        # 0. Fail-Closed Unresolved Slot Check
+        for q in questions:
+            q_status = getattr(q, "status", "")
+            slot_obj = getattr(q, "slot", None)
+            slot_status = getattr(slot_obj, "status", "") if slot_obj else ""
+            q_text = str(getattr(q, "question_text", "") or "")
+            if q_status == "UNRESOLVED" or slot_status == "UNRESOLVED" or "[UNRESOLVED SLOT" in q_text:
+                slot_id = getattr(q, "slot_id", "unknown_slot")
+                LOG.error(f"[EXPORT GATE FAIL-CLOSED] Slot {slot_id} is UNRESOLVED. Rejecting export.")
+                return CheckResult.fail(
+                    "UNRESOLVED_SLOT_DETECTED",
+                    f"Paper contains unresolved slot {slot_id}. Generation fail-closed."
+                )
+
+        # Threshold checks when hard block enabled
+        unresolved_hard_block = os.getenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "false").lower() in ("true", "1", "yes")
+        if unresolved_hard_block:
+            faith_thresh = float(os.getenv("AION_FAITHFULNESS_THRESHOLD", str(DEFAULT_FAITHFULNESS_THRESHOLD)))
+            for q in questions:
+                ragas = getattr(q, "ragas_metrics", None)
+                if ragas:
+                    f_val = getattr(ragas, "faithfulness", None)
+                    if f_val is not None and isinstance(f_val, (int, float)) and f_val < faith_thresh:
+                        return CheckResult.fail(
+                            "FAITHFULNESS_BELOW_THRESHOLD",
+                            f"Slot {q.slot_id} faithfulness {f_val:.2f} is below required threshold {faith_thresh}."
+                        )
 
         slot_ids = set()
         for q in questions:

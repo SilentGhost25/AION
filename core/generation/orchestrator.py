@@ -6,7 +6,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from core.contracts.question_slot import QuestionSlot, QuestionContract
+from core.contracts.question_slot import QuestionSlot, QuestionContract, SlotStatus, UnresolvedSlotException
 from core.contracts.question import GeneratedQuestion
 from core.contracts.module_identity import MODULE_HEADER_PATTERN, strip_module_header
 from core.generation.output_schema import QuestionOutput
@@ -341,6 +341,10 @@ class SlotOrchestrator:
             # Slot budget check
             if time.monotonic() - start_time > slot_budget_sec:
                 LOG.warning(f'[ORCHESTRATOR] Slot budget exceeded for {slot.slot_id} — using fallback.')
+                if os.getenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "false").lower() in ("true", "1", "yes"):
+                    from dataclasses import replace
+                    unresolved_slot = replace(slot, status=SlotStatus.UNRESOLVED.value)
+                    raise UnresolvedSlotException(unresolved_slot, failure_code="SLOT_BUDGET_EXCEEDED")
                 return self._generate_template_fallback(slot, evidence_pack)
 
             # Refresh sibling and previously-generated texts dynamically across attempts/modules
@@ -816,6 +820,10 @@ class SlotOrchestrator:
                 LOG.warning(f"[ORCHESTRATOR] Slot {attempt_slot.slot_id} Attempt {attempt} failed: {failure.message}")
                 
                 if attempt == MAX_ATTEMPTS:
+                    if os.getenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "false").lower() in ("true", "1", "yes"):
+                        from dataclasses import replace
+                        unresolved_slot = replace(attempt_slot, status=SlotStatus.UNRESOLVED.value)
+                        raise UnresolvedSlotException(unresolved_slot, failure_code="SCHEMA_FAILURE")
                     return self._generate_template_fallback(attempt_slot, evidence_pack)
                 
                 extra_hints = self._compile_extra_hints(failure)
@@ -999,11 +1007,13 @@ class SlotOrchestrator:
                     LOG.debug(f"[AUTO-HEALER] Immediate healing skipped: {_heal_imm_err}")
 
             # Never look up GenerationFailureCode.MATH_FAILURE (not on the enum).
+            _unresolved_hard_block = os.getenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "false").lower() in ("true", "1", "yes")
             _linter_code = str(getattr(failed_check, 'code', '') or '')
             if (failure.code == GenerationFailureCode.MATH_FAILURE or _linter_code == 'MATH_RENDER_FAILURE') and attempt >= 2:
-                LOG.warning(f'[ORCHESTRATOR] MATH_FAILURE on attempt {attempt} — passing with warning.')
-                candidate.status = 'PASS_WITH_WARNING'
-                return candidate
+                if not _unresolved_hard_block:
+                    LOG.warning(f'[ORCHESTRATOR] MATH_FAILURE on attempt {attempt} — passing with warning.')
+                    candidate.status = 'PASS_WITH_WARNING'
+                    return candidate
             if failure.code == GenerationFailureCode.ANSWERABILITY_FAILURE and attempt >= 2:
                 _q_txt = getattr(candidate, 'question_text', '')
                 import re as _re
@@ -1019,7 +1029,7 @@ class SlotOrchestrator:
                             f"(total_words={_word_cnt} [<80], subparts={len(_subpart_words)}, subpart_counts={_subpart_words} [min 25 each]). "
                             f"Refusing to relax; enforcing bounded multi-part regeneration."
                         )
-                    else:
+                    elif not _unresolved_hard_block:
                         LOG.warning(f"[ORCHESTRATOR] ANSWERABILITY_FAILURE on attempt {attempt} — relaxing groundedness threshold to allow completion.")
                         candidate.status = "PASS_WITH_WARNING"
                         candidate.question_text = self._sanitize_question_text(candidate.question_text)
@@ -1032,6 +1042,18 @@ class SlotOrchestrator:
                     f"[ORCHESTRATOR] Slot {attempt_slot.slot_id} exhausted after "
                     f"{attempt} attempts ({failure_history})."
                 )
+                if _unresolved_hard_block:
+                    from dataclasses import replace
+                    unresolved_slot = replace(attempt_slot, status=SlotStatus.UNRESOLVED.value)
+                    fail_code = getattr(failed_check, "code", None) or getattr(failure, "code", None) or "EXHAUSTION_CRITICAL"
+                    if hasattr(fail_code, "value"):
+                        fail_code = fail_code.value
+                    LOG.error(
+                        f"[ORCHESTRATOR FAIL-CLOSED] Slot {attempt_slot.slot_id} exhausted without resolving "
+                        f"(code={fail_code}, history={failure_history}). Raising UnresolvedSlotException."
+                    )
+                    raise UnresolvedSlotException(unresolved_slot, failure_code=str(fail_code))
+
                 _q_txt = getattr(candidate, 'question_text', '') if candidate else ''
                 import re as _re
                 

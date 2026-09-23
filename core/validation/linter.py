@@ -147,6 +147,11 @@ class LintReport:
                 return r
         return None
 
+    def add_result(self, result: CheckResult, key: str = "custom") -> None:
+        if self.checks is None:
+            self.checks = {}
+        self.checks[key] = result
+
 
 def find_bloom_verbs_in_clause(clause: str) -> List[Tuple[str, str, str]]:
     """Scan clause for action verbs and return list of (verb, level, operation)."""
@@ -404,7 +409,24 @@ def check_answerability(question: GeneratedQuestion, slot: QuestionSlot, evidenc
 
     # Marks-aware scope check
     # High marks require longer instructions/dimension complexity
-    if slot.marks >= 9 and len(text.split()) < 20:
+    if slot.marks >= 10:
+        total_w = len(text.split())
+        if total_w < 80:
+            return CheckResult.fail(
+                "ANSWERABILITY_FAILURE",
+                f"Question is too brief ({total_w} words) for a 10-mark task. Mandatory minimum is 80 words structured into multi-parts.",
+                action=RetryAction.REGENERATE
+            )
+        parts = re.split(r'\((?:[a-z]|i{1,3}|iv|v|\d+)\)', text)
+        if len(parts) > 1:
+            subpart_lengths = [len(p.split()) for p in parts[1:] if p.strip()]
+            if any(l < 25 for l in subpart_lengths):
+                return CheckResult.fail(
+                    "ANSWERABILITY_FAILURE",
+                    f"10-mark question sub-part is too brief (< 25 words: {subpart_lengths}). Each sub-part must be >= 25 words.",
+                    action=RetryAction.REGENERATE
+                )
+    elif slot.marks >= 9 and len(text.split()) < 20:
         return CheckResult.fail(
             "ANSWERABILITY_FAILURE",
             f"Question is too brief ({len(text.split())} words) for a high-marks ({slot.marks}M) task.",

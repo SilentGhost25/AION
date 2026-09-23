@@ -134,6 +134,19 @@ class GeneratedQuestion:
         # Immutable provenance record — sourced entirely from slot, never from LLM output
         self.provenance: QuestionProvenance = QuestionProvenance.from_slot(slot)
 
+    @classmethod
+    def create_unresolved(cls, slot: "QuestionSlot", failure_code: str = "EXHAUSTION_CRITICAL", reason: str = "") -> "GeneratedQuestion":
+        """Factory for fail-closed unresolved slot representation."""
+        from core.generation.output_schema import QuestionOutput
+        output = QuestionOutput(
+            instruction=f"[UNRESOLVED SLOT: {failure_code}]",
+            question_text=f"[UNRESOLVED SLOT {slot.slot_id}]: {reason or failure_code}",
+            math_blocks=[]
+        )
+        gq = cls(output=output, slot=slot)
+        gq.status = "UNRESOLVED"
+        return gq
+
 
 class LegacyGeneratedQuestionAdapter:
     """Adapts legacy inputs to canonical v5 GeneratedQuestion structure at boundaries."""
