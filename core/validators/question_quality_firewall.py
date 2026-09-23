@@ -46,6 +46,26 @@ INVALID_GRAMMAR_PATTERNS: Tuple[str, ...] = (
     r"\bthat\s+the\s+evaluate\b",
     r"\bthat\s+the\s+create\b",
     r"\bthat\s+the\s+justify\b",
+    # Incoherent verb-task combinations
+    r"\bapply\s+(?:the\s+)?(?:advantages|limitations|trade-offs|benefits)\b",
+    r"\bderive\s+(?:the\s+)?(?:advantages|limitations|safe\s+response|differences)\b",
+    r"\binterpret\s+(?:the\s+)?(?:deployment\s+considerations|steps|sequence)\b",
+    r"\billustrate\s+(?:the\s+)?differences\s+between\b",
+)
+
+JUNK_PLACEHOLDER_PATTERNS: Tuple[str, ...] = (
+    r"\bdraw\s+figure\b",
+    r"\breproduce\s+figure\b",
+    r"\bdiagram\s+and\s+formula\s+revision\s+list\b",
+    r"\blast-minute\s+revision\s+points\b",
+    r"\bexpected\s+learning\s+outcomes\b",
+    r"\badditional\s+knowledge\b",
+    r"\bexamination-oriented\s+consolidated\s+review\b",
+    r"\bfinal\s+examination-writing\s+checklist\b",
+    r"\bcore\s+topics\b",
+    r"\ba\s+based\s+[a-zA-Z\s]+system\b",
+    r"\btable\s+\d+(\.\d+)*\b",
+    r"\bscenario\s+\d+\b",
 )
 
 PROMPT_LEAKAGE_PATTERNS: Tuple[str, ...] = (
@@ -109,15 +129,26 @@ class QuestionQualityFirewall:
                 details=details
             )
 
-        # Rule 3: Bloom Grammar Sanity Check
+        # Rule 3: Bloom Grammar & Verb-Task Sanity Check
         for pat in INVALID_GRAMMAR_PATTERNS:
             if re.search(pat, cleaned, re.IGNORECASE):
                 return FirewallDecision(
                     passed=False,
                     code="INVALID_BLOOM_GRAMMAR",
-                    reason=f"Grammatically invalid construction matching '{pat}'.",
+                    reason=f"Grammatically or semantically invalid construction matching '{pat}'.",
                     repairable=True,
                     details=[f"Matched invalid pattern: {pat}"]
+                )
+
+        # Rule 3b: Junk Placeholder & Heading Leakage Check
+        for pat in JUNK_PLACEHOLDER_PATTERNS:
+            if re.search(pat, cleaned, re.IGNORECASE):
+                return FirewallDecision(
+                    passed=False,
+                    code="JUNK_PLACEHOLDER_LEAK",
+                    reason=f"Unreplaced template or book heading placeholder matching '{pat}'.",
+                    repairable=True,
+                    details=[f"Matched junk pattern: {pat}"]
                 )
 
         # Rule 4: Dangling Operator

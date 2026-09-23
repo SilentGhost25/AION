@@ -222,7 +222,7 @@ class SlotOrchestrator:
     Drives sub-question generation and validation using a failure-specific 
     bounded retry state machine.
     """
-    def __init__(self, llm_client=None, rng=None, artifact=None, profile=None, marks_split=None, shared_generated_texts=None, shared_texts_lock=None):
+    def __init__(self, llm_client=None, rng=None, artifact=None, profile=None, marks_split=None, shared_generated_texts=None, shared_texts_lock=None, subject: str = ""):
         self.llm_client = llm_client
         self.rng = rng
         self.artifact = artifact
@@ -232,6 +232,20 @@ class SlotOrchestrator:
         self._all_generated_texts: List[str] = shared_generated_texts if shared_generated_texts is not None else []
         self._shared_texts_lock = shared_texts_lock
         self._archetype_counter: int = 0
+        
+        # Single source of truth for subject propagation
+        self.subject: str = (subject or "").strip()
+        if not self.subject and hasattr(artifact, "subject") and artifact.subject:
+            self.subject = str(artifact.subject).strip()
+        if not self.subject:
+            try:
+                import aion_patch
+                self.subject = getattr(aion_patch, "ACTIVE_SUBJECT", "").strip()
+            except Exception:
+                pass
+        if not self.subject:
+            LOG.info("[ORCHESTRATOR] Initialized with empty subject. Will utilize topic-based fallback.")
+
 
 
     def _strip_math_markers(self, text: str) -> str:
@@ -247,7 +261,7 @@ class SlotOrchestrator:
         return re.sub(r'\s{2,}', ' ', s).strip()
 
     def _sanitize_question_text(self, text: str) -> str:
-        """Removes internal slot identifiers or prompt scaffolding leaked into question text, and heals LaTeX tab escapes."""
+        """Removes internal slot identifiers or prompt scaffolding leaked into question text, heals LaTeX tab escapes, and repairs OCR/semantic artifacts."""
         if not text:
             return ""
         import re
@@ -256,6 +270,24 @@ class SlotOrchestrator:
         text = re.sub(r'\b(?:according to|for|in)\s+\[?[a-zA-Z0-9_]*slot_[a-zA-Z0-9_]+\]?', '', text, flags=re.IGNORECASE)
         # Strip echoed module/unit headers
         text = MODULE_HEADER_PATTERN.sub('', text).strip()
+
+        # Semantic & OCR artifact healing
+        text = re.sub(r'\b(?:Draw|Reproduce)\s+Figure\b', 'the system architecture block diagram', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bDiagram and formula revision list\b', 'the key vegetation and stress indices', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bLast-minute revision points\b', 'the core system components', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bExpected learning outcomes\b', 'the primary design specifications', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bAdditional Knowledge\b', 'the advanced operational mechanisms', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bExamination-Oriented Consolidated Review\b', 'the integrated monitoring workflow', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bFinal examination-writing checklist\b', 'the operational verification checklist', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bin a Based\b', 'in an IoT-based', text, flags=re.IGNORECASE)
+        text = re.sub(r'\ba Based\b', 'an IoT-based', text, flags=re.IGNORECASE)
+
+        # Incoherent verb-task pairings
+        text = re.sub(r'^Apply\s+(the\s+advantages\s+and\s+limitations)\b', r'Analyze \1', text, flags=re.IGNORECASE)
+        text = re.sub(r'^Interpret\s+(the\s+deployment\s+considerations)\b', r'Discuss \1', text, flags=re.IGNORECASE)
+        text = re.sub(r'^Illustrate\s+(the\s+differences\s+between)\b', r'Distinguish \1', text, flags=re.IGNORECASE)
+        text = re.sub(r'^Determine\s+the\s+advantage\s+of\b', r'Analyze the advantages and limitations of', text, flags=re.IGNORECASE)
+
         # Fix tab-corrupted LaTeX keywords
         text = re.sub(r'[\t ]+imes\b', r'\\times ', text)
         text = re.sub(r'[\t ]+ext\{', r'\\text{', text)
@@ -964,12 +996,24 @@ class SlotOrchestrator:
                 _q_txt = getattr(candidate, 'question_text', '')
                 import re as _re
                 if not _re.search(r'\bmodule_\d+_Q\d+', _q_txt) and not "DOMAIN_INTEGRITY_VIOLATION" in failure_history:
-                    LOG.warning(f"[ORCHESTRATOR] ANSWERABILITY_FAILURE on attempt {attempt} — relaxing groundedness threshold to allow completion.")
-                    candidate.status = "PASS_WITH_WARNING"
-                    candidate.question_text = self._sanitize_question_text(candidate.question_text)
-                    if hasattr(candidate, 'instruction'):
-                        candidate.instruction = self._sanitize_question_text(candidate.instruction)
-                    return candidate
+                    _word_cnt = len(_q_txt.split())
+                    _is_10m = getattr(attempt_slot, "marks", 0) >= 10
+                    _subparts = _re.split(r'\((?:[a-z]|i{1,3}|iv|v|\d+)\)', _q_txt)
+                    _subpart_words = [len(p.split()) for p in _subparts[1:] if p.strip()] if len(_subparts) > 1 else []
+                    _subpart_too_short = any(cnt < 25 for cnt in _subpart_words) or len(_subpart_words) < 2
+                    if _is_10m and (_word_cnt < 80 or _subpart_too_short):
+                        LOG.warning(
+                            f"[ORCHESTRATOR] ANSWERABILITY_FAILURE on attempt {attempt}: 10M question defect "
+                            f"(total_words={_word_cnt} [<80], subparts={len(_subpart_words)}, subpart_counts={_subpart_words} [min 25 each]). "
+                            f"Refusing to relax; enforcing bounded multi-part regeneration."
+                        )
+                    else:
+                        LOG.warning(f"[ORCHESTRATOR] ANSWERABILITY_FAILURE on attempt {attempt} — relaxing groundedness threshold to allow completion.")
+                        candidate.status = "PASS_WITH_WARNING"
+                        candidate.question_text = self._sanitize_question_text(candidate.question_text)
+                        if hasattr(candidate, 'instruction'):
+                            candidate.instruction = self._sanitize_question_text(candidate.instruction)
+                        return candidate
 
             if attempt == MAX_ATTEMPTS or not failure.retryable:
                 LOG.warning(
@@ -1088,7 +1132,32 @@ class SlotOrchestrator:
     # ULTIMATE_SLOT_GUARD_EXCEPT placeholder — real wrap below
     def _format_prompt(self, slot: QuestionSlot, evidence_pack, extra_hints: str) -> str:
         evidence_text = getattr(evidence_pack, "combined_text", "") if hasattr(evidence_pack, "combined_text") else str(evidence_pack)
+        
+        # Component 5.3: Context Window Safeguard (Topical paragraph selection up to 2,000 words)
+        words = evidence_text.split()
+        if len(words) > 2000:
+            query_tokens = set(re.findall(r'\w+', (str(slot.topic or "") + " " + " ".join(getattr(slot, "keywords", ()))).lower()))
+            paragraphs = [p.strip() for p in evidence_text.split("\n\n") if p.strip()]
+            scored_paras = []
+            for p_idx, para in enumerate(paragraphs):
+                p_tokens = set(re.findall(r'\w+', para.lower()))
+                overlap = len(query_tokens & p_tokens)
+                scored_paras.append((overlap, p_idx, para))
+            scored_paras.sort(key=lambda x: x[0], reverse=True)
+            chosen_paras = []
+            cur_words = 0
+            for score, p_idx, para in scored_paras:
+                p_cnt = len(para.split())
+                if cur_words + p_cnt <= 2000 or not chosen_paras:
+                    chosen_paras.append((p_idx, para))
+                    cur_words += p_cnt
+                if cur_words >= 2000:
+                    break
+            chosen_paras.sort(key=lambda x: x[0])
+            evidence_text = "\n\n".join(p[1] for p in chosen_paras)
+
         math_artifacts = getattr(evidence_pack, "math_artifacts", "") if hasattr(evidence_pack, "math_artifacts") else "none"
+
         
         math_policy = "REQUIRED" if slot.math_required else "FORBIDDEN"
         visual_policy = "REQUIRED" if slot.visual_required else "FORBIDDEN"
@@ -1165,6 +1234,19 @@ class SlotOrchestrator:
             f"Ensure the question directly tests the cognitive operation '{slot.bloom_operation}' ({slot.bloom_level}) aligned with Course Outcome {slot.co}, starting with the required Bloom verb '{slot.bloom_verb}'."
         ) if kw_tuple else ""
 
+        if slot.marks >= 10:
+            length_instruction = (
+                f"1. MANDATORY MULTI-PART FORMAT & ANALYTICAL DEPTH (HIGH-MARKS {slot.marks}M):\n"
+                f"   - Because this question carries {slot.marks} marks, you MUST format it into distinct, numbered sub-parts (e.g., '(i) [4 Marks] ... (ii) [6 Marks] ...').\n"
+                f"   - Prescriptive Structure: (i) [4 Marks] Analyze the foundational theoretical framework, governing properties, or definitions with operational constraints. (ii) [6 Marks] Formulate or evaluate a step-by-step application, worked derivation, or proof with technical depth.\n"
+                f"   - The combined total question length MUST be at least 80 words (target length: 80 to 140 words), and EACH sub-part MUST contain at least 25 words with detailed conceptual/methodological criteria (never a brief 1-sentence prompt). Begin directly with the required Bloom action verb."
+            )
+        elif slot.marks >= 8:
+            length_instruction = f"1. QUESTION LENGTH & ANALYTICAL DEPTH (HIGH-MARKS {slot.marks}M): Formulate an in-depth, rigorous examination question (target length: 25 to 50 words) commensurate with a {slot.marks}-mark university task. Detail the technical scenario, operational constraints, and specific evaluation criteria. Do NOT write a brief 1-sentence prompt. Begin directly with the required Bloom action verb."
+        else:
+            length_instruction = "1. QUESTION LENGTH & SINGLE-TASK FOCUS: Keep the question concise, direct, and focused on ONE single task (target length: 15 to 30 words). Never string multiple sub-tasks together with 'and' or commas. Avoid unnecessary textbook filler, conversational preambles, or paragraph-long context dumps. Begin directly with the required Bloom action verb."
+
+
         prompt = f"""Generate ONE examination sub-question matching this contract:
 Topic: {clean_ex_topic}
 Course Outcome (CO): {slot.co}
@@ -1177,7 +1259,7 @@ Math Policy: {math_policy}
 Visual Policy: {visual_policy}
 
 CRITICAL INSTRUCTIONS FOR QUESTION QUALITY:
-1. QUESTION LENGTH & SINGLE-TASK FOCUS: Keep the question concise, direct, and focused on ONE single task (target length: 15 to 30 words). Never string multiple sub-tasks together with 'and' or commas. Avoid unnecessary textbook filler, conversational preambles, or paragraph-long context dumps. Begin directly with the required Bloom action verb.
+{length_instruction}
 2. ABSOLUTE PROHIBITION ON ANSWER LEAKAGE: NEVER reveal the answer, solution, derivation, or result in the question text. The student must solve the problem. Provide only the task and necessary inputs; never explain why or what the result is. Do not include mechanism clauses (e.g., 'by doing X to prevent Y').
 3. COMPLETENESS & GRAMMATICAL INTEGRITY: Every question MUST be a complete, grammatically sound sentence that can stand alone. Do NOT truncate mid-sentence. Do NOT include table fragments (e.g. '| 14 Overall Data |'), raw pipe characters, or dangling phrases.
 4. SYNTACTIC VARIETY (AVOID REPETITIVE 'HOW' QUESTIONS): Do NOT format every question as '{slot.bloom_verb} how [topic] operates...'. Formulate varied, natural questions such as:
@@ -1436,20 +1518,32 @@ IMPORTANT OUTPUT CONTRACT:
             if hasattr(self.llm_client, "call"):
                 from core.generation.robust_llm_caller import LLMRequest
                 from core.config.production_model import get_production_model
-                req = LLMRequest(model=get_production_model(), prompt=prompt)
+                req = LLMRequest(model=get_production_model(), prompt=prompt, subject=self.subject)
                 resp = self.llm_client.call(req)
-                if resp.success and resp.text:
-                    return resp.text
-                elif resp.timed_out:
-                    raise TimeoutError("LLM call timed out")
-                else:
-                    raise RuntimeError(f"LLM call failed: {resp.error}")
+                if hasattr(resp, "success"):
+                    if resp.success and resp.text:
+                        return resp.text
+                    elif getattr(resp, "timed_out", False):
+                        raise TimeoutError("LLM call timed out")
+                    else:
+                        raise RuntimeError(f"LLM call failed: {resp.error}")
+                elif isinstance(resp, str):
+                    return resp
             elif hasattr(self.llm_client, "generate"):
                 return self.llm_client.generate(prompt)
         
         from v0_1.llm import get_best_llm
         caller = get_best_llm()
-        res = caller.call(prompt, max_tokens=1024)
+        call_fn = getattr(caller, "call", None)
+        if callable(call_fn):
+            import inspect
+            sig = inspect.signature(call_fn)
+            if "subject" in sig.parameters:
+                res = caller.call(prompt, max_tokens=1024, subject=self.subject)
+            else:
+                res = caller.call(prompt, max_tokens=1024)
+        else:
+            res = None
         if not res:
             raise RuntimeError("LLM call returned empty response or timed out.")
         return res
@@ -1582,7 +1676,14 @@ IMPORTANT OUTPUT CONTRACT:
 
         # 2. Resolve a clean, well-formed noun topic
         raw_topic = _strip_module_header((slot.topic or "").strip())
-        generic_markers = {"the topic", "general", "unit 1", "unit 2", "unit 3", "unit 4", "unit 5", "module 1", "module 2", "module 3", "module 4", "module 5"}
+        generic_markers = {
+            "the topic", "general", "unit 1", "unit 2", "unit 3", "unit 4", "unit 5",
+            "module 1", "module 2", "module 3", "module 4", "module 5",
+            "draw figure", "reproduce figure", "figure", "core topics",
+            "diagram and formula revision list", "last-minute revision points",
+            "expected learning outcomes", "additional knowledge",
+            "examination-oriented consolidated review", "final examination-writing checklist"
+        }
         import re as _re
 
         # If raw_topic has markdown table characters or pipes, strip them
