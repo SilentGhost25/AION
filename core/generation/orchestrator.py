@@ -16,6 +16,18 @@ from core.validation.linter import run_linter
 _strip_module_header = strip_module_header
 LOG = logging.getLogger(__name__)
 
+
+class SafeEvidencePack:
+    """Safe, string-grounded evidence container guaranteed never to yield NoneType."""
+
+    def __init__(self, combined_text: str = "", math_artifacts: str = "none"):
+        self.combined_text = str(combined_text or "")
+        self.math_artifacts = str(math_artifacts or "none")
+
+    def __str__(self) -> str:
+        return self.combined_text
+
+
 def _repair_invalid_json_backslashes(raw: str) -> str:
     r"""
     Repair model-produced JSON containing LaTeX/regex backslashes that are not
@@ -855,7 +867,7 @@ class SlotOrchestrator:
                     'ANSWERABILITY_FAILURE', 'SIBLING_SIMILARITY', 'EVIDENCE_FAILURE'
                 ):
                     try:
-                        evidence_pack = self._reload_evidence(attempt_slot, excluded_concepts)
+                        evidence_pack = self._reload_evidence(attempt_slot, excluded_concepts, current_pack=evidence_pack)
                         # For answerability failures on retry, append surrounding module context
                         if hasattr(evidence_pack, "combined_text") and len(getattr(evidence_pack, "combined_text", "")) < 300:
                             if hasattr(self, "artifact") and self.artifact and hasattr(self.artifact, "modules"):
@@ -1102,7 +1114,7 @@ class SlotOrchestrator:
                 return candidate
 
             if failed_check.action == RetryAction.REBUILD_EVIDENCE or failure.code == GenerationFailureCode.EVIDENCE_FAILURE:
-                evidence_pack = self._reload_evidence(attempt_slot, excluded_concepts)
+                evidence_pack = self._reload_evidence(attempt_slot, excluded_concepts, current_pack=evidence_pack)
                 
             # -- AUTO-HEALER: programmatically fix before retry ------------
             try:
@@ -1121,7 +1133,7 @@ class SlotOrchestrator:
                 'ANSWERABILITY_FAILURE', 'SIBLING_SIMILARITY', 'EVIDENCE_FAILURE'
             ):
                 try:
-                    evidence_pack = self._reload_evidence(attempt_slot, excluded_concepts)
+                    evidence_pack = self._reload_evidence(attempt_slot, excluded_concepts, current_pack=evidence_pack)
                 except Exception:
                     pass
 
@@ -1131,7 +1143,10 @@ class SlotOrchestrator:
 
     # ULTIMATE_SLOT_GUARD_EXCEPT placeholder — real wrap below
     def _format_prompt(self, slot: QuestionSlot, evidence_pack, extra_hints: str) -> str:
-        evidence_text = getattr(evidence_pack, "combined_text", "") if hasattr(evidence_pack, "combined_text") else str(evidence_pack)
+        raw_ev = getattr(evidence_pack, "combined_text", None) or getattr(evidence_pack, "text", None)
+        if raw_ev is None:
+            raw_ev = str(evidence_pack) if evidence_pack is not None else ""
+        evidence_text = str(raw_ev)
         
         # Component 5.3: Context Window Safeguard (Topical paragraph selection up to 2,000 words)
         words = evidence_text.split()
@@ -1635,19 +1650,66 @@ IMPORTANT OUTPUT CONTRACT:
             f"{base_hint}"
         )
 
-    def _reload_evidence(self, slot: QuestionSlot, excluded_concepts: Set[str]):
-        if self.artifact:
+    def _reload_evidence(
+        self,
+        slot: QuestionSlot,
+        excluded_concepts: Set[str],
+        current_pack: Optional[Any] = None
+    ) -> Any:
+        """Safely reloads or rebuilds evidence for slot retry with guaranteed non-None text.
+
+        Hierarchy:
+        1. Attempt dynamic build via EvidencePackBuilder if available and functional.
+        2. Preserve current_pack if it contains valid string content.
+        3. Extract text from self.artifact if available.
+        4. Absolute fallback: SafeEvidencePack with grounded placeholder based on slot topic.
+        """
+        # Tier 1: Dynamic EvidencePackBuilder
+        if getattr(self, "artifact", None) is not None:
             try:
                 from core.evidence.pack_builder import EvidencePackBuilder
-                return EvidencePackBuilder.build(
+                built = EvidencePackBuilder.build(
                     slot=slot,
                     artifact=self.artifact,
-                    rng=self.rng,
+                    rng=getattr(self, "rng", None),
                     excluded_concepts=excluded_concepts
                 )
-            except Exception:
-                pass
-        return self.artifact
+                if built is not None:
+                    b_text = getattr(built, "combined_text", None) or getattr(built, "text", None)
+                    if b_text is not None and str(b_text).strip():
+                        return built
+            except Exception as e:
+                LOG.debug(f"[ORCHESTRATOR] EvidencePackBuilder unavailable or failed for slot {getattr(slot, 'slot_id', 'unknown')}: {e}")
+
+        # Tier 2: Preserve existing current_pack if it has usable text
+        if current_pack is not None:
+            c_text = getattr(current_pack, "combined_text", None) or getattr(current_pack, "text", None)
+            if c_text is None and not isinstance(current_pack, (dict, list, tuple)):
+                c_text = str(current_pack)
+            if c_text is not None and str(c_text).strip():
+                m_art = getattr(current_pack, "math_artifacts", "none") or "none"
+                return SafeEvidencePack(combined_text=str(c_text), math_artifacts=str(m_art))
+
+        # Tier 3: Recover from self.artifact
+        if getattr(self, "artifact", None) is not None:
+            art = self.artifact
+            a_text = getattr(art, "combined_text", None) or getattr(art, "text", None)
+            if not a_text and hasattr(art, "modules") and isinstance(art.modules, list):
+                mod_idx = getattr(slot, "module_id", None)
+                matching_mods = [
+                    m for m in art.modules
+                    if getattr(m, "module_index", None) == mod_idx or getattr(m, "module_id", "") == f"module_{mod_idx}"
+                ]
+                if matching_mods:
+                    a_text = getattr(matching_mods[0], "content", "") or ""
+                elif art.modules:
+                    a_text = getattr(art.modules[0], "content", "") or ""
+            if a_text and str(a_text).strip():
+                return SafeEvidencePack(combined_text=str(a_text))
+
+        # Tier 4: Total fallback
+        topic = getattr(slot, "topic", "") or "Core Concepts"
+        return SafeEvidencePack(combined_text=f"Technical specifications and fundamental principles of {topic}.")
 
     def _generate_template_fallback(self, slot, evidence_pack) -> "GeneratedQuestion":
         """Generate a realistic question from evidence when LLM retries exhaust.

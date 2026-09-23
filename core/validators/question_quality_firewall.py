@@ -57,7 +57,9 @@ JUNK_PLACEHOLDER_PATTERNS: Tuple[str, ...] = (
     r"\bdraw\s+figure\b",
     r"\breproduce\s+figure\b",
     r"\bdiagram\s+and\s+formula\s+revision\s+list\b",
-    r"\blast-minute\s+revision\s+points\b",
+    r"\blast[- ]minute\s+revision\s+points\b",
+    r"\bformula\s+revision\s+list\b",
+    r"\brevision\s+(?:list|points?|checklist)\b",
     r"\bexpected\s+learning\s+outcomes\b",
     r"\badditional\s+knowledge\b",
     r"\bexamination-oriented\s+consolidated\s+review\b",
@@ -179,6 +181,19 @@ class QuestionQualityFirewall:
                 reason=f"Unbalanced delimiters in question: {delim_msg}",
                 repairable=True
             )
+
+        # Rule 7: Calculation Without Numerical Givens Check
+        calc_verbs = r"^\s*(?:calculate|compute|solve\s+for|determine\s+the\s+value\s+of)\b"
+        if re.search(calc_verbs, cleaned, re.IGNORECASE):
+            num_pattern = r"\b\d+(?:\.\d+)?\s*(?:%|L/m²|hectare|cm|bar|ms|s|sec|min|hr|mb|gb|mbps|kbps|m²|m³|°c|k|hz|v|a|w)?\b"
+            if not re.search(num_pattern, cleaned, re.IGNORECASE):
+                return FirewallDecision(
+                    passed=False,
+                    code="CALCULATION_WITHOUT_NUMERICAL_GIVENS",
+                    reason="Question begins with a calculation verb but provides zero numerical givens or parameters.",
+                    repairable=True,
+                    details=["Calculation verb requires concrete numerical values."]
+                )
 
         return FirewallDecision(passed=True)
 

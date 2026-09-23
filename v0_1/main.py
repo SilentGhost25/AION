@@ -1393,6 +1393,10 @@ def _generate_main_question(
                 # Reject sentence fragments, instructions, table borders, and logic formulas
                 invalid_topic_line = re.compile(
                     r'^(?:otherwise|if|when|suppose|consider|assume|note|let|for example|where|table|figure|fig|p\.)\b|'
+                    r'\b(?:draw|reproduce)\s+figure\b|'
+                    r'\b(?:diagram\s+and\s+formula|formula|last[- ]minute|exam(?:ination)?[- ]oriented)\s+revision\b|'
+                    r'\b(?:revision\s+(?:list|points?|checklist))\b|'
+                    r'\b(?:expected\s+learning\s+outcomes?|additional\s+knowledge)\b|'
                     r'[?!\.:;]$|'
                     r'[|∀∃⇔⊆⇒∧∨¬={}]|'
                     r'^(?:[ivx]+\.|\d+[\.\)])\s+|'
@@ -1455,12 +1459,8 @@ def _generate_main_question(
                 co_assignment_mode=os.getenv("AION_CO_MODE", "marks-based"),
             )
 
-            class MockEvidencePack:
-                def __init__(self, text, math_art="none"):
-                    self.combined_text = text
-                    self.math_artifacts = math_art
-
-            evidence_pack = MockEvidencePack(chunk)
+            from core.generation.orchestrator import SafeEvidencePack
+            evidence_pack = SafeEvidencePack(combined_text=str(chunk or ""), math_artifacts="none")
 
             t_slot = time.time()
             gq = orchestrator.generate(
