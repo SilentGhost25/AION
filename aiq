@@ -68,6 +68,8 @@ ensure_dirs() {
 activate_venv() {
     if [[ -n "${VIRTUAL_ENV:-}" ]]; then
         log "Using currently active virtual environment: $VIRTUAL_ENV"
+    elif [[ -n "${CONDA_PREFIX:-}" ]]; then
+        log "Using currently active Conda environment: ${CONDA_DEFAULT_ENV:-active} ($CONDA_PREFIX)"
     elif [[ -f "$ROOT/.venv/bin/activate" ]]; then
         source "$ROOT/.venv/bin/activate"
         log "Virtual environment activated (.venv/)"
@@ -167,9 +169,7 @@ cmd_backend() {
     ensure_dirs
     cd "$ROOT"
     activate_venv
-    allocate_ports
-
-    # Only stop prior instance if recorded by this launcher
+    # Stop prior instance BEFORE allocating ports so default port 8100 is reclaimed!
     local old_pid
     old_pid=$(read_pid "$BACKEND_PID_FILE")
     if is_running "$old_pid"; then
@@ -177,6 +177,8 @@ cmd_backend() {
         kill "$old_pid" 2>/dev/null || true
         sleep 1
     fi
+
+    allocate_ports
 
     local model
     model=$(resolve_model)
