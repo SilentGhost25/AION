@@ -1432,6 +1432,20 @@ def _generate_main_question(
             if not slot_topic or slot_topic.lower() in ("core topics", "module", "notes"):
                 slot_topic = f"Module {_mod_num} Core Topics"
 
+            # Structured Topic Candidate Telemetry (Phase B.2)
+            try:
+                _telemetry_event = {
+                    "event": "TOPIC_CANDIDATE_RESOLVED",
+                    "slot_id": slot_id,
+                    "module_id": _mod_num,
+                    "raw_topic": raw_slot_topic,
+                    "final_topic": slot_topic,
+                    "source": "chunk_topic" if (chunk_obj and getattr(chunk_obj, "topic", None)) else "text_scan",
+                }
+                print(f"[TOPIC_TELEMETRY] {json.dumps(_telemetry_event)}", flush=True)
+            except Exception:
+                pass
+
             # Topic-aware domain keyword extraction from chunk
             from v0_1.chunk_image_mapper import extract_domain_keywords
             slot_keywords = extract_domain_keywords(str(chunk), topic=slot_topic)

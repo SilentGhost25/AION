@@ -1,0 +1,26 @@
+{
+  "version": "1.0.0",
+  "description": "Calibrated decision thresholds for quality gates and extraction classifiers",
+  "parameters": {
+    "faithfulness_threshold": 0.75,
+    "qa_threshold": 75.0,
+    "delta_margin": 0.15,
+    "unknown_confidence_threshold": 0.7,
+    "borderline_acceptance_rate": 0.2,
+    "classifier_starvation_threshold": 5,
+    "starvation_min_chars": 80,
+    "drift_alert_unknown_ratio": 0.25,
+    "unresolved_soft_alert_ratio": 0.1,
+    "unresolved_rollback_ratio": 0.25,
+    "unresolved_rollback_consecutive_runs": 3,
+    "max_added_latency_p50_sec": 1.5,
+    "max_added_latency_p99_sec": 3.0
+  },
+  "metadata": {
+    "train_samples": 56,
+    "holdout_samples": 24,
+    "good_count": 21,
+    "bad_count": 21,
+    "margin_separation": 0.376
+  }
+}

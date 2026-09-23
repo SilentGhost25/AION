@@ -1,0 +1,160 @@
+{"id": "body_1", "role": "BODY", "text": "Cloud computing is an on-demand network model that provides shared access to configurable computing resources including servers, storage, and software.", "source_type": "textbook"}
+{"id": "body_2", "role": "BODY", "text": "Soil moisture sensors utilize dielectric properties to measure volumetric water content, providing analog voltage proportional to soil capacitance.", "source_type": "lecture_slide"}
+{"id": "body_3", "role": "BODY", "text": "Microservices architecture decomposes monolithic applications into loosely coupled, independently deployable services communicating over lightweight APIs.", "source_type": "textbook"}
+{"id": "body_4", "role": "BODY", "text": "In precision agriculture, the normalized difference vegetation index (NDVI) assesses crop health by comparing near-infrared reflectance to visible red absorption.", "source_type": "lecture_slide"}
+{"id": "body_5", "role": "BODY", "text": "Virtual machine monitors (hypervisors) arbitrate access to underlying physical hardware, allocating vCPUs, memory pages, and I/O channels to guest OS instances.", "source_type": "textbook"}
+{"id": "body_6", "role": "BODY", "text": "The Internet of Things integrates physical sensing nodes with cloud analytics through low-power wireless communication protocols such as LoRaWAN.", "source_type": "lecture_slide"}
+{"id": "body_7", "role": "BODY", "text": "Deadlock detection in operating systems requires tracking resource allocation graphs and searching for cycles using Tarjan's strongly connected components algorithm.", "source_type": "textbook"}
+{"id": "body_8", "role": "BODY", "text": "Edge computing offloads computationally intensive processing from central cloud datacenters to gateways situated near field sensor clusters.", "source_type": "lecture_slide"}
+{"id": "body_9", "role": "BODY", "text": "Containerization packages application code together with its runtime dependencies and libraries, sharing the host OS kernel through Linux cgroups and namespaces.", "source_type": "textbook"}
+{"id": "body_10", "role": "BODY", "text": "Actuators in automated irrigation open solenoid valves when soil moisture drops below calibrated plant water requirement thresholds.", "source_type": "lecture_slide"}
+{"id": "body_11", "role": "BODY", "text": "Convolutional neural networks extract local spatial features from agricultural imagery by sliding parameterized kernel matrices across pixel arrays.", "source_type": "textbook"}
+{"id": "body_12", "role": "BODY", "text": "Elasticity in cloud infrastructure allows compute capacity to automatically scale up or down based on incoming request velocity and CPU saturation metrics.", "source_type": "lecture_slide"}
+{"id": "body_13", "role": "BODY", "text": "Wireless Sensor Networks (WSNs) deploy battery-operated nodes communicating through multi-hop mesh routing algorithms like RPL.", "source_type": "textbook"}
+{"id": "body_14", "role": "BODY", "text": "Event-driven architecture decouples event producers from consumers using durable message brokers such as Apache Kafka or RabbitMQ.", "source_type": "lecture_slide"}
+{"id": "body_15", "role": "BODY", "text": "Smart greenhouse control balances photosynthetic active radiation, relative humidity, and CO2 enrichment to optimize vegetable biomass yield.", "source_type": "textbook"}
+{"id": "body_16", "role": "BODY", "text": "Relational databases maintain ACID guarantees using write-ahead logging (WAL) and strict two-phase locking protocols.", "source_type": "lecture_slide"}
+{"id": "heading_1", "role": "HEADING", "text": "Chapter 3: Cloud Deployment Models and Virtualization", "source_type": "textbook"}
+{"id": "heading_2", "role": "HEADING", "text": "Module 2: Agricultural Sensors and Actuators in IoT", "source_type": "lecture_slide"}
+{"id": "heading_3", "role": "HEADING", "text": "1.1 Introduction to Software-Defined Networking", "source_type": "textbook"}
+{"id": "heading_4", "role": "HEADING", "text": "Section 4.2: Evapotranspiration Calculations", "source_type": "lecture_slide"}
+{"id": "heading_5", "role": "HEADING", "text": "UNIT IV: DISTRIBUTED STORAGE AND NOSQL SYSTEMS", "source_type": "textbook"}
+{"id": "heading_6", "role": "HEADING", "text": "3.4 Soil Moisture Sensing Mechanisms", "source_type": "lecture_slide"}
+{"id": "heading_7", "role": "HEADING", "text": "Module 5: Security Architecture and Threat Mitigation", "source_type": "textbook"}
+{"id": "heading_8", "role": "HEADING", "text": "2.3 Drip Irrigation Hydraulic Principles", "source_type": "lecture_slide"}
+{"id": "heading_9", "role": "HEADING", "text": "PART B: CLOUD SERVICE DELIVERY ARCHITECTURES", "source_type": "textbook"}
+{"id": "heading_10", "role": "HEADING", "text": "Chapter 5: Microservices Orchestration with Kubernetes", "source_type": "lecture_slide"}
+{"id": "heading_11", "role": "HEADING", "text": "5.1 Precision Crop Monitoring Framework", "source_type": "textbook"}
+{"id": "heading_12", "role": "HEADING", "text": "Module 1: Foundations of Computer Networks", "source_type": "lecture_slide"}
+{"id": "heading_13", "role": "HEADING", "text": "4.3 Greenhouse Environmental Control Strategies", "source_type": "textbook"}
+{"id": "heading_14", "role": "HEADING", "text": "SECTION II: STORAGE AREA NETWORKS AND ISCSI", "source_type": "lecture_slide"}
+{"id": "heading_15", "role": "HEADING", "text": "Module 3: Wireless Sensor Network Topologies", "source_type": "textbook"}
+{"id": "heading_16", "role": "HEADING", "text": "6.2 Edge AI Inference Deployment Models", "source_type": "lecture_slide"}
+{"id": "caption_1", "role": "CAPTION", "text": "Figure 2.1: Block diagram of automatic drip irrigation system.", "source_type": "textbook"}
+{"id": "caption_2", "role": "CAPTION", "text": "Figure 3.4: Schematic diagram of soil moisture sensor interfacing with ESP32 microcontroller.", "source_type": "lecture_slide"}
+{"id": "caption_3", "role": "CAPTION", "text": "Table 4.1: Comparative analysis of cloud service models (IaaS vs PaaS vs SaaS).", "source_type": "textbook"}
+{"id": "caption_4", "role": "CAPTION", "text": "Figure 1.2: Architecture of three-tier web application deployed in private cloud.", "source_type": "lecture_slide"}
+{"id": "caption_5", "role": "CAPTION", "text": "Figure 5.3: Spectral reflectance curve of healthy versus stressed crop canopy.", "source_type": "textbook"}
+{"id": "caption_6", "role": "CAPTION", "text": "Table 2.2: Operating parameters of LoRaWAN modulation bandwidths and spreading factors.", "source_type": "lecture_slide"}
+{"id": "caption_7", "role": "CAPTION", "text": "Figure 4.5: Finite state machine governing solenoid valve duty cycle in greenhouse automation.", "source_type": "textbook"}
+{"id": "caption_8", "role": "CAPTION", "text": "Table 3.1: Hypervisor classification matrix: Type-1 (bare-metal) versus Type-2 (hosted).", "source_type": "lecture_slide"}
+{"id": "caption_9", "role": "CAPTION", "text": "Figure 2.8: Microcontroller GPIO pinout connection to 4-channel relay module.", "source_type": "textbook"}
+{"id": "caption_10", "role": "CAPTION", "text": "Figure 3.2: Circuit diagram for resistive and capacitive soil probes.", "source_type": "lecture_slide"}
+{"id": "caption_11", "role": "CAPTION", "text": "Table 5.2: Network latency benchmarks across edge, fog, and central cloud tiers.", "source_type": "textbook"}
+{"id": "caption_12", "role": "CAPTION", "text": "Figure 1.5: Sequence diagram illustrating OAuth 2.0 authorization code grant flow.", "source_type": "lecture_slide"}
+{"id": "caption_13", "role": "CAPTION", "text": "Figure 4.2: Hydroponic nutrient film technique circulating pump layout.", "source_type": "textbook"}
+{"id": "caption_14", "role": "CAPTION", "text": "Table 1.3: Comparison of container runtimes: Docker, Containerd, and CRI-O.", "source_type": "lecture_slide"}
+{"id": "caption_15", "role": "CAPTION", "text": "Figure 6.1: Precision agriculture telemetry dashboard user interface mockup.", "source_type": "textbook"}
+{"id": "caption_16", "role": "CAPTION", "text": "Figure 3.7: Calibration curves relating sensor voltage to volumetric water content percentage.", "source_type": "lecture_slide"}
+{"id": "list_item_1", "role": "LIST_ITEM", "text": "1. High scalability through automated resource provisioning and elastic load balancing.", "source_type": "textbook"}
+{"id": "list_item_2", "role": "LIST_ITEM", "text": "- Capacitive soil moisture probe with corrosion-resistant gold plating.", "source_type": "lecture_slide"}
+{"id": "list_item_3", "role": "LIST_ITEM", "text": "* Deployment across multiple availability zones to ensure fault tolerance.", "source_type": "textbook"}
+{"id": "list_item_4", "role": "LIST_ITEM", "text": "a) Soil pH sensor operating in the range of 3.0 to 10.0 with +/- 0.1 accuracy.", "source_type": "lecture_slide"}
+{"id": "list_item_5", "role": "LIST_ITEM", "text": "2. Multi-tenancy support enabling secure tenant isolation at compute and network tiers.", "source_type": "textbook"}
+{"id": "list_item_6", "role": "LIST_ITEM", "text": "- DHT22 temperature and humidity sensor connected via single-bus protocol.", "source_type": "lecture_slide"}
+{"id": "list_item_7", "role": "LIST_ITEM", "text": "(i) Cost optimization using reserved instances and preemptible spot instances.", "source_type": "textbook"}
+{"id": "list_item_8", "role": "LIST_ITEM", "text": "b) Submersible water pump rated at 12V DC with maximum flow rate of 350 L/h.", "source_type": "lecture_slide"}
+{"id": "list_item_9", "role": "LIST_ITEM", "text": "3. Real-time telemetry streaming using MQTT protocol over TLS port 8883.", "source_type": "textbook"}
+{"id": "list_item_10", "role": "LIST_ITEM", "text": "- Automatic rollback upon detection of deployment health check failure.", "source_type": "lecture_slide"}
+{"id": "list_item_11", "role": "LIST_ITEM", "text": "* Integrated weather forecasting API integration for predictive irrigation control.", "source_type": "textbook"}
+{"id": "list_item_12", "role": "LIST_ITEM", "text": "(ii) End-to-end data encryption using AES-256 for data at rest and TLS 1.3 in transit.", "source_type": "lecture_slide"}
+{"id": "list_item_13", "role": "LIST_ITEM", "text": "4. Redundant power supply with battery backup and solar photovoltaic charging circuit.", "source_type": "textbook"}
+{"id": "list_item_14", "role": "LIST_ITEM", "text": "- Ephemeral local NVMe SSD cache providing low latency random I/O operations.", "source_type": "lecture_slide"}
+{"id": "list_item_15", "role": "LIST_ITEM", "text": "* High-availability quorum clustering using Raft consensus algorithm.", "source_type": "textbook"}
+{"id": "list_item_16", "role": "LIST_ITEM", "text": "c) Solenoid valve normally closed with 0.02 to 0.8 MPa operating pressure range.", "source_type": "lecture_slide"}
+{"id": "metadata_1", "role": "METADATA", "text": "Author: Dr. Arvind Sharma, Department of Computer Science and Engineering", "source_type": "textbook"}
+{"id": "metadata_2", "role": "METADATA", "text": "Published by McGraw-Hill Education (India) Pvt Ltd, New Delhi, 2024", "source_type": "lecture_slide"}
+{"id": "metadata_3", "role": "METADATA", "text": "ISBN-13: 978-93-5316-890-1 | ISBN-10: 93-5316-890-7", "source_type": "textbook"}
+{"id": "metadata_4", "role": "METADATA", "text": "Page 142 of 480 | Academic Year 2023-24 Course Material", "source_type": "lecture_slide"}
+{"id": "metadata_5", "role": "METADATA", "text": "All rights reserved. No part of this publication may be reproduced without prior written permission.", "source_type": "textbook"}
+{"id": "metadata_6", "role": "METADATA", "text": "Prepared by: Prof. K. R. Ramanathan, M.Tech, Ph.D. for internal student circulation.", "source_type": "lecture_slide"}
+{"id": "metadata_7", "role": "METADATA", "text": "Copyright 2024 Dayananda Sagar Academy of Technology & Management (DSATM)", "source_type": "textbook"}
+{"id": "metadata_8", "role": "METADATA", "text": "Subject Code: 21CS72 | Credits: 03 | CIE Marks: 50 | SEE Marks: 50", "source_type": "lecture_slide"}
+{"id": "metadata_9", "role": "METADATA", "text": "First Edition: August 2022 | Revised Second Edition: January 2024", "source_type": "textbook"}
+{"id": "metadata_10", "role": "METADATA", "text": "Circulated exclusively for academic assessment preparation across VTU affiliated colleges.", "source_type": "lecture_slide"}
+{"id": "metadata_11", "role": "METADATA", "text": "Publisher: Springer Nature Switzerland AG, Cham, Switzerland, DOI: 10.1007/978-3-030-12345-6", "source_type": "textbook"}
+{"id": "metadata_12", "role": "METADATA", "text": "Document Version: v3.2.1 | Last Compiled: September 15, 2024 by Department Curriculum Cell", "source_type": "lecture_slide"}
+{"id": "metadata_13", "role": "METADATA", "text": "Authors: Rajesh Kumar, S. Meenakshi, and Thomas E. Anderson", "source_type": "textbook"}
+{"id": "metadata_14", "role": "METADATA", "text": "Library of Congress Cataloging-in-Publication Data: QA76.585 .S53 2024", "source_type": "lecture_slide"}
+{"id": "metadata_15", "role": "METADATA", "text": "Course Coordinator: Dr. Sneha Patil | Approved by IQAC Cell, Academic Year 2024-2025", "source_type": "textbook"}
+{"id": "metadata_16", "role": "METADATA", "text": "Index number: VTU-CSE-SEM7-IOT-2024-REV02", "source_type": "lecture_slide"}
+{"id": "admin_1", "role": "ADMIN", "text": "Note: Answer any FIVE full questions, choosing ONE full question from each module.", "source_type": "textbook"}
+{"id": "admin_2", "role": "ADMIN", "text": "Max. Marks: 100 | Duration: 3 Hours | Instructions: Scientific calculator is permitted.", "source_type": "lecture_slide"}
+{"id": "admin_3", "role": "ADMIN", "text": "USN: [   |   |   |   |   |   |   |   |   |   ] (Write your USN legibly in the boxes provided)", "source_type": "textbook"}
+{"id": "admin_4", "role": "ADMIN", "text": "Internal Assessment Test - I (IAT-1), September 2024, Semester: VII, Section: A & B", "source_type": "lecture_slide"}
+{"id": "admin_5", "role": "ADMIN", "text": "Visvesvaraya Technological University, Belagavi, Karnataka - Examination Regulations 2021", "source_type": "textbook"}
+{"id": "admin_6", "role": "ADMIN", "text": "Candidates must verify that question paper contains 5 modules before commencing examination.", "source_type": "lecture_slide"}
+{"id": "admin_7", "role": "ADMIN", "text": "Scheme of Evaluation: 6 marks for architectural explanation, 4 marks for neat labeled sketch.", "source_type": "textbook"}
+{"id": "admin_8", "role": "ADMIN", "text": "Course Outcomes mapped: CO1, CO2, CO3, CO4, CO5 | Bloom's Revised Taxonomy Levels: L1 to L4", "source_type": "lecture_slide"}
+{"id": "admin_9", "role": "ADMIN", "text": "Mobile phones, programmable smartwatches, and unauthorized notes are strictly prohibited in the exam hall.", "source_type": "textbook"}
+{"id": "admin_10", "role": "ADMIN", "text": "Department of Computer Science and Business Systems, End Semester Assessment, Dec 2024.", "source_type": "lecture_slide"}
+{"id": "admin_11", "role": "ADMIN", "text": "Answer Q1 or Q2 from Module 1. Q3 or Q4 from Module 2. Each question carries 20 marks.", "source_type": "textbook"}
+{"id": "admin_12", "role": "ADMIN", "text": "Instructions to invigilators: verify hall ticket and signature on OMR attendance sheet.", "source_type": "lecture_slide"}
+{"id": "admin_13", "role": "ADMIN", "text": "Continuous Internal Evaluation (CIE) split: Test-1 (50M) + Test-2 (50M) + Assignment (20M).", "source_type": "textbook"}
+{"id": "admin_14", "role": "ADMIN", "text": "Passing standard: Minimum 35% in SEE and aggregate 40% in CIE + SEE combined.", "source_type": "lecture_slide"}
+{"id": "admin_15", "role": "ADMIN", "text": "Model Question Paper for 2022-26 Batch under Autonomous Syllabus Structure.", "source_type": "textbook"}
+{"id": "admin_16", "role": "ADMIN", "text": "Signatures: Course Instructor [__________]  Head of Department [__________]  Dean [__________]", "source_type": "lecture_slide"}
+{"id": "bibliography_1", "role": "BIBLIOGRAPHY", "text": "[1] Buyya, R., Broberg, J., & Goscinski, A. M. (Eds.). (2021). Cloud Computing: Principles and Paradigms. John Wiley & Sons.", "source_type": "textbook"}
+{"id": "bibliography_2", "role": "BIBLIOGRAPHY", "text": "[2] Mell, P., & Grance, T. (2021). The NIST Definition of Cloud Computing. NIST Special Publication 800-145.", "source_type": "lecture_slide"}
+{"id": "bibliography_3", "role": "BIBLIOGRAPHY", "text": "[3] S. Gutierrez et al., 'Automated Irrigation System Using IoT and Sensor Networks,' IEEE Trans. Ind. Inform., vol. 10, no. 1, pp. 839-846, 2020.", "source_type": "textbook"}
+{"id": "bibliography_4", "role": "BIBLIOGRAPHY", "text": "[4] Armbrust, M., et al. (2020). 'A view of cloud computing.' Communications of the ACM, 53(4), 50-58.", "source_type": "lecture_slide"}
+{"id": "bibliography_5", "role": "BIBLIOGRAPHY", "text": "[5] V. K. Varma, 'Agricultural IoT and Precision Farming Handbook,' Cambridge University Press, 2022, pp. 95-118.", "source_type": "textbook"}
+{"id": "bibliography_6", "role": "BIBLIOGRAPHY", "text": "[6] Available online: https://aws.amazon.com/architecture/well-architected/ (accessed on 12 August 2024).", "source_type": "lecture_slide"}
+{"id": "bibliography_7", "role": "BIBLIOGRAPHY", "text": "[7] J. Dean and S. Ghemawat, 'MapReduce: Simplified Data Processing on Large Clusters,' OSDI '04, pp. 137-150.", "source_type": "textbook"}
+{"id": "bibliography_8", "role": "BIBLIOGRAPHY", "text": "[8] IEEE 802.15.4-2020: Wireless Medium Access Control and Physical Layer Specifications for Low-Rate WPANs.", "source_type": "lecture_slide"}
+{"id": "bibliography_9", "role": "BIBLIOGRAPHY", "text": "[9] Tanenbaum, A. S., & Steen, M. V. (2023). Distributed Systems: Principles and Paradigms (3rd ed.). Pearson.", "source_type": "textbook"}
+{"id": "bibliography_10", "role": "BIBLIOGRAPHY", "text": "[10] FAO. (2023). 'The State of Food and Agriculture: Leveraging automation in agriculture for transforming agrifood systems.' Rome.", "source_type": "lecture_slide"}
+{"id": "bibliography_11", "role": "BIBLIOGRAPHY", "text": "[11] M. Zaharia et al., 'Apache Spark: A unified engine for big data processing,' Commun. ACM, vol. 59, no. 11, pp. 56-65, 2022.", "source_type": "textbook"}
+{"id": "bibliography_12", "role": "BIBLIOGRAPHY", "text": "[12] RFC 7252: The Constrained Application Protocol (CoAP), Internet Engineering Task Force (IETF), 2021.", "source_type": "lecture_slide"}
+{"id": "bibliography_13", "role": "BIBLIOGRAPHY", "text": "[13] Russell, S., & Norvig, P. (2020). Artificial Intelligence: A Modern Approach (4th ed.). Prentice Hall.", "source_type": "textbook"}
+{"id": "bibliography_14", "role": "BIBLIOGRAPHY", "text": "[14] B. P. Abbott et al., 'Observation of Gravitational Waves from a Binary Black Hole Merger,' Phys. Rev. Lett. 116, 061102, 2020.", "source_type": "lecture_slide"}
+{"id": "bibliography_15", "role": "BIBLIOGRAPHY", "text": "[15] https://developer.mozilla.org/en-US/docs/Web/HTTP/Overview (Accessed: 18 January 2024).", "source_type": "textbook"}
+{"id": "bibliography_16", "role": "BIBLIOGRAPHY", "text": "[16] K. Hwang, G. C. Fox, and J. J. Dongarra, Distributed and Cloud Computing: From Parallel Processing to the Internet of Things, Morgan Kaufmann, 2022.", "source_type": "lecture_slide"}
+{"id": "toc_1", "role": "TOC", "text": "Table of Contents\nModule 1: Introduction to Cloud Infrastructure ............. Page 1", "source_type": "textbook"}
+{"id": "toc_2", "role": "TOC", "text": "Module 2: Virtualization Technologies and Containers .......... Page 45", "source_type": "lecture_slide"}
+{"id": "toc_3", "role": "TOC", "text": "Module 3: Cloud Storage Systems and Object Stores ............. Page 89", "source_type": "textbook"}
+{"id": "toc_4", "role": "TOC", "text": "Module 4: IoT Sensing and Smart Agricultural Systems .......... Page 135", "source_type": "lecture_slide"}
+{"id": "toc_5", "role": "TOC", "text": "Module 5: Security, Compliance, and Cloud Auditing ............ Page 198", "source_type": "textbook"}
+{"id": "toc_6", "role": "TOC", "text": "Chapter 1: Foundations of Edge Computing ..................... 1 - 24", "source_type": "lecture_slide"}
+{"id": "toc_7", "role": "TOC", "text": "Chapter 2: Microcontroller Architectures for IoT ............. 25 - 60", "source_type": "textbook"}
+{"id": "toc_8", "role": "TOC", "text": "Chapter 3: Soil Moisture and Environmental Sensors ........... 61 - 98", "source_type": "lecture_slide"}
+{"id": "toc_9", "role": "TOC", "text": "Appendix A: Common Formulae and Unit Conversions ............. Page 245", "source_type": "textbook"}
+{"id": "toc_10", "role": "TOC", "text": "Appendix B: Glossary of Cloud and IoT Terminology ............ Page 260", "source_type": "lecture_slide"}
+{"id": "toc_11", "role": "TOC", "text": "Unit 1: Cloud Service Models (SaaS, PaaS, IaaS) ............... Sec 1.1", "source_type": "textbook"}
+{"id": "toc_12", "role": "TOC", "text": "Unit 2: Resource Virtualization and Hypervisors ............... Sec 2.1", "source_type": "lecture_slide"}
+{"id": "toc_13", "role": "TOC", "text": "Unit 3: Cloud Storage Architecture and Consistency Models ...... Sec 3.1", "source_type": "textbook"}
+{"id": "toc_14", "role": "TOC", "text": "Unit 4: Precision Agriculture and Wireless Sensor Networks ... Sec 4.1", "source_type": "lecture_slide"}
+{"id": "toc_15", "role": "TOC", "text": "Unit 5: IoT Cloud Integration and Analytics Platforms ........ Sec 5.1", "source_type": "textbook"}
+{"id": "toc_16", "role": "TOC", "text": "Index of Terms and Subject Matter Reference .................. Page 280", "source_type": "lecture_slide"}
+{"id": "exercise_1", "role": "EXERCISE", "text": "Draw Figure 2.1: Block diagram of automatic irrigation system and label all pins.", "source_type": "textbook"}
+{"id": "exercise_2", "role": "EXERCISE", "text": "Reproduce Figure 3.2: Soil moisture sensor interfacing circuit with ESP32.", "source_type": "lecture_slide"}
+{"id": "exercise_3", "role": "EXERCISE", "text": "Review Questions: 1. Define multi-tenancy and describe its impact on hypervisor scheduling.", "source_type": "textbook"}
+{"id": "exercise_4", "role": "EXERCISE", "text": "Exercise 4.5: Calculate the crop water requirement given ET0 = 4.5 mm/day and Kc = 0.8.", "source_type": "lecture_slide"}
+{"id": "exercise_5", "role": "EXERCISE", "text": "Self-Assessment Task: Sketch the architecture of a containerized microservice pipeline.", "source_type": "textbook"}
+{"id": "exercise_6", "role": "EXERCISE", "text": "End of Chapter Practice Problem 3: Distinguish between horizontal and vertical cloud scaling.", "source_type": "lecture_slide"}
+{"id": "exercise_7", "role": "EXERCISE", "text": "Laboratory Exercise 2: Connect a DHT22 sensor to Arduino and log temperature readings via serial.", "source_type": "textbook"}
+{"id": "exercise_8", "role": "EXERCISE", "text": "Question 5: Reproduce the LoRaWAN protocol stack diagram from memory.", "source_type": "lecture_slide"}
+{"id": "exercise_9", "role": "EXERCISE", "text": "Revision Exercise: List four key differences between bare-metal and hosted virtualization.", "source_type": "textbook"}
+{"id": "exercise_10", "role": "EXERCISE", "text": "Numerical Exercise 2.4: Determine the payload efficiency for MQTT packet transmitting 20 bytes data.", "source_type": "lecture_slide"}
+{"id": "exercise_11", "role": "EXERCISE", "text": "Discussion Prompt: Why is capacitive moisture sensing preferred over resistive electrodes?", "source_type": "textbook"}
+{"id": "exercise_12", "role": "EXERCISE", "text": "Assignment 1: Summarize the security implications of shared kernel memory in Docker containers.", "source_type": "lecture_slide"}
+{"id": "exercise_13", "role": "EXERCISE", "text": "Draw Figure 4.1: Flowchart representing closed-loop greenhouse ventilation control.", "source_type": "textbook"}
+{"id": "exercise_14", "role": "EXERCISE", "text": "Checklist: Verify all sensor pins, power lines, and pull-up resistors are correctly annotated.", "source_type": "lecture_slide"}
+{"id": "exercise_15", "role": "EXERCISE", "text": "Problem 7: Contrast synchronous replication with asynchronous replication in cloud databases.", "source_type": "textbook"}
+{"id": "exercise_16", "role": "EXERCISE", "text": "Self-Study Exercise: Formulate an algorithm for duty-cycled sleep mode in battery-powered IoT nodes.", "source_type": "lecture_slide"}
+{"id": "unknown_1", "role": "UNKNOWN", "text": "\f    0x00 0xFF \u0000\u0001\u0002 ??? ### %%% @@@", "source_type": "textbook"}
+{"id": "unknown_2", "role": "UNKNOWN", "text": "--==--==--==--==--==--==--==--==", "source_type": "lecture_slide"}
+{"id": "unknown_3", "role": "UNKNOWN", "text": "................................................................", "source_type": "textbook"}
+{"id": "unknown_4", "role": "UNKNOWN", "text": "| | | | | | | | | | | | | | | |", "source_type": "lecture_slide"}
+{"id": "unknown_5", "role": "UNKNOWN", "text": "___ ___ ___ ___ ___ ___ ___ ___", "source_type": "textbook"}
+{"id": "unknown_6", "role": "UNKNOWN", "text": "o o o o o o o o o o o o o o o o", "source_type": "lecture_slide"}
+{"id": "unknown_7", "role": "UNKNOWN", "text": "Page [ ] / [ ] - CONFIDENTIAL - DRAFT - DO NOT DISTRIBUTE", "source_type": "textbook"}
+{"id": "unknown_8", "role": "UNKNOWN", "text": "\\x0c\\x0c\\x0c\\x0c", "source_type": "lecture_slide"}
+{"id": "unknown_9", "role": "UNKNOWN", "text": "1234567890 0987654321 !@#$%^&*()", "source_type": "textbook"}
+{"id": "unknown_10", "role": "UNKNOWN", "text": "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^", "source_type": "lecture_slide"}
+{"id": "unknown_11", "role": "UNKNOWN", "text": "----------------------------------------------------------------", "source_type": "textbook"}
+{"id": "unknown_12", "role": "UNKNOWN", "text": "================================================================", "source_type": "lecture_slide"}
+{"id": "unknown_13", "role": "UNKNOWN", "text": "// // // // // // // // // // //", "source_type": "textbook"}
+{"id": "unknown_14", "role": "UNKNOWN", "text": "*** *** *** *** *** ***", "source_type": "lecture_slide"}
+{"id": "unknown_15", "role": "UNKNOWN", "text": "~~~~ ~~~~ ~~~~ ~~~~ ~~~~", "source_type": "textbook"}
+{"id": "unknown_16", "role": "UNKNOWN", "text": "0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1", "source_type": "lecture_slide"}
