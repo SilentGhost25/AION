@@ -6,6 +6,8 @@ Drop-in replacement for content_filter.py's extract_academic_content().
 
 from __future__ import annotations
 
+import os
+import time
 import re
 import hashlib
 import json
@@ -25,6 +27,93 @@ def get_file_sha256(file_path: str) -> str:
         while chunk := f.read(65536):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _probe_cloud_connectivity(host: str = "mineru.net", port: int = 443, timeout: float = 1.5) -> bool:
+    """Fast pre-flight TCP socket probe to detect air-gapped university firewalls in <1.5s."""
+    import socket
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+        sock.close()
+        return True
+    except Exception:
+        return False
+
+
+def parse_with_mineru_cloud_api(
+    pdf_path: str,
+    api_key: Optional[str] = None,
+    timeout_sec: int = 35,
+) -> Optional[ParsedDocument]:
+    """
+    Mode 1: Cloud Primary Extraction via OpenDataLab's MinerU Free API (mineru.net).
+    1,000 pages/day free quota.
+    Consumes 0 MB of local GPU VRAM, leaving the L40 GPU 100% dedicated to vLLM.
+    """
+    key = api_key or os.environ.get("MINERU_API_KEY")
+    if not key:
+        return None
+
+    # Pre-flight TCP socket probe to prevent 30s-60s timeout hangs in air-gapped intranets
+    if not _probe_cloud_connectivity("mineru.net", 443, timeout=1.5):
+        print("[MINERU-API] Host mineru.net:443 unreachable (air-gapped intranet or firewall blocked). Bypassing cloud in <1.5s.", flush=True)
+        return None
+
+    import requests
+    headers = {"Authorization": f"Bearer {key}"}
+    base_url = "https://mineru.net/api/v4"
+
+    try:
+        print(f"[MINERU-API] Submitting {Path(pdf_path).name} to OpenDataLab Cloud API...", flush=True)
+        with open(pdf_path, "rb") as f:
+            files = {"file": (Path(pdf_path).name, f, "application/pdf")}
+            data = {"is_ocr": "true", "enable_formula": "true", "enable_table": "true"}
+            resp = requests.post(f"{base_url}/extract/task", headers=headers, files=files, data=data, timeout=15)
+
+        if resp.status_code != 200:
+            print(f"[MINERU-API] Submission HTTP {resp.status_code}: {resp.text[:200]}", flush=True)
+            return None
+
+        res_data = resp.json()
+        task_id = res_data.get("data", {}).get("task_id") or res_data.get("task_id")
+        if not task_id:
+            print(f"[MINERU-API] No task_id in response: {res_data}", flush=True)
+            return None
+
+        # Poll status
+        t_start = time.time()
+        while time.time() - t_start < timeout_sec:
+            poll_resp = requests.get(f"{base_url}/extract/task/{task_id}", headers=headers, timeout=10)
+            if poll_resp.status_code == 200:
+                poll_json = poll_resp.json()
+                task_data = poll_json.get("data", {}) or poll_json
+                state = task_data.get("state") or task_data.get("status")
+                if state == "done":
+                    markdown_text = task_data.get("markdown") or ""
+                    clean_text = _clean_extracted_text(markdown_text)
+                    word_count = len(clean_text.split())
+                    print(f"[MINERU-API] Cloud extraction complete: {word_count} words", flush=True)
+                    return ParsedDocument(
+                        text=clean_text,
+                        tables=[],
+                        figures=[],
+                        structure=[],
+                        method="mineru_cloud_api",
+                        ocr_used=True,
+                        pages_total=task_data.get("pages_total", 1),
+                        word_count=word_count,
+                        confidence=0.98,
+                        warnings=[],
+                    )
+                elif state in ("failed", "error"):
+                    print(f"[MINERU-API] Cloud task failed: {task_data.get('msg')}", flush=True)
+                    return None
+            time.sleep(1.0)
+        print("[MINERU-API] Cloud extraction timed out — falling back to local engine", flush=True)
+        return None
+    except Exception as e:
+        print(f"[MINERU-API] Cloud API exception: {e} — falling back to local engine", flush=True)
+        return None
 
 
 def preflight_page_triage(pdf_path: str) -> dict:
@@ -155,6 +244,33 @@ def parse_document(
 
     print(f"[PARSER] Processing: {Path(pdf_path).name}")
 
+    # Pillar 3: Dual-Mode Dispatcher
+    # Mode 1: Cloud Primary Extraction via MinerU Free API (if MINERU_API_KEY is set)
+    cloud_doc = parse_with_mineru_cloud_api(pdf_path)
+    if cloud_doc is not None:
+        if cache_dir and cache_file:
+            try:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                cache_data = {
+                    "text": cloud_doc.text,
+                    "tables": [],
+                    "figures": cloud_doc.figures,
+                    "structure": cloud_doc.structure,
+                    "method": cloud_doc.method,
+                    "ocr_used": cloud_doc.ocr_used,
+                    "pages_total": cloud_doc.pages_total,
+                    "word_count": cloud_doc.word_count,
+                    "confidence": cloud_doc.confidence,
+                    "warnings": cloud_doc.warnings,
+                }
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    json.dump(cache_data, f, ensure_ascii=False, indent=2)
+                print(f"[PARSER] Saved Cloud API result to SHA-256 cache ({file_hash[:8]}...)", flush=True)
+            except Exception as e:
+                print(f"[PARSER] Cache write exception: {e}", flush=True)
+        return cloud_doc
+
+    # Mode 2: Local Fallback Engine (3-Tier Pre-Flight Triage + PyMuPDF / MinerU Flash / Docling / RapidOCR)
     # Pillar 2: Pre-Flight Page Triage
     triage = preflight_page_triage(pdf_path)
     if triage["total_pages"] > 0:

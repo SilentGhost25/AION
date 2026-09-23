@@ -34,7 +34,24 @@ _CAPABILITY_LOCK = threading.Lock()
 def get_llm_backend() -> str:
     env_backend = os.environ.get("AION_BACKEND") or os.environ.get("LLM_BACKEND") or os.environ.get("BACKEND")
     if env_backend:
-        return env_backend.lower().strip()
+        backend_val = env_backend.lower().strip()
+        if backend_val == "vllm":
+            prof = os.environ.get("AION_PROFILE", "")
+            try:
+                from runtime.profiles import get_active_profile
+                prof = get_active_profile().name.value if hasattr(get_active_profile().name, "value") else str(get_active_profile().name)
+            except Exception:
+                pass
+            if prof != "PRODUCTION":
+                try:
+                    host = os.environ.get("AION_LLM_HOST") or "http://127.0.0.1:8000"
+                    r = requests.get(f"{host.rstrip('/')}/v1/models", timeout=0.5)
+                    if r.status_code == 200:
+                        return "vllm"
+                except Exception:
+                    pass
+                return "ollama"
+        return backend_val
     # Auto-detect running vLLM server on localhost:8000
     try:
         r = requests.get("http://localhost:8000/v1/models", timeout=0.3)
@@ -47,8 +64,14 @@ def get_llm_backend() -> str:
 
 def get_llm_host(default_ollama: str = "http://127.0.0.1:11434") -> str:
     if get_llm_backend() == "vllm":
-        return (os.environ.get("AION_LLM_HOST") or os.environ.get("LLM_BASE_URL") or os.environ.get("LLM_HOST") or os.environ.get("VLLM_URL") or "http://localhost:8000").rstrip("/")
-    return (os.environ.get("OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or os.environ.get("AION_LLM_HOST") or default_ollama).rstrip("/")
+        raw = os.environ.get("AION_LLM_HOST") or os.environ.get("LLM_BASE_URL") or os.environ.get("LLM_HOST") or os.environ.get("VLLM_URL") or "http://localhost:8000"
+    else:
+        raw = os.environ.get("OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or os.environ.get("AION_LLM_HOST") or default_ollama
+    h = (raw or "").strip()
+    if not h.startswith(("http://", "https://")):
+        h = f"http://{h}"
+    h = h.replace("://0.0.0.0", "://127.0.0.1")
+    return h.rstrip("/")
 
 
 def probe_model_capability(
@@ -262,13 +285,17 @@ def get_best_llm():
 
     env_model = os.environ.get("AION_MODEL")
     if env_model and profile is not None and env_model not in profile.allowed_models:
-        raise RuntimeError(
-            f"[PROFILE INTEGRITY VIOLATION]\n"
-            f"  Profile         : {profile_name}\n"
-            f"  Allowed models  : {set(profile.allowed_models)}\n"
-            f"  Requested model : {env_model}\n"
-            f"  Action          : BLOCK — generation refused\n"
-        )
+        if profile_name in ("LAPTOP_FAST", "LAPTOP_DEMO") and ("AWQ" in env_model or "14B" in env_model or "server" in os.environ.get("AION_DEVICE", "").lower()):
+            print(f"[PROFILE] Laptop profile active ({profile_name}) — ignoring server model '{env_model}', falling back to laptop profile default")
+            env_model = None
+        else:
+            raise RuntimeError(
+                f"[PROFILE INTEGRITY VIOLATION]\n"
+                f"  Profile         : {profile_name}\n"
+                f"  Allowed models  : {set(profile.allowed_models)}\n"
+                f"  Requested model : {env_model}\n"
+                f"  Action          : BLOCK — generation refused\n"
+            )
 
     if profile_name in ("LAPTOP_FAST", "LAPTOP_DEMO") and profile is not None:
         model = env_model or profile.model_name

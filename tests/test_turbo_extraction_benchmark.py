@@ -127,3 +127,46 @@ def test_sha256_cache_hit():
             shutil.rmtree(cache_dir)
         if os.path.exists(pdf_path):
             os.remove(pdf_path)
+
+
+def test_dual_mode_dispatcher_and_cloud_api():
+    from unittest.mock import patch, MagicMock
+    from v0_1.document_parser import parse_with_mineru_cloud_api
+
+    # 1. Without API key, returns None immediately
+    if "MINERU_API_KEY" in os.environ:
+        del os.environ["MINERU_API_KEY"]
+    res = parse_with_mineru_cloud_api("dummy.pdf")
+    assert res is None
+
+    # 2. With mock API response, returns ParsedDocument with method="mineru_cloud_api"
+    with tempfile.NamedTemporaryFile("w", delete=False, suffix=".pdf") as tmp:
+        tmp.write("dummy")
+        p_path = tmp.name
+
+    try:
+        mock_post = MagicMock()
+        mock_post.status_code = 200
+        mock_post.json.return_value = {"code": 0, "data": {"task_id": "mock_task_123"}}
+
+        mock_get = MagicMock()
+        mock_get.status_code = 200
+        mock_get.json.return_value = {
+            "code": 0,
+            "data": {
+                "state": "done",
+                "markdown": "# Module 1: Thermodynamics\nEntropy formula is $dS = \\frac{dQ}{T}$.",
+                "pages_total": 2,
+            }
+        }
+
+        with patch("requests.post", return_value=mock_post), patch("requests.get", return_value=mock_get):
+            doc = parse_with_mineru_cloud_api(p_path, api_key="mock_key_abc")
+            assert doc is not None
+            assert doc.method == "mineru_cloud_api"
+            assert doc.word_count > 0
+            assert "Entropy" in doc.text
+    finally:
+        if os.path.exists(p_path):
+            os.remove(p_path)
+

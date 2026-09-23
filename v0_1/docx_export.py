@@ -51,6 +51,7 @@ def _get_xslt_transform():
     try:
         from lxml import etree
         candidate_paths = [
+            Path(__file__).resolve().parent.parent / "core" / "assets" / "MML2OMML.XSL",
             Path("C:/Program Files/Microsoft Office/root/Office16/MML2OMML.XSL"),
             Path("C:/Program Files (x86)/Microsoft Office/root/Office16/MML2OMML.XSL"),
             Path(".aion_cache/MML2OMML.XSL"),

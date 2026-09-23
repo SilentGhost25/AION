@@ -908,20 +908,22 @@ def test_numerical_unblocking_on_prose():
     import re
 
     code_regexes = (
-        r'\b(?:def|class|public|private|static|interface|struct)\s+[a-zA-Z_]\w*',
+        r'\bdef\s+[a-zA-Z_]\w*\s*\([^)]*\)\s*:',
+        r'\bclass\s+[A-Z]\w*\s*(?:\([^)]*\))?\s*:',
+        r'\b(?:public|private|protected)\s+(?:static\s+)?(?:void|int|float|double|String|boolean)\s+[a-zA-Z_]\w*\s*\(',
         r'\b(?:int|float|double|char|void|boolean)\s+[a-zA-Z_]\w*\s*(?:=|\(|;)',
-        r'\bfor\s+[a-zA-Z_]\w*\s+in\b',
+        r'\bfor\s+[a-z_]\w*(?:\s*,\s*[a-z_]\w*)*\s+in\s+(?:range|enumerate|zip|[a-z_]\w*\[|\{[^}]*\})|\bfor\s+[a-z_]\w*(?:\s*,\s*[a-z_]\w*)*\s+in\s+[^:\n]+:',
         r'\b(?:while|for)\s*\([^)]+\)\s*[{;]',
-        r'\b(?:SELECT\s+.+\s+FROM|INSERT\s+INTO|UPDATE\s+.+\s+SET|DELETE\s+FROM|CREATE\s+TABLE|ALTER\s+TABLE)\b',
+        r'\b(?:SELECT\s+.+\s+FROM|INSERT\s+INTO|UPDATE\s+.+\s+SET|DELETE\s+FROM)\b',
+        r'\b(?:CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE|PRIMARY\s+KEY|FOREIGN\s+KEY)\b',
         r'```[a-zA-Z]*\n',
         r'\b(?:pseudocode|algorithm)\s*:',
-        r'\bdef\s+[a-zA-Z_]\w*\s*\([^)]*\)\s*:',
     )
 
     # 1. Prose test: words 'for', 'if', 'where' in standard technical context
     chunk_prose = (
         "For the given sensor node, if the transmission range is 50 meters where energy consumption "
-        "is 20 mW, calculate the lifetime and battery drain."
+        "is 20 mW, calculate the lifetime and battery drain. Checking node for membership in the other tree."
     )
     lower_prose = chunk_prose.lower()
     code_hits = sum(bool(re.search(pat, lower_prose, re.IGNORECASE)) for pat in code_regexes)
@@ -993,15 +995,16 @@ def test_programming_allowed_true_positives():
     import re
 
     code_regexes = (
-        r'\b(?:def|class|public|private|static|interface|struct)\s+[a-zA-Z_]\w*',
+        r'\bdef\s+[a-zA-Z_]\w*\s*\([^)]*\)\s*:',
+        r'\bclass\s+[A-Z]\w*\s*(?:\([^)]*\))?\s*:',
+        r'\b(?:public|private|protected)\s+(?:static\s+)?(?:void|int|float|double|String|boolean)\s+[a-zA-Z_]\w*\s*\(',
         r'\b(?:int|float|double|char|void|boolean)\s+[a-zA-Z_]\w*\s*(?:=|\(|;)',
-        r'\bfor\s+[a-zA-Z_]\w*\s+in\b',
+        r'\bfor\s+[a-z_]\w*(?:\s*,\s*[a-z_]\w*)*\s+in\s+(?:range|enumerate|zip|[a-z_]\w*\[|\{[^}]*\})|\bfor\s+[a-z_]\w*(?:\s*,\s*[a-z_]\w*)*\s+in\s+[^:\n]+:',
         r'\b(?:while|for)\s*\([^)]+\)\s*[{;]',
         r'\b(?:SELECT\s+.+\s+FROM|INSERT\s+INTO|UPDATE\s+.+\s+SET|DELETE\s+FROM)\b',
         r'\b(?:CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE|PRIMARY\s+KEY|FOREIGN\s+KEY)\b',
         r'```[a-zA-Z]*\n',
         r'\b(?:pseudocode|algorithm)\s*:',
-        r'\bdef\s+[a-zA-Z_]\w*\s*\([^)]*\)\s*:',
     )
 
     # 1. Python function with loop and definition

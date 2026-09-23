@@ -708,7 +708,8 @@ def run_pipeline(
             marks_split=marks_split,
             profile=_profile,
             shared_generated_texts=shared_generated_texts,
-            shared_texts_lock=shared_texts_lock
+            shared_texts_lock=shared_texts_lock,
+            subject=subject or ""
         )
         diff_manager = DifficultyManager.from_string(difficulty)
 
@@ -1202,7 +1203,9 @@ def _generate_main_question(
             _looks_like_code = (
                 any(_sig in _math_lower for _sig in _strong_code_signals)
                 or any(bool(re.search(pat, _math_lower, re.IGNORECASE)) for pat in (
-                    r'\b(?:def|class|public\s+static|private\s+void)\b',
+                    r'\bdef\s+[a-z_]\w*\s*\(',
+                    r'\bclass\s+[A-Z]\w*\s*(?:\(|:|\{)',
+                    r'\b(?:public|private|protected)\s+(?:static\s+)?(?:void|int|float|double|String|boolean)\b',
                     r'\b(?:SELECT\s+.+\s+FROM|INSERT\s+INTO|UPDATE\s+.+\s+SET)\b',
                     r'```[a-zA-Z]+\n'
                 ))
@@ -1233,17 +1236,18 @@ def _generate_main_question(
             # Keep numerical and programming eligibility independent.
             _chunk_lower = str(chunk).lower()
 
-            # Token-boundary regex patterns to avoid false positives on English prose (e.g. 'for ', 'if ', 'where ')
+            # Token-boundary regex patterns to avoid false positives on English prose (e.g. 'for ', 'if ', 'where ', 'class of')
             _code_regexes = (
-                r'\b(?:def|class|public|private|static|interface|struct)\s+[a-zA-Z_]\w*',
+                r'\bdef\s+[a-zA-Z_]\w*\s*\([^)]*\)\s*:',
+                r'\bclass\s+[A-Z]\w*\s*(?:\([^)]*\))?\s*:',
+                r'\b(?:public|private|protected)\s+(?:static\s+)?(?:void|int|float|double|String|boolean)\s+[a-zA-Z_]\w*\s*\(',
                 r'\b(?:int|float|double|char|void|boolean)\s+[a-zA-Z_]\w*\s*(?:=|\(|;)',
-                r'\bfor\s+[a-zA-Z_]\w*\s+in\b',
+                r'\bfor\s+[a-z_]\w*(?:\s*,\s*[a-z_]\w*)*\s+in\s+(?:range|enumerate|zip|[a-z_]\w*\[|\{[^}]*\})|\bfor\s+[a-z_]\w*(?:\s*,\s*[a-z_]\w*)*\s+in\s+[^:\n]+:',
                 r'\b(?:while|for)\s*\([^)]+\)\s*[{;]',
                 r'\b(?:SELECT\s+.+\s+FROM|INSERT\s+INTO|UPDATE\s+.+\s+SET|DELETE\s+FROM)\b',
                 r'\b(?:CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE|PRIMARY\s+KEY|FOREIGN\s+KEY)\b',
                 r'```[a-zA-Z]*\n',
                 r'\b(?:pseudocode|algorithm)\s*:',
-                r'\bdef\s+[a-zA-Z_]\w*\s*\([^)]*\)\s*:',
             )
 
             _numeric_context_signals = (
@@ -1262,10 +1266,13 @@ def _generate_main_question(
             _clean_num_text = re.sub(
                 r'\b(?:section|sec|figure|fig|table|module|unit|chapter|page|p)\.?\s*[-+]?\d+(?:\.\d+)*\b',
                 ' ',
-                _chunk_lower,
+                str(chunk),
                 flags=re.IGNORECASE
             )
+            # Strip structural chapter/section headers preceding capitalized title words (e.g. "2.3 Heuristic Search")
+            _clean_num_text = re.sub(r'(?:^|\n|\s)\d+\.\d+(?:\.\d+)*\s+[A-Z]', ' ', _clean_num_text)
             _clean_num_text = re.sub(r'(?:^|\n)\s*\d+[\.\)]\s+', ' ', _clean_num_text)
+            _clean_num_text = _clean_num_text.lower()
 
             # Standalone numeric values only; do not count tokens such as 1NF/2NF/3NF or section citations.
             _raw_num_tokens = re.findall(

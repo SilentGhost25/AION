@@ -66,16 +66,20 @@ class RuntimeProfile:
         resolved = _resolve_active_model(self.backend)
 
         if resolved != "unknown" and resolved not in self.allowed_models:
-            raise RuntimeError(
-                f"[PROFILE INTEGRITY VIOLATION]\n"
-                f"  Profile         : {self.name}\n"
-                f"  Expected models : {self.allowed_models}\n"
-                f"  Resolved model  : {resolved}\n"
-                f"  Action          : BLOCK — generation refused\n"
-                f"\n"
-                f"  Never allow production to silently use a demo/laptop model.\n"
-                f"  Configure Ollama to serve the correct model and restart."
-            )
+            prof_name = self.name.value if hasattr(self.name, "value") else str(self.name)
+            if prof_name in ("LAPTOP_FAST", "LAPTOP_DEMO") and ("AWQ" in resolved or "14B" in resolved or "server" in os.environ.get("AION_DEVICE", "").lower()):
+                pass
+            else:
+                raise RuntimeError(
+                    f"[PROFILE INTEGRITY VIOLATION]\n"
+                    f"  Profile         : {self.name}\n"
+                    f"  Expected models : {self.allowed_models}\n"
+                    f"  Resolved model  : {resolved}\n"
+                    f"  Action          : BLOCK — generation refused\n"
+                    f"\n"
+                    f"  Never allow production to silently use a demo/laptop model.\n"
+                    f"  Configure Ollama to serve the correct model and restart."
+                )
 
         LOG.info(
             f"[PROFILE] {self.name} | model={resolved} | "
@@ -114,9 +118,12 @@ def _resolve_active_model(backend: str) -> str:
 
 PRODUCTION_PROFILE = RuntimeProfile(
     name               = ProfileName.PRODUCTION,
-    model_name         = "qwen2.5:14b",
-    allowed_models     = frozenset({"qwen2.5:14b", "qwen2.5:14b-instruct-q4_K_M", "qwen2.5:7b"}),
-    backend            = "ollama",
+    model_name         = os.environ.get("AION_MODEL", "Qwen/Qwen2.5-14B-Instruct-AWQ"),
+    allowed_models     = frozenset({
+        "qwen2.5:14b", "qwen2.5:14b-instruct-q4_K_M", "qwen2.5:7b",
+        "Qwen/Qwen2.5-14B-Instruct-AWQ", "Qwen/Qwen2.5-14B-Instruct", "qwen2.5:14b-instruct"
+    }),
+    backend            = os.environ.get("AION_BACKEND", "vllm"),
     concurrency        = 3,
     request_timeout_sec= 480,
     slot_budget_sec    = 90,

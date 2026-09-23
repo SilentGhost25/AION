@@ -116,3 +116,27 @@ def test_numerical_engine_clean_downgrade_for_qualitative_law():
     chunks = [{"text": law_text}]
     template = engine.generate_from_chunks(chunks, marks=10)
     assert template is None  # Triggers automatic qualitative downgrade in orchestrator
+
+
+def test_dual_vllm_auditor_output_schema():
+    """Verify AuditorNumericOutput produces expected schema and parse_auditor_output handles all formats."""
+    from core.numerical_engine import AuditorNumericOutput
+    schema = DualVLLMVerifier.get_auditor_schema()
+    assert "properties" in schema
+    assert "final_value" in schema["properties"]
+    assert "unit" in schema["properties"]
+
+    # Test dict input
+    val = DualVLLMVerifier.parse_auditor_output({"final_value": 42.5, "unit": "V"})
+    assert val == 42.5
+
+    # Test object input
+    obj = AuditorNumericOutput(final_value=12.34, unit="A")
+    assert DualVLLMVerifier.parse_auditor_output(obj) == 12.34
+
+    # Test float input
+    assert DualVLLMVerifier.parse_auditor_output(99.9) == 99.9
+
+    # Test malformed / missing
+    assert DualVLLMVerifier.parse_auditor_output({"invalid": "data"}) is None
+    assert DualVLLMVerifier.parse_auditor_output(None) is None

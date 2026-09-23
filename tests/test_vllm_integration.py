@@ -403,7 +403,9 @@ def test_high_marks_prompt_specifies_analytical_depth():
 
     prompt_10m = orch._format_prompt(slot_10m, DummyEvidencePack(), extra_hints="")
     assert "HIGH-MARKS 10M" in prompt_10m
-    assert "target length: 25 to 50 words" in prompt_10m
+    assert "target length: 80 to 140 words" in prompt_10m
+    assert "at least 80 words" in prompt_10m
+
 
 
 def test_looks_code_ignores_english_ai_prose():
