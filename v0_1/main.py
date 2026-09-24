@@ -650,23 +650,40 @@ def run_pipeline(
         mapper   = None
         selector = None
 
-    # Use user-provided marks_split if available (highest priority)
-    target_marks = 20 if exam_type.lower() == "see" else 10
+    # Resolve subject-agnostic PaperSpec
+    from core.generation.paper_spec_resolver import resolve_paper_spec
+    override_spec = {}
+    if isinstance(sub_question_count, int):
+        override_spec["sub_question_count"] = sub_question_count
 
-    # Always define base_partitions (never leave unbound)
+    paper_spec = resolve_paper_spec(exam_type, override=override_spec)
+    target_marks = paper_spec.marks_per_question
+
     base_partitions = []
     user_partitions = []
+    allocated_partitions = None
+
     if marks_split and isinstance(marks_split, (list, tuple)) and marks_split:
         if isinstance(marks_split[0], (list, tuple)):
             user_partitions = [list(p) for p in marks_split if isinstance(p, (list, tuple))]
         else:
             user_partitions = [list(marks_split)]
+
+        # If user passed a full set of partitions matching total_questions, validate and allocate deterministically
+        if len(user_partitions) == paper_spec.total_questions:
+            allocated_partitions = paper_spec.allocate_partitions(user_partitions)
+            print(f"[PIPELINE] Allocated deterministic marks partitions for {paper_spec.total_questions} questions across {paper_spec.module_count} modules.", flush=True)
+        elif len(user_partitions) > 1 and len(user_partitions) != paper_spec.total_questions:
+            raise ValueError(
+                f"Provided marks_split has {len(user_partitions)} partitions, but paper spec '{paper_spec.exam_type}' "
+                f"requires {paper_spec.total_questions} questions ({paper_spec.module_count} modules × {paper_spec.questions_per_module} questions/module)."
+            )
         base_partitions = list(user_partitions)
         target_partitions = list(user_partitions)
         print(f"[PIPELINE] Using user marks_split: {target_partitions}", flush=True)
     else:
         try:
-            raw_partitions = SEE_PARTITIONS if exam_type.lower() == "see" else IA_PARTITIONS
+            raw_partitions = SEE_PARTITIONS if paper_spec.marks_per_question >= 20 else IA_PARTITIONS
         except NameError:
             raw_partitions = []
         base_partitions = [list(p) for p in raw_partitions if isinstance(p, (list, tuple))]
@@ -794,7 +811,15 @@ def run_pipeline(
             else:
                 base_partitions_mod = [[target_marks]]
 
-        if not has_override:
+        if allocated_partitions is not None:
+            m_zero = mod_idx - 1
+            partitions_for_questions = [
+                allocated_partitions[(m_zero, q_idx)]
+                for q_idx in range(paper_spec.questions_per_module)
+            ]
+            pair1_partition = partitions_for_questions[0]
+            pair2_partition = partitions_for_questions[1] if len(partitions_for_questions) > 1 else pair1_partition
+        elif not has_override:
             if isinstance(sub_question_count, list) and len(sub_question_count) >= (mod_idx * 2):
                 q1_c = sub_question_count[(mod_idx - 1) * 2]
                 q2_c = sub_question_count[(mod_idx - 1) * 2 + 1]
@@ -820,20 +845,19 @@ def run_pipeline(
                     pair1_partition = [target_marks]
                     pair2_partition = [target_marks]
 
-        # Equal module allocation:
-        # Standard VTU SEE/IA papers across modules allocate exactly 2 questions per module/set:
-        # Set 1 / Module 1 -> Q1 & Q2
-        # Set 2 / Module 2 -> Q3 & Q4
-        # Set 3 / Module 3 -> Q5 & Q6
-        # Set 4 / Module 4 -> Q7 & Q8
-        # Set 5 / Module 5 -> Q9 & Q10
-        # Single-module pool mode retains 4 partitions for generation variety.
-        if (mode == "pool" or getattr(mod, "is_pool", False)) and len(modules) == 1:
-            partitions_for_questions = [pair1_partition, pair1_partition, pair2_partition, pair2_partition]
-        elif len(modules) >= 2 or exam_type.lower() in ("see", "vtu", "ia"):
-            partitions_for_questions = [pair1_partition, pair1_partition]
+            if (mode == "pool" or getattr(mod, "is_pool", False)) and len(modules) == 1:
+                partitions_for_questions = [pair1_partition, pair1_partition, pair2_partition, pair2_partition]
+            elif len(modules) >= 2 or exam_type.lower() in ("see", "vtu", "ia"):
+                partitions_for_questions = [pair1_partition, pair2_partition]
+            else:
+                partitions_for_questions = [pair1_partition, pair1_partition, pair2_partition, pair2_partition]
         else:
-            partitions_for_questions = [pair1_partition, pair1_partition, pair2_partition, pair2_partition]
+            if (mode == "pool" or getattr(mod, "is_pool", False)) and len(modules) == 1:
+                partitions_for_questions = [pair1_partition, pair1_partition, pair2_partition, pair2_partition]
+            elif len(modules) >= 2 or exam_type.lower() in ("see", "vtu", "ia"):
+                partitions_for_questions = [pair1_partition, pair2_partition]
+            else:
+                partitions_for_questions = [pair1_partition, pair1_partition, pair2_partition, pair2_partition]
 
         # Calculate dynamic pedagogy-aware slot types for this module
         total_slots = sum(len(p) for p in partitions_for_questions)
@@ -1014,33 +1038,17 @@ def run_pipeline(
     t_export = time.time()
     from core.validation.export_gate import ExportGate
     export_result = ExportGate.validate(all_gqs)
+    paper_status = "OK"
+    degraded_reasons = []
     if not export_result.passed:
-        if os.getenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "false").lower() in ("true", "1", "yes"):
+        if os.getenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "true").lower() in ("true", "1", "yes"):
             print(f"[EXPORT GATE FAIL-CLOSED] Export blocked: {export_result.message}", flush=True)
             raise RuntimeError(f"[EXPORT GATE] Generation fail-closed: {export_result.message}")
-        print(f"[EXPORT GATE WARNING] Initial validation failed ({export_result.message}). Attempting emergency slot salvage...", flush=True)
-        salvaged_count = 0
-        for idx, gq in enumerate(all_gqs):
-            single_res = ExportGate.validate([gq])
-            if not single_res.passed:
-                slot_obj = getattr(gq, "slot", None)
-                print(f"[EXPORT GATE SALVAGE] Salvaging failing slot {gq.slot_id}: {single_res.message}", flush=True)
-                if slot_obj is not None:
-                    try:
-                        from core.generation.orchestrator import SlotOrchestrator
-                        # Salvage using template fallback for that slot
-                        orch_inst = locals().get("orchestrator") or SlotOrchestrator()
-                        salvaged_gq = orch_inst._generate_template_fallback(slot_obj, "")
-                        all_gqs[idx] = salvaged_gq
-                        salvaged_count += 1
-                    except Exception as _salvage_err:
-                        print(f"[EXPORT GATE SALVAGE] Salvage failed for {gq.slot_id}: {_salvage_err}", flush=True)
-        
-        # Re-validate whole paper
-        export_result = ExportGate.validate(all_gqs)
-        if not export_result.passed:
-            raise RuntimeError(f"[EXPORT GATE] FAILED: {export_result.message}")
-        print(f"[EXPORT GATE] PASS after emergency salvage of {salvaged_count} slot(s).", flush=True)
+        else:
+            # Degraded mode: log, tag paper, allow through without emergency template salvage
+            print(f"[EXPORT GATE WARN] Fail-closed disabled (degraded mode). Paper generated with unresolved slots: {export_result.message}", flush=True)
+            paper_status = "DEGRADED"
+            degraded_reasons.append(export_result.message)
     else:
         print("[EXPORT GATE] PASS — full paper integrity verified.")
     _mark("export_gate", t_export)
@@ -1074,10 +1082,14 @@ def run_pipeline(
     integrity.raise_if_blocked()
 
     qa_report: dict = {
-        "status": "PASS",
-        "export_gate_passed": True,
-        "export_gate_message": "All validation gates passed.",
+        "status": "PASS" if paper_status == "OK" else "DEGRADED",
+        "paper_status": paper_status,
+        "degraded_reasons": list(degraded_reasons),
+        "export_gate_passed": export_result.passed,
+        "export_gate_message": export_result.message,
     }
+    for _mod in output_paper:
+        _mod["paper_status"] = paper_status
     try:
         from .qa_engine import QPGeneratorWithQA
         qa_manager = QPGeneratorWithQA()

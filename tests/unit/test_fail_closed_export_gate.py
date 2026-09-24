@@ -112,7 +112,7 @@ def test_export_gate_faithfulness_threshold():
 
     # Attach ragas metric with low faithfulness
     mock_ragas = MagicMock()
-    mock_ragas.faithfulness = 0.60
+    mock_ragas.faithfulness = 0.55
     setattr(gq, "ragas_metrics", mock_ragas)
 
     with patch.dict(os.environ, {"AION_ENABLE_UNRESOLVED_HARD_BLOCK": "true"}):

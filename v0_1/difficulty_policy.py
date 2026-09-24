@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any
+from typing import Any, Dict, Optional
 from core.contracts.module_identity import make_co
 
 # ============================================================
@@ -82,26 +82,51 @@ def format_co_and_rbt(co: Any = None, bloom: Any = None, module_idx: int = 1) ->
     return co_str, b_str
 
 
+_co_mode_logged = False
+
+
+def build_co_map(module_count: int, co_count: int, custom_map: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """Generically builds a module-to-CO map for any module and CO counts."""
+    if custom_map:
+        return {str(k): str(v).strip().upper() for k, v in custom_map.items()}
+    mapping: Dict[str, str] = {}
+    for m in range(1, module_count + 1):
+        co_idx = min(m, co_count)
+        mapping[str(m)] = f"CO{co_idx}"
+    return mapping
+
+
 def _resolve_co_by_mode(
     module_idx: int,
     marks: int,
     mode: str | None = None,
+    co_count: int = 5,
+    custom_map: Optional[Dict[str, str]] = None,
 ) -> str:
     """
     Resolves Course Outcome (CO) based on the specified assignment mode:
-    - 'marks-based' (default): OBE mapping based on marks and Bloom level (<=4M -> CO1, 6M -> CO2, 8M+ -> CO3)
-    - 'module-based': syllabus module outcome (Module M -> COM)
+    - 'module-based' (default): syllabus module outcome (Module M -> COM, subject-agnostic)
+    - 'marks-based': legacy mapping based on marks and Bloom level (<=4M -> CO1, 6M -> CO2, 8M+ -> CO3)
     - 'hybrid': module-based for modules 1-3, marks-based capped at CO3 for modules 4-5
     """
-    m_str = (mode or os.getenv("AION_CO_MODE", "marks-based")).lower().strip()
+    global _co_mode_logged
+    raw_mode = mode or os.getenv("AION_CO_MODE", "module-based")
+    m_str = raw_mode.lower().strip()
+    if not _co_mode_logged:
+        print(f"[CO-MODE] Using {m_str} (default changed to module-based in v1.2)", flush=True)
+        _co_mode_logged = True
+
     if m_str == "module-based":
-        return make_co(module_idx) if module_idx else "CO1"
+        if custom_map and str(module_idx) in custom_map:
+            return custom_map[str(module_idx)]
+        co_idx = min(module_idx, co_count) if module_idx > 0 else 1
+        return f"CO{co_idx}"
     elif m_str == "hybrid":
         if module_idx <= 3:
             return make_co(module_idx)
         return make_co(min(max(1, marks // 2), 3))
     else:
-        # Default: marks-based
+        # Legacy: marks-based
         if marks <= 4:
             return "CO1"
         elif marks <= 6:

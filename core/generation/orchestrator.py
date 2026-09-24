@@ -1007,12 +1007,12 @@ class SlotOrchestrator:
                     LOG.debug(f"[AUTO-HEALER] Immediate healing skipped: {_heal_imm_err}")
 
             # Never look up GenerationFailureCode.MATH_FAILURE (not on the enum).
-            _unresolved_hard_block = os.getenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "false").lower() in ("true", "1", "yes")
+            _unresolved_hard_block = os.getenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "true").lower() in ("true", "1", "yes")
             _linter_code = str(getattr(failed_check, 'code', '') or '')
             if (failure.code == GenerationFailureCode.MATH_FAILURE or _linter_code == 'MATH_RENDER_FAILURE') and attempt >= 2:
                 if not _unresolved_hard_block:
-                    LOG.warning(f'[ORCHESTRATOR] MATH_FAILURE on attempt {attempt} — passing with warning.')
-                    candidate.status = 'PASS_WITH_WARNING'
+                    LOG.warning(f'[ORCHESTRATOR] MATH_FAILURE on attempt {attempt} — passing in degraded mode.')
+                    candidate.status = SlotStatus.PASS.value
                     return candidate
             if failure.code == GenerationFailureCode.ANSWERABILITY_FAILURE and attempt >= 2:
                 _q_txt = getattr(candidate, 'question_text', '')
@@ -1030,8 +1030,8 @@ class SlotOrchestrator:
                             f"Refusing to relax; enforcing bounded multi-part regeneration."
                         )
                     elif not _unresolved_hard_block:
-                        LOG.warning(f"[ORCHESTRATOR] ANSWERABILITY_FAILURE on attempt {attempt} — relaxing groundedness threshold to allow completion.")
-                        candidate.status = "PASS_WITH_WARNING"
+                        LOG.warning(f"[ORCHESTRATOR] ANSWERABILITY_FAILURE on attempt {attempt} — relaxing groundedness in degraded mode.")
+                        candidate.status = SlotStatus.PASS.value
                         candidate.question_text = self._sanitize_question_text(candidate.question_text)
                         if hasattr(candidate, 'instruction'):
                             candidate.instruction = self._sanitize_question_text(candidate.instruction)
@@ -1132,7 +1132,15 @@ class SlotOrchestrator:
                 except Exception as e:
                     LOG.warning(f"[ORCHESTRATOR] Could not clean candidate: {e}")
 
-                candidate.status = "PASS_WITH_WARNING"
+                if _unresolved_hard_block:
+                    from dataclasses import replace
+                    unresolved_slot = replace(attempt_slot, status=SlotStatus.UNRESOLVED.value)
+                    fail_code = getattr(failed_check, "code", None) or getattr(failure, "code", None) or "EXHAUSTION_CRITICAL"
+                    if hasattr(fail_code, "value"):
+                        fail_code = fail_code.value
+                    raise UnresolvedSlotException(unresolved_slot, failure_code=str(fail_code))
+
+                candidate.status = SlotStatus.PASS.value
                 return candidate
 
             if failed_check.action == RetryAction.REBUILD_EVIDENCE or failure.code == GenerationFailureCode.EVIDENCE_FAILURE:

@@ -1,0 +1,60 @@
+{
+  "exam_types": {
+    "IAT1": {
+      "module_count": 5,
+      "questions_per_module": 2,
+      "marks_per_question": 10,
+      "co_count": 5,
+      "depth_threshold_ratio": 0.8
+    },
+    "IAT2": {
+      "module_count": 5,
+      "questions_per_module": 2,
+      "marks_per_question": 10,
+      "co_count": 5,
+      "depth_threshold_ratio": 0.8
+    },
+    "IAT3": {
+      "module_count": 5,
+      "questions_per_module": 2,
+      "marks_per_question": 10,
+      "co_count": 5,
+      "depth_threshold_ratio": 0.8
+    },
+    "IA": {
+      "module_count": 5,
+      "questions_per_module": 2,
+      "marks_per_question": 10,
+      "co_count": 5,
+      "depth_threshold_ratio": 0.8
+    },
+    "MID": {
+      "module_count": 5,
+      "questions_per_module": 2,
+      "marks_per_question": 10,
+      "co_count": 5,
+      "depth_threshold_ratio": 0.8
+    },
+    "SEE": {
+      "module_count": 5,
+      "questions_per_module": 2,
+      "marks_per_question": 20,
+      "co_count": 5,
+      "depth_threshold_ratio": 0.8
+    },
+    "SEE_4Q": {
+      "module_count": 5,
+      "questions_per_module": 4,
+      "marks_per_question": 25,
+      "co_count": 5,
+      "depth_threshold_ratio": 0.8
+    },
+    "ELECTIVE_3MOD": {
+      "module_count": 3,
+      "questions_per_module": 3,
+      "marks_per_question": 10,
+      "co_count": 3,
+      "depth_threshold_ratio": 0.8
+    }
+  }
+}

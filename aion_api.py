@@ -35,8 +35,19 @@ ROOT = Path(__file__).parent.resolve()
 os.chdir(ROOT)
 sys.path.insert(0, str(ROOT))
 
+# Precedence rule: Shell environment overrides .env.server (override=False)
+env_server_path = ROOT / ".env.server"
+if env_server_path.exists():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path=env_server_path, override=False)
+        print("[ENV] Loaded .env.server defaults with shell environment precedence (override=False).", flush=True)
+    except Exception as _env_err:
+        print(f"[ENV] Failed to load .env.server: {_env_err}", flush=True)
+
 from core.config.production_model import get_production_model, get_resolution_info
 os.environ.setdefault("AION_MODEL", get_production_model())
+
 
 # -- Core Services Imports --------------------------------------
 from core.document_registry  import DocumentRegistry, DocumentStatus
@@ -198,17 +209,83 @@ job_store:     dict = {}
 
 ALLOWED = {".pdf", ".txt", ".docx", ".pptx", ".md"}
 
+def normalize_host(host_str: str) -> str:
+    h = (host_str or "").strip()
+    if not h.startswith(("http://", "https://")):
+        h = f"http://{h}"
+    h = h.replace("://0.0.0.0", "://127.0.0.1")
+    return h.rstrip("/")
+
+
 def get_backend_name() -> str:
-    return os.environ.get("AION_BACKEND", "ollama").lower().strip()
+    b = os.environ.get("AION_BACKEND", "ollama").lower().strip()
+    if b == "vllm":
+        from runtime.profiles import get_active_profile
+        try:
+            prof = get_active_profile().name.value if hasattr(get_active_profile().name, "value") else str(get_active_profile().name)
+        except Exception:
+            prof = os.environ.get("AION_PROFILE", "LAPTOP_FAST")
+        if prof != "PRODUCTION":
+            try:
+                r = requests.get("http://127.0.0.1:8000/v1/models", timeout=0.5)
+                if not r.ok:
+                    return "ollama"
+            except Exception:
+                return "ollama"
+    return b
 
 
 def get_backend_url() -> str:
     if get_backend_name() == "vllm":
-        return (os.environ.get("AION_LLM_HOST") or os.environ.get("VLLM_URL") or "http://localhost:8000").rstrip("/")
-    return (os.environ.get("OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or os.environ.get("AION_LLM_HOST") or "http://localhost:11434").rstrip("/")
+        raw = os.environ.get("AION_LLM_HOST") or os.environ.get("VLLM_URL") or "http://localhost:8000"
+        return normalize_host(raw)
+    raw = os.environ.get("OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or os.environ.get("AION_LLM_HOST") or "http://localhost:11434"
+    return normalize_host(raw)
+
+
+def check_vllm_readiness(vllm_url: str, expected_model: str, max_attempts: int = 3, interval: float = 5.0) -> bool:
+    """Probe vLLM /v1/models with retry policy (>=3 attempts, >=15s total) for production warmup."""
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = requests.get(f"{vllm_url}/v1/models", timeout=4)
+            if resp.ok:
+                models_data = resp.json().get("data", [])
+                available_ids = [m.get("id") for m in models_data if isinstance(m, dict)]
+                if not expected_model or any(expected_model in m_id for m_id in available_ids) or len(available_ids) > 0:
+                    return True
+                last_err = f"Model {expected_model!r} not found in available models: {available_ids}"
+            else:
+                last_err = f"HTTP {resp.status_code}: {resp.text[:100]}"
+        except Exception as e:
+            last_err = str(e)
+        if attempt < max_attempts:
+            print(f"[AION-STARTUP] vLLM probe attempt {attempt}/{max_attempts} failed: {last_err}. Retrying in {interval}s...", flush=True)
+            time.sleep(interval)
+            
+    from runtime.profiles import get_active_profile
+    try:
+        prof = get_active_profile().name.value if hasattr(get_active_profile().name, "value") else str(get_active_profile().name)
+    except Exception:
+        prof = os.environ.get("AION_PROFILE", "LAPTOP_FAST")
+
+    if prof == "PRODUCTION" or os.environ.get("AION_PROFILE") == "PRODUCTION":
+        raise RuntimeError(
+            "[AION-FATAL] Production profile requires an active vLLM engine at http://localhost:8000/v1/models.\n"
+            f"  Attempted: GET {vllm_url}/v1/models (Failed after {max_attempts} attempts: {last_err})\n"
+            "  Ensure vLLM is running:\n"
+            "    python -m vllm.entrypoints.openai.api_server \\\n"
+            "      --model Qwen/Qwen2.5-14B-Instruct-AWQ \\\n"
+            "      --port 8000 --gpu-memory-utilization 0.85\n"
+            "  To run in local developer mode, start with: AION_PROFILE=LAPTOP_FAST"
+        )
+    else:
+        print(f"[BACKEND-WARNING] vLLM unreachable at {vllm_url} after {max_attempts} retries ({last_err}); falling back to Ollama.", flush=True)
+        return False
 
 
 OLLAMA_URL = get_backend_url()
+
 
 
 def warmup_model():
@@ -369,19 +446,18 @@ def health():
     llm_ok   = False
     model_ok = False
     try:
+        target = os.environ.get("AION_MODEL") or active_profile.model_name
         if backend == "vllm":
             r = requests.get(f"{host}/v1/models", timeout=3)
             if r.ok:
                 llm_ok = True
                 models = [m.get("id", "") for m in r.json().get("data", [])]
-                target = active_profile.model_name
-                model_ok = any(target == m or target in m for m in models if m) or target == "AUTO"
+                model_ok = any(target == m or target in m or m in target for m in models if m) or target == "AUTO"
         else:
             r = requests.get(f"{host}/api/tags", timeout=3)
             if r.ok:
                 llm_ok = True
                 models = [m.get("name", "") for m in r.json().get("models", [])]
-                target = active_profile.model_name
                 model_ok = any(target in m for m in models if m) or target == "AUTO"
     except Exception:
         pass
@@ -397,7 +473,7 @@ def health():
     body = {
         "ready"               : ready,
         "profile"             : active_profile.name,
-        "model"               : active_profile.model_name,
+        "model"               : target,
         "backend"             : backend,
         "concurrency"         : active_profile.concurrency,
         "memory_state"        : mem_state.value,
@@ -1102,8 +1178,10 @@ def generate_stream():
                     _ex = str(gen_req.exam_type or _b.get("exam_type") or "IAT1").upper()
                     
                     _existing = get_user_split()
+                    _sp = None
                     if _raw_m:
                         if isinstance(_raw_m, list) and _raw_m and isinstance(_raw_m[0], list):
+                            _sp = _raw_m
                             set_user_split(_raw_m, _ex)
                             print(f"[WORKER-THREAD] Locked nested split (direct): {_raw_m} for {_ex}", flush=True)
                         else:
@@ -1423,13 +1501,18 @@ def generate_async():
         job["status"] = "running"
         try:
             from v0_1.main import run_pipeline
+            _async_raw_m = (body.get("mark_splits") or body.get("marks_distribution") or body.get("marksDistribution") or body.get("marks_split") or body.get("markSplits") or body.get("sub_question_marks"))
+            _async_sq_c = body.get("sub_question_count") or body.get("subQuestionCount")
             paper, qa_report = run_pipeline(
                 file_path,
-                max_concepts   = int(body.get("max_concepts") if "max_concepts" in body else body.get("maxConcepts", 10)),
-                mode           = body.get("mode",           "turbo"),
-                exam_type      = body.get("exam_type") or body.get("examType",       "see"),
-                difficulty     = body.get("difficulty",     "mixed"),
-                include_visual = bool(body.get("include_visual") if "include_visual" in body else body.get("includeVisual", True)),
+                max_concepts       = int(body.get("max_concepts") if "max_concepts" in body else body.get("maxConcepts", 10)),
+                mode               = body.get("mode",           "turbo"),
+                exam_type          = body.get("exam_type") or body.get("examType",       "see"),
+                difficulty         = body.get("difficulty",     "mixed"),
+                include_visual     = bool(body.get("include_visual") if "include_visual" in body else body.get("includeVisual", True)),
+                sub_question_count = _async_sq_c,
+                marks_split        = _async_raw_m,
+                subject            = body.get("subject", ""),
             )
             job["result"]   = _format_paper(
                 paper,
@@ -1608,10 +1691,18 @@ def _format_paper(paper, subject, exam_type, mode, qa_report=None):
     """
     from v0_1.question_schema import GeneratedPaper, Module, MainQuestion, SubQuestion
 
+    _p_stat = "OK"
+    _p_deg_reasons = []
+    if isinstance(qa_report, dict):
+        _p_stat = qa_report.get("paper_status", "OK")
+        _p_deg_reasons = qa_report.get("degraded_reasons", [])
+
     gp = GeneratedPaper(
-        subject   = subject or "Subject",
-        exam_type = exam_type or "IAT1",
-        mode      = mode or "turbo",
+        subject          = subject or "Subject",
+        exam_type        = exam_type or "IAT1",
+        mode             = mode or "turbo",
+        status           = _p_stat,
+        degraded_reasons = list(_p_deg_reasons),
     )
 
     if hasattr(paper, "modules"):

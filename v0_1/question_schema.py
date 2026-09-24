@@ -84,6 +84,8 @@ class GeneratedPaper:
     mode:        str
     modules:     List[Module] = field(default_factory=list)
     paper_id:    str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    status:      str = "OK"  # "OK" | "DEGRADED"
+    degraded_reasons: List[str] = field(default_factory=list)
 
     @property
     def total_marks(self) -> int:
@@ -174,5 +176,7 @@ class GeneratedPaper:
                 f"s{m.module_index}": round(100 / max(1, len(self.modules)))
                 for m in self.modules
             },
+            "status": self.status,
+            "degradedReasons": list(self.degraded_reasons),
             "qaReport": {},
         }

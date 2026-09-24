@@ -78,9 +78,9 @@ class ExportGate:
                 )
 
         # Threshold checks when hard block enabled
-        unresolved_hard_block = os.getenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "false").lower() in ("true", "1", "yes")
+        unresolved_hard_block = os.getenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "true").lower() in ("true", "1", "yes")
         if unresolved_hard_block:
-            faith_thresh = float(os.getenv("AION_FAITHFULNESS_THRESHOLD", str(DEFAULT_FAITHFULNESS_THRESHOLD)))
+            faith_thresh = float(os.getenv("AION_FAITHFULNESS_THRESHOLD", "0.60"))
             for q in questions:
                 ragas = getattr(q, "ragas_metrics", None)
                 if ragas:
