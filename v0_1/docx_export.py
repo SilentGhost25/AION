@@ -275,6 +275,18 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
     inst_run.font.name = "Calibri"
     inst_run.font.italic = True
 
+    paper_status = paper_data.get("status") or paper_data.get("paper_status") or "OK"
+    if str(paper_status).upper() == "DEGRADED":
+        deg_p = doc.add_paragraph()
+        deg_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        deg_p.paragraph_format.space_after = Pt(6)
+        deg_run = deg_p.add_run("[WARNING: DEGRADED MODE — UNRESOLVED SLOTS / QUALITY AUDIT WARNINGS]")
+        deg_run.bold = True
+        deg_run.font.size = Pt(9.5)
+        deg_run.font.name = "Calibri"
+        deg_run.font.color.rgb = RGBColor(180, 0, 0)
+        print("[PAPER_DEGRADED] DOCX export rendered DEGRADED status banner.", flush=True)
+
     # --- 4. Main Question Paper Table ---
     # Col widths: Q.No (0.6 in), Sub (0.4 in), Question text (4.2 in), Marks (0.6 in), CO (0.5 in), RBT (0.5 in)
     col_widths = [Inches(0.6), Inches(0.4), Inches(4.3), Inches(0.6), Inches(0.5), Inches(0.5)]

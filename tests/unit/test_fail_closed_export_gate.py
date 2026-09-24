@@ -173,3 +173,68 @@ def test_orchestrator_raises_on_linter_exhaustion_when_flag_enabled():
             assert exc_info.value.slot.slot_id == "slot_fail_1"
             assert exc_info.value.slot.status == SlotStatus.UNRESOLVED.value
             assert exc_info.value.failure_code == "TEACHER_SUITABILITY_FAILURE"
+
+
+def test_degraded_mode_path(monkeypatch):
+    """
+    Verify that when AION_ENABLE_UNRESOLVED_HARD_BLOCK=false:
+    1. SlotOrchestrator generates in degraded mode (without unhandled exception).
+    2. Fallback candidate is returned rather than aborting.
+    """
+    from core.generation.orchestrator import SlotOrchestrator
+    from core.validation.common import CheckResult
+    from core.validation.linter import LintReport
+
+    orch = SlotOrchestrator()
+    slot = _make_slot(slot_id="slot_degraded_1")
+
+    orch._call_llm = MagicMock(return_value='{"instruction": "Explain cloud.", "question_text": "Explain cloud.", "math_blocks": []}')
+
+    failing_report = LintReport(slot.slot_id, {
+        "teacher_suitability": CheckResult.fail("TEACHER_SUITABILITY_FAILURE", "Pedagogically unsuitable.")
+    })
+
+    monkeypatch.setenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "false")
+    with patch("core.generation.orchestrator.run_linter", return_value=failing_report):
+        result_q = orch.generate(slot, "Some evidence text")
+        assert result_q is not None
+        assert result_q.status in (SlotStatus.GENERATED.value, SlotStatus.PASS.value, SlotStatus.FAILED.value)
+
+
+def test_degraded_mode_docx_export_surfacing(capsys):
+    """
+    Verify that DOCX exporter surfaces DEGRADED mode banner and emits [PAPER_DEGRADED] tag.
+    """
+    from v0_1.docx_export import generate_docx_from_paper
+    from v0_1.question_schema import GeneratedPaper, Module, MainQuestion, SubQuestion
+
+    gp = GeneratedPaper(
+        subject="Sat Com",
+        exam_type="IAT1",
+        mode="turbo",
+        status="DEGRADED",
+        degraded_reasons=["Slot module_1_Q1 failed teacher suitability"],
+    )
+    gp.modules.append(Module(
+        module_index=1,
+        module_title="Satellite Orbits",
+        questions=[MainQuestion(
+            mq_index=1,
+            total_marks=10,
+            bloom_level=2,
+            bloom_name="Understand",
+            sub_questions=[SubQuestion(letter="a", text="Explain Kepler's laws.", marks=10, co="CO1", bloom="L2")]
+        )]
+    ))
+
+    paper_dict = gp.to_dict()
+    assert paper_dict["status"] == "DEGRADED"
+    assert "Slot module_1_Q1 failed teacher suitability" in paper_dict["degradedReasons"]
+
+    buf = generate_docx_from_paper(paper_dict)
+    assert buf is not None
+    assert len(buf.getvalue()) > 0
+
+    captured = capsys.readouterr()
+    assert "[PAPER_DEGRADED]" in captured.out
+
