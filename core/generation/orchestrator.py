@@ -341,7 +341,7 @@ class SlotOrchestrator:
             # Slot budget check
             if time.monotonic() - start_time > slot_budget_sec:
                 LOG.warning(f'[ORCHESTRATOR] Slot budget exceeded for {slot.slot_id} — using fallback.')
-                if os.getenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "false").lower() in ("true", "1", "yes"):
+                if os.getenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "true").lower() in ("true", "1", "yes"):
                     from dataclasses import replace
                     unresolved_slot = replace(slot, status=SlotStatus.UNRESOLVED.value)
                     raise UnresolvedSlotException(unresolved_slot, failure_code="SLOT_BUDGET_EXCEEDED")
@@ -820,7 +820,7 @@ class SlotOrchestrator:
                 LOG.warning(f"[ORCHESTRATOR] Slot {attempt_slot.slot_id} Attempt {attempt} failed: {failure.message}")
                 
                 if attempt == MAX_ATTEMPTS:
-                    if os.getenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "false").lower() in ("true", "1", "yes"):
+                    if os.getenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "true").lower() in ("true", "1", "yes"):
                         from dataclasses import replace
                         unresolved_slot = replace(attempt_slot, status=SlotStatus.UNRESOLVED.value)
                         raise UnresolvedSlotException(unresolved_slot, failure_code="SCHEMA_FAILURE")
@@ -1075,7 +1075,14 @@ class SlotOrchestrator:
                     or not _q_txt
                 )
                 if _content_defects or candidate is None:
-                    LOG.warning(f"[ORCHESTRATOR] Slot exhausted with unrecovered quality defects ({failure_history}). Substituting clean evidence template fallback.")
+                    if _unresolved_hard_block:
+                        from dataclasses import replace
+                        unresolved_slot = replace(attempt_slot, status=SlotStatus.UNRESOLVED.value)
+                        fail_code = getattr(failed_check, "code", None) or getattr(failure, "code", None) or "CONTENT_DEFECT"
+                        if hasattr(fail_code, "value"):
+                            fail_code = fail_code.value
+                        raise UnresolvedSlotException(unresolved_slot, failure_code=str(fail_code))
+                    LOG.warning(f"[ORCHESTRATOR] Slot exhausted with unrecovered quality defects ({failure_history}). Substituting clean evidence template fallback in degraded mode.")
                     return self._generate_template_fallback(attempt_slot, evidence_pack)
 
                 # Formatting-only defect on exhaustion (e.g. BLOOM_VERB_NOT_AT_START) -> force-salvage with AutoHealer
@@ -1107,6 +1114,10 @@ class SlotOrchestrator:
                                 candidate.output.instruction = clean_instr
                     except Exception as e:
                         LOG.warning(f"[ORCHESTRATOR] Math strip salvage failed: {e}. Falling back to template.")
+                        if _unresolved_hard_block:
+                            from dataclasses import replace
+                            unresolved_slot = replace(attempt_slot, status=SlotStatus.UNRESOLVED.value)
+                            raise UnresolvedSlotException(unresolved_slot, failure_code="MATH_STRIP_FAILURE")
                         return self._generate_template_fallback(attempt_slot, evidence_pack)
 
                 # Final cleaning and synchronization on both candidate and candidate.output
@@ -1169,6 +1180,10 @@ class SlotOrchestrator:
 
             attempt += 1
             
+        if os.getenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "true").lower() in ("true", "1", "yes"):
+            from dataclasses import replace
+            unresolved_slot = replace(slot, status=SlotStatus.UNRESOLVED.value)
+            raise UnresolvedSlotException(unresolved_slot, failure_code="LOOP_EXHAUSTION")
         return self._generate_template_fallback(slot, evidence_pack)
 
     # ULTIMATE_SLOT_GUARD_EXCEPT placeholder — real wrap below
