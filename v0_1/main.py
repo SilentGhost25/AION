@@ -363,6 +363,8 @@ def run_pipeline(
     else:
         validated_path = upload(file_path)
         p = Path(validated_path)
+        if p.suffix.lower() in (".txt", ".md"):
+            print(f"[DEPRECATION] run_pipeline received {p.suffix.lower()} — structured extraction disabled (figures/tables/equations will be 0 until PR 3).", flush=True)
 
         modules = []
         if p.is_dir():
