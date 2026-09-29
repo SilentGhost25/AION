@@ -86,6 +86,14 @@ def get_production_model() -> str:
     # Priority 1: AION_MODEL environment variable (manual override)
     env_model = os.environ.get("AION_MODEL", "").strip()
     if env_model:
+        try:
+            from runtime.profiles import get_active_profile
+            prof = get_active_profile()
+            prof_name = prof.name.value if hasattr(prof.name, "value") else str(prof.name)
+            if prof_name == "LAPTOP_FAST" and env_model not in prof.allowed_models:
+                return "qwen2.5:1.5b-instruct"
+        except Exception:
+            pass
         _last_resolution = {
             "resolved_model": env_model,
             "source": "env_AION_MODEL",

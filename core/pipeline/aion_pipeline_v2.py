@@ -148,14 +148,17 @@ class PipelineV2Harness:
             print(f"  Spec scenario: {spec.scenario[:100] if spec.scenario else 'None'}...")
             print(f"  Question: {q}")
         return questions
-
 if __name__ == "__main__":
+    import sys, pathlib
     harness = PipelineV2Harness()
-    # Test with Modul 2 text
-    import pathlib
-    text = pathlib.Path("workspace/uploads/Modul2_LinearDS_proxy.txt").read_text() if pathlib.Path("workspace/uploads/Modul2_LinearDS_proxy.txt").exists() else "test"
+    if len(sys.argv) > 1 and pathlib.Path(sys.argv[1]).exists():
+        text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8", errors="ignore")
+    else:
+        text = "Sample academic syllabus text: Stacks, Queues, Linked Lists and asymptotic performance."
     specs = harness.run_demo(text, module="Module 2: Stacks, Queues and Linked Lists")
     qs = harness.compose_all(specs)
     print(f"\n=== Final Questions (V2, spec-driven, not template dump) ===")
     for i, q in enumerate(qs, 1):
         print(f"Q{i}: {q}")
+
+

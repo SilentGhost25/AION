@@ -29,25 +29,28 @@
 | `v0_1/difficulty_policy.py` | Mapping of marks and question types to Course Outcomes (CO) and Bloom's levels (L1–L5); implements L3 numerical invariant. |
 | `v0_1/content_filter.py` | Pre-generation text cleaning, noise removal, OCR artifact filtering, and academic density validation (`_is_dense_academic`). |
 | `v0_1/extractor.py` | Multi-engine document text and image extraction (Docling, PyMuPDF, RapidOCR) with caching in `.aion_cache/`. |
-| `v0_1/docx_export.py` | Formal university exam paper exporter (.docx) with question layout, marks tables, RBT/CO headers, and embedded figures. |
+| `v0_1/docx_export.py` | Formal university exam paper exporter (.docx) with question layout, marks tables, RBT/CO headers, embedded figures, and degraded-mode warnings. |
 | `aion_api.py` | **FastAPI Server** exposing REST API and Server-Sent Events (SSE) for live generation streaming, asset serving (`/api/asset`), job queue management, and metrics. |
 | `core/` | **Modular Production Framework**: Refactored evaluation, generation, validation, and extraction subsystems. |
+| `core/contracts/` | Typed schemas, lifecycle enums, and protocols (`paper_spec.py`, `question_slot.py`, `question.py`). |
+| `core/domain/` | Subject detection and domain integrity gating (`subject_detector.py`, `integrity_gate.py`). |
 | `core/evaluation/` | Real-time deterministic RAG evaluation suite (`deterministic.py`, `contracts.py`, `aggregation.py`) providing RAGAS-inspired metrics without external network calls. |
-| `core/generation/` | `SlotOrchestrator` for threaded slot-level generation, retry policies, and `auto_healer.py` for deterministic repair. |
-| `core/validation/` | Gatekeeper linting: `bloom_validator.py` (canonical Bloom verb sets), `linter.py` (opening verb & syntax checks), `math_validator.py` (KaTeX/equation sanity), `export_gate.py`. |
+| `core/extraction/` | Structural block classification (`block_classifier.py`), course boundary enforcement (`course_boundary.py`), and layered multimodal parsing. |
+| `core/generation/` | `SlotOrchestrator`, `paper_spec_resolver.py` (exam blueprint resolver), `topic_validator.py` (anti-drift validation), and `auto_healer.py`. |
+| `core/validation/` | Gatekeeper linting: `bloom_validator.py`, `linter.py`, `verb_task_linter.py`, and `export_gate.py` (fail-closed slot enforcement). |
 | `aion/` | **Greenfield V2 Architecture Baseline**: Multimodal DOM (`aion/core/dom`), Knowledge Compiler (`aion/core/knowledge`), Evidence Planner (`aion/core/planning`), and fusion extraction (`aion/core/extraction`). |
 | `frontend/` | Next.js / React application with Tailwind CSS and Radix UI for interactive paper configuration, live generation streaming, and paper preview. |
-| `configs/` | System, university blueprint, and model configuration YAMLs (`aion_config.yaml`). |
+| `configs/` | System, university blueprint, and model configuration YAMLs (`aion_config.yaml`, `exam_specs.json`). |
 | `workspace/` | Local runtime artifacts, figure crops (`workspace/artifacts/figures/`), generated exports (`exports/`), and temporary files. |
-| `tests/` | Comprehensive test suite covering regression tests (`test_golden_pipeline_regressions.py`), DOM (`test_multimodal_dom.py`), RAG metrics (`test_realtime_rag_metrics.py`), and evidence planner (`test_evidence_planner.py`). |
-| Root Launch Scripts | `start_server.ps1` / `start_server.sh` (dynamic multi-instance server launcher), `start_aion.py`, `aiq` CLI runner. |
+| `tests/` | Comprehensive test suite covering regression tests (`test_golden_pipeline_regressions.py`), integration acceptance (`test_multi_subject_acceptance.py`), export gates, and DOM/RAG metrics. |
+| Root Launch Scripts | `start_server.ps1` / `start_server.sh` (dynamic multi-instance launcher), `start_vllm.ps1` / `start_vllm.sh` (vLLM engine launcher), `start_aion.py`, `aiq` CLI runner. |
 
 ---
 
 ## 3. Current Release & Patch State
 
 - **Active Branch**: `v2`
-- **Head Commit**: `72d5cd15` (`fix(pipeline): make _print_exam_paper dynamically handle 2 questions per module`)
+- **Head Commit**: `c84398b2` (`feat(acceptance): add multi-subject acceptance integration suite and deprecation notice for plain text in run_pipeline`)
 - **Remote Tracking**: Synchronized with `origin/v2`
 - **Production Predecessor**: `v1.1.0` (Branch `mod_eval`, commit `4b9fed00`)
 - **Golden Rollback Baseline**: `v1.0.0` (Tag `v1.0.0`, commit `6e3631a`)
@@ -56,7 +59,7 @@
 
 ## 4. Changelog: Updates in the Current Patch (`v2`)
 
-The current patch (branch `v2`, commits `4978eb52` through `72d5cd15`) introduces major architectural stabilization, strict pedagogical invariants, and real-time evaluation capabilities:
+The current patch (branch `v2`) introduces major architectural stabilization, subject-agnostic paper generation, fail-closed validation gates, and real-time evaluation capabilities:
 
 ### 1. Equal Module Question Allocation (`v0_1/main.py`)
 - **Problem**: Multi-module papers previously had uneven slot allocations or generated 4 partitions per module in multi-module exams, violating the standard VTU 2-question-per-module layout.
@@ -135,6 +138,38 @@ The current patch (branch `v2`, commits `4978eb52` through `72d5cd15`) introduce
   - Injected universal wrapper support in `aion_patch.py` to seamlessly handle both `str` prompts and `LLMRequest` dataclass objects.
   - Test validation: Created `tests/test_vllm_integration.py` (9/9 passing; combined full suite: 46/46 passing).
 
+### 13. Subject-Agnostic Generation Architecture & High-Throughput Engine (`367de8e7`, `6bc0d8dd`)
+- **Subject Detection & Domain Gating (`core/domain/`)**: Automatic syllabus subject detection (`subject_detector.py`) and integrity gating (`integrity_gate.py`) to prevent cross-domain contamination and dynamically adapt pedagogical constraints across STEM, Management, and Humanities.
+- **Analytical & Symbolic Math Engine (`core/numerical_engine.py`)**: Added SymPy-driven formula solver and numerical verification engine for step-by-step math problems and ground-truth validation.
+- **High-Throughput Model Serving**: Configured dedicated launcher scripts (`start_vllm.ps1`, `start_vllm.sh`) and added production runtime profile support for 14B AWQ models on NVIDIA L40 GPUs.
+
+### 14. Phase A: Fail-Closed Export Gate & Slot Status Lifecycle (`5c7198e3`, `cac0f332`)
+- **Slot Status Lifecycle (`core/contracts/question_slot.py`)**: Introduced typed `SlotStatus` enum (`PENDING`, `GENERATED`, `VALIDATED`, `FAILED`, `HEALED`, `DEGRADED`) providing complete lifecycle tracking for every question partition.
+- **Fail-Closed Export Gate (`core/validation/export_gate.py`)**: Replaced silent fallback/salvage mechanisms with an unyielding export gate. Any question slot that fails validation or remains ungrounded raises `UnresolvedSlotException`, preventing defective exam exports.
+- **Template Fallback Sealing (`core/generation/orchestrator.py`)**: Sealed all template fallback points so the pipeline refuses to silently insert canned synthetic placeholders during hard generation blocks.
+
+### 15. Phase B: Benchmark Corpora, Quality Calibration & Telemetry (`06d785cc`)
+- **Ground-Truth Benchmark Corpora**: Added curated benchmark datasets (`tests/fixtures/paper_quality_corpus.jsonl`, `block_roles.jsonl`) for continuous regression testing.
+- **Automated Threshold Calibration (`scripts/calibrate_quality_thresholds.py`)**: Tooling to empirically calibrate quality and groundedness thresholds (`tests/fixtures/thresholds.json`).
+- **Structured Telemetry**: Injected structured topic and block extraction telemetry to monitor chunk depth and evidence quality.
+
+### 16. Phases C & D: Content-Aware Classification, Course Boundaries & Topic Validator (`627cd053`)
+- **Structural Block Classification (`core/extraction/block_classifier.py`)**: Classifies document blocks into functional roles (`SYLLABUS`, `THEORY`, `NUMERICAL`, `QUESTION_BANK`, `REVISION`), firewalling study aids and revision sections from serving as evidence.
+- **Course Boundary Enforcement (`core/extraction/course_boundary.py`, `core/config/course_taxonomy.json`)**: Detects and filters cross-course terminology and syllabus spillover across disciplines.
+- **Topic Validator (`core/generation/topic_validator.py`)**: Semantic validator ensuring generated questions do not mutate or drift away from designated syllabus module concepts.
+- **Verb-Task Compatibility Linter (`core/validation/verb_task_linter.py`)**: Validates that assigned Bloom action verbs are semantically compatible with the targeted task archetype (e.g. prohibiting procedural verbs on purely theoretical definitions).
+
+### 17. Subject-Agnostic Blueprint Hardening & PaperSpec (`5653f823`)
+- **Declarative PaperSpec (`core/contracts/paper_spec.py`, `core/config/exam_specs.json`)**: Replaced hardcoded paper blueprint logic with declarative `PaperSpec` contracts resolved dynamically via `PaperSpecResolver` (`core/generation/paper_spec_resolver.py`).
+- **Deterministic Marks Allocation**: Mathematical partitioner guaranteeing strict marks splits across questions without heuristic drift.
+- **Standardized Course Outcome Mapping**: Standardized Module-to-CO mapping ($M \to \text{CO}M$) with configurable fallback modes.
+- **Fail-Closed Salvage Elimination**: Eradicated remaining silent salvage fallback paths in `v0_1/main.py`.
+
+### 18. Degraded Mode Export & Multi-Subject Acceptance Suite (`85cd6152`, `c84398b2`)
+- **Controlled Degraded Mode (`v0_1/docx_export.py`)**: When explicitly permitted by operational policy, papers with non-critical warnings export with prominent visual degraded-mode banners and audit trace tags in DOCX headers.
+- **Multi-Subject Acceptance Integration Suite (`tests/integration/test_multi_subject_acceptance.py`)**: Added end-to-end integration test suite verifying autonomous paper generation across multiple diverse university subjects.
+- **Plain-Text Deprecation Notice**: Formalized deprecation notice for raw unstructured plain text inputs in `run_pipeline`, moving the pipeline toward structured document artifacts and `PaperSpec`.
+
 ---
 
 ## 5. End-to-End Pipeline Execution Lifecycle
@@ -208,6 +243,16 @@ When modifying or generating code in this repository, **strictly uphold these ru
    - Sampling temperature for exam generation is standardized to `0.1` across both `RobustLLMCaller` and `v0_1/llm.py` to prevent formatting and Bloom verb drift.
    - Random seed defaults to `42` across all inference calls and can be overridden via `AION_SEED` environment variable for reproducible testing or deliberate variance.
 
+
+7. **Fail-Closed Export Gate & Slot Status Lifecycle**:
+   - Every question slot must progress through explicit typed lifecycle states (`SlotStatus`).
+   - If any slot fails validation or remains ungrounded, `ExportGate` rejects document export with `UnresolvedSlotException`. Silent template fallback and synthetic placeholders are strictly prohibited.
+8. **PaperSpec Compliance & Deterministic Allocation**:
+   - Generation blueprints must resolve against declarative `PaperSpec` configurations.
+   - Sub-question marks allocation must be mathematically deterministic according to blueprint rules, and module Course Outcomes strictly map to $M \to \text{CO}M$ (or explicitly configured mode).
+9. **Course Boundary & Subject Firewalling**:
+   - `CourseBoundaryDetector` rejects out-of-syllabus and cross-subject terminology from contaminating module generation evidence.
+   - Text classified by `BlockClassifier` as non-curriculum (`QUESTION_BANK`, `REVISION`, `EXTERNAL`) is barred from serving as primary generation stems.
 
 ---
 

@@ -225,12 +225,6 @@ def extract(pdf_or_text_path: str, **kwargs) -> Document:
         report["formulas"] = formulas
 
     doc_id     = str(uuid.uuid4())[:8]
-    output_dir = Path("extracted_output")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    out_file = output_dir / f"{path.stem}_{doc_id}.txt"
-    out_file.write_text(text, encoding="utf-8")
-    # Also write canonical clean_text.txt per Universal Academic Pipeline spec
-    (output_dir / "clean_text.txt").write_text(text, encoding="utf-8")
 
     return Document(
         doc_id      = doc_id,

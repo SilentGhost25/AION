@@ -11,7 +11,7 @@ import json
 import random
 import time
 from pathlib import Path
-from typing import List, Tuple, Dict, Optional, Any
+from typing import List, Tuple, Dict, Optional, Any, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
@@ -87,17 +87,29 @@ CACHE_DIR = Path("extracted_output") / ".cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _modules_cache_key(file_path: str) -> str:
+def _modules_cache_key(file_path: Union[str, Path, List[Any]]) -> str:
     import hashlib
+    if isinstance(file_path, (list, tuple)):
+        raw_parts = []
+        for fp in file_path:
+            p = Path(fp)
+            try:
+                stat = p.stat()
+                raw_parts.append(f"{p.name}:{stat.st_size}:{stat.st_mtime}")
+            except Exception:
+                raw_parts.append(f"{str(fp)}:0:0")
+        raw = "|".join(raw_parts)
+        return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
     p = Path(file_path)
     try:
         if p.is_dir():
-            suffixes = {".pdf", ".txt", ".md"}
+            suffixes = {".pdf"}
             files = sorted(
                 [f for f in p.iterdir() if f.is_file() and f.suffix.lower() in suffixes and not f.name.startswith(".")],
                 key=lambda f: f.name
             )
-            raw_parts = [file_path]
+            raw_parts = [str(file_path)]
             for f in files:
                 stat = f.stat()
                 raw_parts.append(f"{f.name}:{stat.st_size}:{stat.st_mtime}")
@@ -110,7 +122,7 @@ def _modules_cache_key(file_path: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-def _load_cached_modules(file_path: str):
+def _load_cached_modules(file_path: Union[str, Path, List[Any]]):
     import pickle
     try:
         key   = _modules_cache_key(file_path)
@@ -125,7 +137,7 @@ def _load_cached_modules(file_path: str):
     return None
 
 
-def _save_cached_modules(file_path: str, modules):
+def _save_cached_modules(file_path: Union[str, Path, List[Any]], modules):
     import pickle
     try:
         key   = _modules_cache_key(file_path)
@@ -243,7 +255,7 @@ def plan_slot_types(module_idx: int, num_slots: int) -> list[str]:
 
 
 def run_pipeline(
-    file_path:          str,
+    file_path:          Optional[Union[str, Path, List[Union[str, Path]]]] = None,
     max_concepts:       int  = 10,
     mode:               str  = "turbo",
     exam_type:          str  = "see",
@@ -255,6 +267,9 @@ def run_pipeline(
     sub_question_count: Optional[int] = None,  # 1, 2, or 3 — user-specified
     marks_split:        Optional[List[List[int]]] = None,  # User-specified marks partitions
     subject:            Optional[str] = None,
+    pdf_paths:          Optional[List[Union[str, Path]]] = None,
+    source_kind:        Optional[str] = None,  # "pdf" | "text"
+    enable_structured:  Optional[bool] = None,
 ) -> Tuple[List[dict], List[dict]]:
     artifact = None
     """
@@ -266,21 +281,46 @@ def run_pipeline(
     from core.validators.academic_validator import validate_academic_quality
 
     t_start = time.time()
+
+    if enable_structured is None:
+        flag_val = os.getenv("AION_STRUCTURED_EXTRACTION_ENABLED") or os.getenv("AION_ENABLE_STRUCTURED_EXTRACTION", "false")
+        enable_structured = flag_val.lower() in ("true", "1", "yes")
+
+    # Resolve input paths (accepts pdf_paths list, file_path list, or single file_path)
+    target_inputs = []
+    if pdf_paths:
+        target_inputs = list(pdf_paths)
+    elif isinstance(file_path, (list, tuple)):
+        target_inputs = list(file_path)
+    elif file_path:
+        target_inputs = [file_path]
+    else:
+        raise ValueError("run_pipeline requires file_path or pdf_paths")
+
+    primary_file_path = str(target_inputs[0]) if target_inputs else ""
+
+    # Resolve source_kind: "pdf" vs "text" (user-uploaded text file)
+    if source_kind is None:
+        if len(target_inputs) == 1 and Path(target_inputs[0]).suffix.lower() in (".txt", ".md"):
+            source_kind = "text"
+        else:
+            source_kind = "pdf"
+
     try:
         import aion_patch
-        aion_patch.ACTIVE_FILE_PATH = file_path
+        aion_patch.ACTIVE_FILE_PATH = primary_file_path
         if subject:
             aion_patch.ACTIVE_SUBJECT = str(subject).strip()
     except Exception:
         pass
     if pipeline_trace:
-        pipeline_trace.stage("PipelineStart", status="PASS", metrics={"file": Path(file_path).name, "exam": exam_type})
+        pipeline_trace.stage("PipelineStart", status="PASS", metrics={"file": Path(primary_file_path).name, "exam": exam_type, "source_kind": source_kind})
 
     # -- Unified pipeline delegate (grounded) -----------------
     if use_unified and HAS_UNIFIED:
         print("[PIPELINE] Delegating to Universal Academic Pipeline (grounded, hallucination-resistant)")
         return run_unified_pipeline(
-            file_path=file_path,
+            file_path=primary_file_path,
             exam_type=exam_type,
             difficulty=difficulty,
             num_questions=max(4, max_concepts),
@@ -304,9 +344,9 @@ def run_pipeline(
 
     try:
         import aion_patch
-        aion_patch.ACTIVE_FILE_PATH = file_path
+        aion_patch.ACTIVE_FILE_PATH = primary_file_path
         _collect = getattr(aion_patch, "collect_extracted_assets", None)
-        assets = _collect(file_path) if callable(_collect) else {}
+        assets = _collect(primary_file_path) if callable(_collect) else {}
         print(f"[ASSETS] images={len((assets or {}).get('images', []))} equations={len((assets or {}).get('equations', []))}", flush=True)
     except Exception as _e:
         print(f"[ASSETS] skip: {_e}", flush=True)
@@ -322,7 +362,7 @@ def run_pipeline(
     try:
         import json as _json
         import aion_patch as _ap
-        _upload = Path(file_path).parent
+        _upload = Path(primary_file_path).parent
         _figdir = _upload / "extracted_figures"
         _manifest = _upload / "diagrams_manifest.json"
         _diagrams = []
@@ -355,158 +395,128 @@ def run_pipeline(
 
     # 1. Ingestion & Segmentation
     t0 = time.time()
-    cached_modules = _load_cached_modules(file_path)
+    cached_modules = _load_cached_modules(target_inputs if len(target_inputs) > 1 else primary_file_path)
     if cached_modules is not None:
         modules = cached_modules
         if pipeline_trace:
             pipeline_trace.stage("Extraction", status="PASS", duration_ms=(time.time()-t0)*1000, metrics={"cached": True, "modules": len(modules)})
     else:
-        validated_path = upload(file_path)
-        p = Path(validated_path)
-        if p.suffix.lower() in (".txt", ".md"):
-            print(f"[DEPRECATION] run_pipeline received {p.suffix.lower()} — structured extraction disabled (figures/tables/equations will be 0 until PR 3).", flush=True)
+        from core.extraction.artifact_cache import load_or_extract_artifact, merge_artifacts
+        from core.contracts.document_artifact import DocumentArtifact, TextBlock
+        import hashlib
 
         modules = []
-        if p.is_dir():
-            suffixes = {".pdf", ".txt", ".md"}
-            files = sorted(
-                [f for f in p.iterdir() if f.is_file() and f.suffix.lower() in suffixes and not f.name.startswith(".")],
-                key=lambda f: f.name
+
+        if source_kind == "text":
+            # Legitimate user-uploaded text or markdown file
+            text_p = Path(target_inputs[0])
+            if text_p.suffix.lower() not in (".txt", ".md"):
+                raise ValueError(f"text source must be .txt or .md, got {text_p.suffix}")
+            raw_content = text_p.read_text(encoding="utf-8", errors="ignore")
+            sha = hashlib.sha256(raw_content.encode("utf-8")).hexdigest()
+            t_blocks = [
+                TextBlock(id=f"blk_{i}", text=line.strip(), page=1, block_role="BODY", source_pdf_sha256=sha)
+                for i, line in enumerate(raw_content.splitlines()) if line.strip()
+            ]
+            artifact = DocumentArtifact(
+                source_pdf_sha256=sha,
+                source_pdf_path=str(text_p),
+                extractor_version="direct_text",
+                text_blocks=t_blocks,
+                title=text_p.stem,
             )
-            if not files:
-                raise FileNotFoundError(f"No PDF, TXT, or MD files found in directory: {file_path}")
-
-            print(f"[PIPELINE] Processing directory: {file_path} ({len(files)} files found)")
-            ingestion_errors: list = []
-            for file_item in files:
-                print(f"[PIPELINE] Ingesting file: {file_item.name} ...")
-                try:
-                    val_file_path = upload(str(file_item))
-                    doc = extract(val_file_path, extract_images=False)
-                    # Decode raw bytes with UTF-8 to prevent charmap failures on non-ASCII
-                    if hasattr(doc, 'raw_text'):
-                        content = doc.raw_text
-                        if isinstance(content, bytes):
-                            content = content.decode('utf-8', errors='replace')
-                        content = content.strip()
-                    else:
-                        content = str(doc).strip()
-
-                    # Modular Academic Validation Gate
-                    acad_res = validate_academic_quality(content)
-                    if pipeline_trace:
-                        pipeline_trace.stage(
-                            f"AcademicValidator:{file_item.stem}",
-                            status = "PASS" if acad_res.valid else "WARN",
-                            metrics = {"score": acad_res.academic_score, "noise": acad_res.noise_score},
-                            message = acad_res.rejection_reason if not acad_res.valid else "Clean academic text"
-                        )
-
-                    words = len(content.split())
-                    modules.append(ModuleSegment(title=file_item.stem, content=content, word_count=words))
-                except Exception as e:
-                    ingestion_errors.append({"file": file_item.name, "error": str(e)})
-                    print(f"  [INGESTION ERROR] {file_item.name}: {e}")
-
-            # -- MODULE COMPLETENESS GATE ---------------------------------------------
-            # Validate that every expected module file was ingested without error.
-            # Module numbers are positional (matching sorted file order) since
-            # ModuleSegment does not carry a module_id field at this stage.
-            expected_module_numbers = list(range(1, len(files) + 1))
-            actual_module_numbers   = list(range(1, len(modules) + 1))
-            missing_modules    = sorted(set(expected_module_numbers) - set(actual_module_numbers))
-            unexpected_modules = sorted(set(actual_module_numbers)   - set(expected_module_numbers))
-            if missing_modules or unexpected_modules or ingestion_errors:
-                err_lines = [f"    {e['file']}: {e['error']}" for e in ingestion_errors]
-                raise RuntimeError(
-                    f"[INGESTION GATE] FAILED\n"
-                    f"  Expected modules : {expected_module_numbers}\n"
-                    f"  Found modules    : {actual_module_numbers}\n"
-                    f"  Missing          : {missing_modules}\n"
-                    f"  Unexpected       : {unexpected_modules}\n"
-                    f"  Ingestion errors :\n" +
-                    "\n".join(err_lines)
-                )
-
-        else:
-            t_extract = time.time()
-            if Path(validated_path).suffix.lower() in (".txt", ".md"):
-                from core.extraction.gateway import DocumentArtifact
-                content = Path(validated_path).read_text(encoding="utf-8", errors="replace")
-                blocks = [b.strip() for b in re.split(r"\n{2,}", content) if len(b.strip()) > 15]
-                artifact = DocumentArtifact(
-                    text=content,
-                    text_blocks=len(blocks),
-                    equations=[],
-                    tables=[],
-                    figures=[],
-                    valid_chunks=len(blocks),
-                    word_count=len(content.split()),
-                    source_path=validated_path,
-                    adapter="DirectTextReader",
-                    confidence=100.0,
-                    page_count=1,
-                    backends=["DirectTextReader"],
-                )
-                print("=" * 60)
-                print("[RUNTIME EXTRACTION RESOLUTION]")
-                print(f"  Source path     : {validated_path}")
-                print(f"  Source type     : text/plain")
-                print(f"  Source authority: ORIGINAL")
-                print(f"  Adapters used   : ['DirectTextReader']")
-                print(f"  Text blocks     : {len(blocks)}")
-                print(f"  Equations       : 0")
-                print(f"  Tables          : 0")
-                print(f"  Figures         : 0")
-                print(f"  Valid chunks    : {len(blocks)}")
-                print(f"  Hard stop decision: PROCEED")
-                print("=" * 60)
-            else:
-                try:
-                    from core.extraction.gateway import ExtractionGateway, ExtractionError
-                    artifact = ExtractionGateway.extract(validated_path, extract_images=False)
-                    valid_chunks = [c for c in artifact.chunks if c.is_retrieval_eligible()]
-                    content = "\n\n".join(c.text for c in valid_chunks)
-
-                    # PRINT RESOLVED OBJECT TYPES BEFORE CHUNKING & GENERATION
-                    print("=" * 60)
-                    print("[RUNTIME EXTRACTION RESOLUTION]")
-                    print(f"  Source path     : {artifact.source_path}")
-                    print(f"  Source type     : {artifact.mime_type}")
-                    print(f"  Source authority: ORIGINAL")
-                    print(f"  Adapters used   : {artifact.backends}")
-                    print(f"  Text blocks     : {artifact.text_blocks if isinstance(artifact.text_blocks, int) else artifact.text_blocks}")
-                    print(f"  Equations       : {artifact.equations}")
-                    print(f"  Tables          : {artifact.tables}")
-                    print(f"  Figures         : {artifact.figures}")
-                    print(f"  Valid chunks    : {len(valid_chunks)}")
-                    print(f"  Hard stop decision: PROCEED")
-                    print("=" * 60)
-                except ExtractionError as ee:
-                    print(f"[EXTRACTION HARD STOP] {ee.code}: {ee.message}")
-                    raise RuntimeError(f"Extraction Hard Stop: [{ee.code}] {ee.message}")
-                except Exception as ex:
-                    print(f"[EXTRACTION FALLBACK] Gateway error: {ex}")
-                    raw_document = extract(validated_path, extract_images=False)
-                    content = raw_document.raw_text
-            _mark("extraction", t_extract)
-
-            # Modular Academic Validation Gate
-            acad_res = validate_academic_quality(content)
-            if pipeline_trace:
-                pipeline_trace.stage(
-                    "AcademicValidator",
-                    status = "PASS" if acad_res.valid else "WARN",
-                    metrics = {"score": acad_res.academic_score, "noise": acad_res.noise_score},
-                    message = acad_res.rejection_reason if not acad_res.valid else "Clean academic text"
-                )
+            print(f"[TEXT] Ingested user-uploaded text file: {text_p.name} ({len(t_blocks)} blocks)")
 
             t_seg = time.time()
-            seg_result = segment_document(content, file_path=validated_path)
+            seg_result = segment_document(artifact, file_path=str(text_p))
             modules = seg_result.segments
             _mark("segmentation", t_seg)
 
-        _save_cached_modules(file_path, modules)
+        else:
+            # PDF source(s) — structured extraction
+            resolved_pdf_paths = [Path(upload(str(inp))) for inp in target_inputs]
+
+            for p in resolved_pdf_paths:
+                if p.suffix.lower() != ".pdf":
+                    if enable_structured:
+                        raise ValueError(
+                            f"Structured extraction requires PDF. Got {p.suffix}: {p}. "
+                            f"Set AION_STRUCTURED_EXTRACTION_ENABLED=false for legacy mode."
+                        )
+                    else:
+                        raise ValueError(f"PDF source expected, got {p.suffix}: {p}")
+
+            if len(resolved_pdf_paths) > 1:
+                # Multi-PDF structured ingestion: 1 PDF = 1 Module
+                extracted_artifacts = []
+                for m_num, pdf_p in enumerate(resolved_pdf_paths, 1):
+                    print(f"[PIPELINE] Ingesting structured module PDF {m_num}/{len(resolved_pdf_paths)}: {pdf_p.name} ...")
+                    art = load_or_extract_artifact(pdf_p)
+                    extracted_artifacts.append(art)
+                    content = art.to_canonical_text() if hasattr(art, "to_canonical_text") else art.raw_text
+                    words = len(content.split())
+                    modules.append(ModuleSegment(title=pdf_p.stem, content=content, word_count=words, module_index=m_num))
+
+                artifact = merge_artifacts(extracted_artifacts, subject=subject or "")
+            elif resolved_pdf_paths[0].is_dir():
+                # Directory of module PDFs
+                p_dir = resolved_pdf_paths[0]
+                suffixes = {".pdf"}
+                files = sorted(
+                    [f for f in p_dir.iterdir() if f.is_file() and f.suffix.lower() in suffixes and not f.name.startswith(".")],
+                    key=lambda f: f.name
+                )
+                if not files:
+                    raise FileNotFoundError(f"No PDF files found in directory: {p_dir}")
+
+                print(f"[PIPELINE] Processing PDF directory: {p_dir} ({len(files)} files found)")
+                extracted_artifacts = []
+                for m_num, file_item in enumerate(files, 1):
+                    art = load_or_extract_artifact(file_item)
+                    extracted_artifacts.append(art)
+                    content = art.to_canonical_text() if hasattr(art, "to_canonical_text") else art.raw_text
+                    words = len(content.split())
+                    modules.append(ModuleSegment(title=file_item.stem, content=content, word_count=words, module_index=m_num))
+
+                artifact = merge_artifacts(extracted_artifacts, subject=subject or "")
+            else:
+                # Single PDF document
+                single_p = resolved_pdf_paths[0]
+                t_extract = time.time()
+                artifact = load_or_extract_artifact(single_p)
+                _mark("extraction", t_extract)
+
+                canonical_text = artifact.to_canonical_text() if hasattr(artifact, "to_canonical_text") else artifact.raw_text
+
+                # Academic Validation Gate
+                acad_res = validate_academic_quality(canonical_text)
+                if pipeline_trace:
+                    pipeline_trace.stage(
+                        "AcademicValidator",
+                        status = "PASS" if acad_res.valid else "WARN",
+                        metrics = {"score": acad_res.academic_score, "noise": acad_res.noise_score},
+                        message = acad_res.rejection_reason if not acad_res.valid else "Clean academic text"
+                    )
+
+                t_seg = time.time()
+                seg_result = segment_document(artifact, file_path=str(single_p))
+                modules = seg_result.segments
+                _mark("segmentation", t_seg)
+
+        # Print structured extraction resolution per specification
+        print("=" * 60)
+        print("[RUNTIME EXTRACTION RESOLUTION]")
+        print(f"  Sources         : {len(target_inputs)} source(s) [kind={source_kind}]")
+        print(f"  Text blocks     : {len(artifact.text_blocks)}")
+        print(f"  Equations       : {len(artifact.equations)}")
+        print(f"  Tables          : {len(artifact.tables)}")
+        print(f"  Figures         : {len(artifact.figures)}")
+        print(f"  Adapters used   : ['PDFExtractKit' if source_kind == 'pdf' else 'DirectTextAdapter']")
+        print(f"  Valid chunks    : {len(artifact.text_blocks)}")
+        print(f"  Hard stop decision: PROCEED")
+        print("=" * 60)
+
+        _save_cached_modules(target_inputs if len(target_inputs) > 1 else primary_file_path, modules)
         if pipeline_trace:
             pipeline_trace.stage("Extraction", status="PASS", duration_ms=(time.time()-t0)*1000, metrics={"cached": False, "modules": len(modules)})
 
@@ -515,29 +525,55 @@ def run_pipeline(
     # Reuse artifact from earlier extraction if present
     if artifact is None:
         try:
-            from core.extraction.gateway import ExtractionGateway
-            artifact = ExtractionGateway.extract(file_path, extract_images=False)
+            from core.extraction.artifact_cache import load_or_extract_artifact, merge_artifacts
+            if len(target_inputs) > 1:
+                arts = [load_or_extract_artifact(p) for p in target_inputs]
+                artifact = merge_artifacts(arts, subject=subject or "")
+            else:
+                artifact = load_or_extract_artifact(primary_file_path)
         except Exception as e:
-            print(f"[EXTRACTION GATEWAY] Extraction failed: {e}")
+            print(f"[EXTRACTION CACHE] Artifact load failed: {e}")
     mapper   = None
     selector = None
 
     try:
-        doc_id   = FigureRegistry.make_document_id(file_path)
-        figures  = list(getattr(artifact, "figures", [])) if artifact else []
+        doc_id   = FigureRegistry.make_document_id(primary_file_path)
+        figures  = []
+        if artifact and getattr(artifact, "figures", None):
+            for f in artifact.figures:
+                if hasattr(f, "to_dict"):
+                    figures.append(f.to_dict())
+                elif isinstance(f, dict):
+                    figures.append(f)
+
+        tables   = []
+        if artifact and getattr(artifact, "tables", None):
+            for t in artifact.tables:
+                if hasattr(t, "to_dict"):
+                    tables.append(t.to_dict())
+                elif isinstance(t, dict):
+                    tables.append(t)
+
+        equations = []
+        if artifact and getattr(artifact, "equations", None):
+            for eq in artifact.equations:
+                if hasattr(eq, "to_dict"):
+                    equations.append(eq.to_dict())
+                elif isinstance(eq, dict):
+                    equations.append(eq)
+
         def _has_img(f):
             if isinstance(f, dict):
                 return bool(f.get("image_path") or f.get("path"))
             return bool(getattr(f, "image_path", None) or getattr(f, "path", None))
         figures = [f for f in figures if _has_img(f)]
 
-
         if include_visual and not figures:
             print("[VISUAL] Extracting figures (fast proximity mode)...")
             try:
                 from .visual.figure_extractor import extract_figures
                 figures = extract_figures(
-                    file_path,
+                    primary_file_path,
                     doc_id=doc_id,
                     module_map=_build_module_map(modules),
                 ) or []
@@ -545,7 +581,7 @@ def run_pipeline(
                 try:
                     import json as _jfig
                     from pathlib import Path as _Path
-                    _up = _Path(file_path).parent
+                    _up = _Path(primary_file_path).parent
                     _man = []
                     for _c in figures:
                         if isinstance(_c, dict):
@@ -570,7 +606,7 @@ def run_pipeline(
         try:
             from pathlib import Path
             import json
-            fp = Path(file_path)
+            fp = Path(primary_file_path)
             parts = fp.parts
             if "uploads" in parts:
                 up = Path(*parts[:parts.index("uploads")+2])
@@ -616,16 +652,17 @@ def run_pipeline(
             total_pages     = getattr(artifact, "page_count", 200) if artifact else 200,
             page_tolerance  = 3,
         )
+        mapper.set_multimodal_artifacts(tables=tables, equations=equations)
         mapper.build(modules)
         # If mapper still has no real images, load crops from this upload dir
         try:
-            _figdir = Path(file_path).parent / "extracted_figures"
+            _figdir = Path(primary_file_path).parent / "extracted_figures"
             if _figdir.exists() and (not figures or not any(
                 (f.get("image_path") if isinstance(f, dict) else getattr(f, "image_path", ""))
                 for f in (figures or [])
             )):
                 from .visual.figure_extractor import extract_figures as _ef
-                figures = _ef(file_path, doc_id=Path(file_path).parent.name, module_map=None) or []
+                figures = _ef(primary_file_path, doc_id=Path(primary_file_path).parent.name, module_map=None) or []
                 print(f"[VISUAL] late extract_figures -> {len(figures)}", flush=True)
                 if figures:
                     mapper = ChunkImageMapper(
@@ -644,6 +681,22 @@ def run_pipeline(
             print(f"[VISUAL] late extract skipped: {_le}", flush=True)
         if (include_visual or len(figures) > 0) and figures:
             selector = QuestionImageSelector(mapper)
+
+        # Wire figure propagation invariant check
+        try:
+            from core.extraction.figure_invariant import assert_figures_propagated, FigurePropagationFailure
+            extraction_figs = len(artifact.figures) if artifact and hasattr(artifact, "figures") else len(figures)
+            mapper_figs = len(getattr(mapper, "card_to_chunk", {})) if mapper else 0
+            if mapper and not mapper_figs and figures:
+                mapper_figs = len(figures)
+            assert_figures_propagated(
+                extraction_figure_count=extraction_figs,
+                mapper_figure_count=mapper_figs,
+                visual_rag_enabled=include_visual,
+            )
+        except Exception as _f_inv_err:
+            print(f"[FIGURE_INVARIANT] {_f_inv_err}", flush=True)
+
         _mark("chunk_image_mapping", t_map)
     except Exception as e:
         import traceback
@@ -898,7 +951,7 @@ def run_pipeline(
             selected_chunks = []
 
             if mapper and module_chunks:
-                prefer_img = (local_idx == 1)
+                prefer_img = (local_idx <= 2)
                 with _chunk_selection_lock:
                     top_tcs = mapper.get_top_n_chunks_for_question(
                         module_id      = module_id,
@@ -1130,6 +1183,72 @@ def run_pipeline(
     except Exception as _rag_sum_err:
         print(f"[RAG TELEMETRY] Summary aggregation skipped: {_rag_sum_err}", flush=True)
 
+    # ── 5-STAGE MULTIMODAL FIGURE PIPELINE TRACE ──
+    try:
+        from v0_1.docx_export import generate_docx_from_paper
+        import zipfile
+        from pathlib import Path
+
+        paper_dict = {
+            "title": f"{subject or 'Course'} Examination",
+            "subject": subject or "Examination",
+            "exam_type": exam_type,
+            "modules": output_paper,
+        }
+
+        trace_main_n = sum(len(mod.get("questions", [])) for mod in output_paper)
+        trace_sub_n = sum(len(mq.get("sub_questions", [])) for mod in output_paper for mq in mod.get("questions", []))
+        trace_m1 = 0
+        trace_m2 = 0
+        trace_m3 = 0
+
+        for mod in output_paper:
+            m_id = f"module_{mod.get('module_index', 1)}"
+            avail_for_mod = len([f for f in getattr(mapper, "_all_figures", []) if getattr(f, "module_id", "") == m_id or getattr(f, "id", "").startswith(f"m{mod.get('module_index', 1)}_")]) if mapper else 0
+            for mq in mod.get("questions", []):
+                has_cand = avail_for_mod > 0 or any(getattr(sq.get("slot"), "visual_required", False) for sq in mq.get("sub_questions", []))
+                has_sel = any(sq.get("image") is not None for sq in mq.get("sub_questions", []))
+                has_path = any(
+                    bool(
+                        (sq.get("image_path") or sq.get("figure_path") or (sq.get("image", {}).get("image_path") if isinstance(sq.get("image"), dict) else None))
+                        and (
+                            Path(sq.get("image_path") or sq.get("figure_path") or sq.get("image", {}).get("image_path")).is_file()
+                            or (Path.cwd() / (sq.get("image_path") or sq.get("figure_path") or sq.get("image", {}).get("image_path"))).is_file()
+                        )
+                    )
+                    for sq in mq.get("sub_questions", [])
+                )
+                if has_cand:
+                    trace_m1 += 1
+                if has_sel:
+                    trace_m2 += 1
+                if has_path:
+                    trace_m3 += 1
+
+        docx_buf = generate_docx_from_paper(paper_dict)
+        with zipfile.ZipFile(docx_buf, 'r') as zf:
+            media_files = [n for n in zf.namelist() if n.startswith("word/media/")]
+            trace_m4 = len(media_files)
+
+        print("\n" + "=" * 60, flush=True)
+        print(f"[TRACE] Questions generated: {trace_main_n}", flush=True)
+        print(f"[TRACE] Questions with figure candidate: {trace_m1}", flush=True)
+        print(f"[TRACE] Questions with figure selected: {trace_m2}", flush=True)
+        print(f"[TRACE] Questions with image_path set: {trace_m3}", flush=True)
+        print(f"[TRACE] Questions rendered with image in DOCX: {trace_m4}", flush=True)
+        print("=" * 60 + "\n", flush=True)
+
+        qa_report["figure_pipeline_trace"] = {
+            "questions_generated": trace_main_n,
+            "sub_questions_generated": trace_sub_n,
+            "questions_with_figure_candidate": trace_m1,
+            "questions_with_figure_selected": trace_m2,
+            "questions_with_image_path_set": trace_m3,
+            "questions_rendered_with_image_in_docx": trace_m4,
+        }
+    except Exception as _tr_err:
+        print(f"[TRACE ERROR] Could not emit multimodal trace: {_tr_err}", flush=True)
+
     _mark("total_pipeline", t_start)
     return output_paper, qa_report
 
@@ -1182,7 +1301,7 @@ def _generate_main_question(
         verb       = dm.get_verb(difficulty, sub_bloom)
 
         image_data = None
-        if selector and chunk_obj and idx == 0:
+        if selector and idx == 0:
             try:
                 image_data = selector.select(
                     chunk     = chunk_obj,
@@ -1192,6 +1311,13 @@ def _generate_main_question(
             except Exception as e:
                 print(f"[SELECTOR] Error: {e}")
                 image_data = None
+
+        table_data = None
+        if selector is not None:
+            try:
+                table_data = selector.select_table(module_id)
+            except Exception:
+                table_data = None
 
         # Build Slot contracts
         sub_letter = sub_letters[idx] if len(partition) > 1 else ""
@@ -1447,7 +1573,12 @@ def _generate_main_question(
                 from core.generation.topic_validator import MultiDomainTopicValidator
                 _tv = MultiDomainTopicValidator()
                 _active_domain = "IOT_AGRICULTURE"
-                _sub_low = str(subject or "").lower()
+                try:
+                    import aion_patch
+                    _subject_val = getattr(aion_patch, "ACTIVE_SUBJECT", None) or os.getenv("AION_SUBJECT", "")
+                except Exception:
+                    _subject_val = os.getenv("AION_SUBJECT", "")
+                _sub_low = str(_subject_val or "").lower()
                 if "cloud" in _sub_low:
                     _active_domain = "CLOUD_COMPUTING"
                 elif "network" in _sub_low:
@@ -1463,8 +1594,8 @@ def _generate_main_question(
                 if not _val_res.is_valid:
                     print(f"[TOPIC_VALIDATOR] Rejected topic candidate '{raw_slot_topic}': {_val_res.reason}. Reverting to module core topic.", flush=True)
                     raw_slot_topic = f"Module {_mod_num} Core Topics"
-            except Exception as _tv_err:
-                LOG.debug(f"[TOPIC_VALIDATOR] Validation skipped: {_tv_err}")
+            except Exception:
+                pass
 
             slot_topic = _strip_module_header(raw_slot_topic)
             if not slot_topic or slot_topic.lower() in ("core topics", "module", "notes"):
@@ -1515,7 +1646,15 @@ def _generate_main_question(
             )
 
             from core.generation.orchestrator import SafeEvidencePack
-            evidence_pack = SafeEvidencePack(combined_text=str(chunk or ""), math_artifacts="none")
+            _fig_cap = (image_data.get("caption") or image_data.get("figure_caption")) if image_data else ""
+            _img_p = (image_data.get("image_path") or image_data.get("figure_path")) if image_data else ""
+            evidence_pack = SafeEvidencePack(
+                combined_text=str(chunk or ""),
+                math_artifacts="none",
+                figure_caption=_fig_cap,
+                image_path=_img_p,
+                table_data=table_data,
+            )
 
             t_slot = time.time()
             try:
@@ -1680,6 +1819,9 @@ def _generate_main_question(
         q_text = _re.sub(r'\s{2,}', ' ', q_text).strip()
         gq.question_text = q_text
 
+        img_p = (image_data.get("image_path") or image_data.get("figure_path")) if image_data else None
+        img_c = (image_data.get("caption") or image_data.get("image_caption")) if image_data else None
+
         sub_questions.append({
             "letter":     sub_letters[idx] if len(partition) > 1 else None,
             "text":       q_text,
@@ -1688,6 +1830,12 @@ def _generate_main_question(
             "bloom":      sub_bloom,
             "co":         _blueprint_co,
             "image":      image_data,
+            "image_path": img_p,
+            "figure_path": img_p,
+            "image_caption": img_c,
+            "figure_caption": img_c,
+            "table":      table_data,
+            "table_data": table_data,
             "ragas_metrics": rag_metrics_dict,
         })
         generated_questions.append(gq)

@@ -1,6 +1,7 @@
 # core/generation/orchestrator.py
 
 import os
+import re
 import json
 import logging
 import time
@@ -20,9 +21,19 @@ LOG = logging.getLogger(__name__)
 class SafeEvidencePack:
     """Safe, string-grounded evidence container guaranteed never to yield NoneType."""
 
-    def __init__(self, combined_text: str = "", math_artifacts: str = "none"):
+    def __init__(
+        self,
+        combined_text: str = "",
+        math_artifacts: str = "none",
+        figure_caption: str = "",
+        image_path: str = "",
+        table_data: Any = None,
+    ):
         self.combined_text = str(combined_text or "")
         self.math_artifacts = str(math_artifacts or "none")
+        self.figure_caption = str(figure_caption or "")
+        self.image_path = str(image_path or "")
+        self.table_data = table_data
 
     def __str__(self) -> str:
         return self.combined_text
@@ -1187,7 +1198,7 @@ class SlotOrchestrator:
         return self._generate_template_fallback(slot, evidence_pack)
 
     # ULTIMATE_SLOT_GUARD_EXCEPT placeholder — real wrap below
-    def _format_prompt(self, slot: QuestionSlot, evidence_pack, extra_hints: str) -> str:
+    def _format_prompt(self, slot: QuestionSlot, evidence_pack, extra_hints: str = "") -> str:
         raw_ev = getattr(evidence_pack, "combined_text", None) or getattr(evidence_pack, "text", None)
         if raw_ev is None:
             raw_ev = str(evidence_pack) if evidence_pack is not None else ""
@@ -1277,6 +1288,11 @@ class SlotOrchestrator:
             if slot.math_required
             else "[]"
         )
+        diagram_example = (
+            '{"diagram_type": "schematic", "description": "Block diagram schematic of system architecture"}'
+            if slot.visual_required
+            else "null"
+        )
 
         # Build exclusion list from previously generated questions (last 10)
         if getattr(self, "_shared_texts_lock", None):
@@ -1342,7 +1358,7 @@ If the Topic was "{clean_ex_topic}" and Bloom Verb was "{slot.bloom_verb}", a va
   "instruction": "{example_text}",
   "question_text": "{example_text}",
   "math_blocks": {math_example},
-  "diagram_request": null
+  "diagram_request": {diagram_example}
 }}
 
 EXAMPLE OF AN INVALID OUTPUT (do NOT produce questions like this):
@@ -1370,6 +1386,26 @@ PREVIOUSLY GENERATED QUESTIONS (do NOT generate anything similar to these):
             prompt += "Focus on practical engineering application scenarios derived from the evidence."
         else:
             prompt += "Focus on core theory, conceptual understanding, definitions, or descriptive explanations."
+
+        if slot.visual_required:
+            fig_caption = (
+                getattr(evidence_pack, "figure_caption", None)
+                or getattr(slot, "figure_caption", None)
+                or "the technical diagram/schematic"
+            )
+            prompt += (
+                f"\n\n[REQUIRED VISUAL / DIAGRAM CONTRACT]\n"
+                f"An authoritative technical figure ({fig_caption}) is provided for this question.\n"
+                f"1. You MUST formulate the question so the student is instructed to refer to, sketch, or interpret the diagram.\n"
+                f"   Acceptable pedagogical phrasing includes: 'With the aid of a neat diagram, {slot.bloom_verb.lower()}...', 'Refer to the given schematic and {slot.bloom_verb.lower()}...', or 'Illustrate with a neat diagram and {slot.bloom_verb.lower()}...'.\n"
+                f"2. You MUST include a non-null 'diagram_request' object in your JSON response with 'diagram_type' (e.g., 'schematic', 'block_diagram', 'flowchart') and 'description' matching the diagram.\n"
+            )
+
+        if getattr(evidence_pack, "table_data", None):
+            prompt += (
+                "\n\n[TABULAR REASONING DIRECTIVE]\n"
+                "A technical data table is attached to this question. Formulate the question so the student is required to compare, evaluate, or analyze the tabular parameters.\n"
+            )
 
         if kw_directive:
             prompt += kw_directive
@@ -1511,8 +1547,9 @@ PREVIOUSLY GENERATED QUESTIONS (do NOT generate anything similar to these):
             "The student will see only the final question paper and will NOT have "
             "access to the evidence, notes, source document, previous examples, "
             "or numbered items from the source.\n"
-            "NEVER write references such as: 'Example 1', 'Figure 2', 'as shown in the notes', "
+            "NEVER copy external source references such as: 'Example 1.2', 'Figure 2.14 in Section 3', 'as shown in the notes', "
             "'the given item', 'the previous problem', or 'provided in the evidence'. "
+            "When a diagram is provided, refer to it naturally as 'the given figure' or 'the given diagram', never with arbitrary chapter/section numbers from the source notes. "
             "State the specific question directly with all necessary input parameters inline. "
             "Never dump extensive background narratives or solutions.\n"
             "Do not mention the evidence, uploaded material, source, notes, document, "

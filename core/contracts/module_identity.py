@@ -82,7 +82,7 @@ MODULE_HEADER_PATTERN = re.compile(
 
 
 def strip_module_header(text: str) -> str:
-    """Remove module/unit/chapter prefix from start of string.
+    """Remove module/unit/chapter prefix and file artifacts from topic string.
 
     Examples:
         "MODULE 1: Orbital Mechanics" -> "Orbital Mechanics"
@@ -91,10 +91,16 @@ def strip_module_header(text: str) -> str:
         "module_1: Basics" -> "Basics"
         "CHAPTER 4 — Advanced Topics" -> "Advanced Topics"
         "Modular Arithmetic" -> "Modular Arithmetic"
+        "Module 2: IAI-MODULE-2-NOTES.pdf" -> "IAI-MODULE-2"
     """
     if not text:
         return ""
     cleaned = MODULE_HEADER_PATTERN.sub('', text).strip()
+    # Strip file extensions (e.g. .pdf, .docx, .txt)
+    cleaned = re.sub(r'\.(?:pdf|docx?|txt|md)\b', '', cleaned, flags=re.IGNORECASE).strip()
+    # Strip notes/syllabus/handout markers
+    cleaned = re.sub(r'(?i)\bnotes?\b', '', cleaned).strip(' -_')
+    cleaned = re.sub(r'(?i)[-_]+notes?\b', '', cleaned).strip(' -_')
     if cleaned != text.strip():
         print(f"[TOPIC] Stripped header: '{text.strip()}' -> '{cleaned}'", flush=True)
     return cleaned

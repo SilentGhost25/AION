@@ -22,6 +22,9 @@ models/
 checkpoints/
 workspace/uploads/
 workspace/cache/
+workspace/artifacts/
+workspace/derived/
+workspace/*.docx
 extracted_output/
 *.bin
 *.xml

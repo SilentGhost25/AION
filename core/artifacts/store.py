@@ -155,7 +155,14 @@ class ArtifactStore:
         doc_derived_dir = self.derived_dir / document_id
         doc_derived_dir.mkdir(parents=True, exist_ok=True)
 
-        ext = ".json" if isinstance(content, dict) else (".txt" if isinstance(content, str) else ".bin")
+        if isinstance(content, dict):
+            ext = ".json"
+        elif derived_type in ("artifact", "evidence_json", "chunks"):
+            ext = ".json"
+        elif isinstance(content, str):
+            ext = ".txt"
+        else:
+            ext = ".bin"
         derived_path = doc_derived_dir / f"{derived_type}{ext}"
 
         if isinstance(content, dict):

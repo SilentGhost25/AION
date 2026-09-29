@@ -306,9 +306,9 @@ def split_module_into_chunks(
     module_content: str,
     module_id:      str,
     module_idx:     int,
-    target_words:   int = 500,
-    min_words:      int = 40,
-    max_words:      int = 900,
+    target_words:   int = 200,
+    min_words:      int = 30,
+    max_words:      int = 450,
 ) -> list[TextChunk]:
     """
     Split module text into academic-sized chunks.
@@ -533,6 +533,44 @@ class ChunkImageMapper:
         self._used_figure_ids: set[str] = set()
         self._module_groups:   dict[str, ModuleChunkGroup] = {}
         self._all_figures:     list = []
+        self._all_tables:      list = []
+        self._all_equations:   list = []
+        self._used_table_ids:  set[str] = set()
+
+    def set_multimodal_artifacts(self, tables: list = None, equations: list = None):
+        self._all_tables = list(tables or [])
+        self._all_equations = list(equations or [])
+
+    def get_unused_table_for_module(self, module_id: str) -> Optional[dict]:
+        for tbl in self._all_tables:
+            t_dict = tbl.to_dict() if hasattr(tbl, "to_dict") else dict(tbl)
+            t_id = t_dict.get("id") or str(id(tbl))
+            if t_id in self._used_table_ids:
+                continue
+            t_mod = t_dict.get("module_id")
+            if not t_mod and t_id:
+                m_m = re.match(r"^m(\d+)_", str(t_id))
+                if m_m:
+                    t_mod = f"module_{m_m.group(1)}"
+            if t_mod and t_mod != module_id:
+                continue
+            self._used_table_ids.add(t_id)
+            return t_dict
+        return None
+
+    def get_equations_for_module(self, module_id: str) -> list[dict]:
+        res = []
+        for eq in self._all_equations:
+            eq_dict = eq.to_dict() if hasattr(eq, "to_dict") else dict(eq)
+            eq_id = eq_dict.get("id") or ""
+            eq_mod = eq_dict.get("module_id")
+            if not eq_mod and eq_id:
+                m_m = re.match(r"^m(\d+)_", str(eq_id))
+                if m_m:
+                    eq_mod = f"module_{m_m.group(1)}"
+            if not eq_mod or eq_mod == module_id:
+                res.append(eq_dict)
+        return res
 
     def build(self, modules: list) -> dict[str, ModuleChunkGroup]:
         """
@@ -540,8 +578,38 @@ class ChunkImageMapper:
         Returns: {module_id: ModuleChunkGroup}
         """
         if self.registry:
+            from v0_1.figure_card import FigureCard
+            raw_cards = self.registry.eligible_cards()
+            converted_cards = []
+            for f in raw_cards:
+                if isinstance(f, dict):
+                    card = FigureCard.from_dict(f)
+                    if not card.provenance_score:
+                        card.provenance_score = float(f.get("provenance_score") or 1.0)
+                    if (not card.module_id or card.module_id in ("module_1", "module_0")) and card.id:
+                        m_m = re.match(r"^m(\d+)_", card.id)
+                        if m_m:
+                            card.module_id = f"module_{m_m.group(1)}"
+                    converted_cards.append(card)
+                elif hasattr(f, "to_dict"):
+                    d = f.to_dict()
+                    card = FigureCard.from_dict(d)
+                    if not card.provenance_score:
+                        card.provenance_score = float(getattr(f, "provenance_score", 1.0))
+                    if (not card.module_id or card.module_id in ("module_1", "module_0")) and card.id:
+                        m_m = re.match(r"^m(\d+)_", card.id)
+                        if m_m:
+                            card.module_id = f"module_{m_m.group(1)}"
+                    converted_cards.append(card)
+                else:
+                    if hasattr(f, "id") and hasattr(f, "module_id"):
+                        if (not getattr(f, "module_id", None) or f.module_id in ("module_1", "module_0")) and f.id:
+                            m_m = re.match(r"^m(\d+)_", f.id)
+                            if m_m:
+                                f.module_id = f"module_{m_m.group(1)}"
+                    converted_cards.append(f)
             self._all_figures = [
-                f for f in self.registry.eligible_cards()
+                f for f in converted_cards
                 if self._is_valid_figure(f)
             ]
         else:
@@ -607,31 +675,50 @@ class ChunkImageMapper:
                 eff_mod_idx = int(m_match.group(1)) if m_match else pos_idx
 
             mod_idx = eff_mod_idx
-            module_id    = f"module_{mod_idx}"
-            module_title = getattr(mod, "title", f"Module {mod_idx}")
-            content      = getattr(mod, "content", "")
+            module_id = f"module_{mod_idx}"
+            if isinstance(mod, dict):
+                module_title = mod.get("title", f"Module {mod_idx}")
+                content = mod.get("content") or "\n\n".join(mod.get("chunks", []))
+            else:
+                module_title = getattr(mod, "title", f"Module {mod_idx}")
+                content = getattr(mod, "content", "")
 
             chunks = split_module_into_chunks(
                 module_content = content,
                 module_id      = module_id,
                 module_idx     = mod_idx,
-                target_words   = 500,
-                min_words      = 40,
+                target_words   = 200,
+                min_words      = 30,
+                max_words      = 450,
             )
 
             if not chunks:
                 print(f"[MAPPER] No chunks for {module_id}")
                 continue
 
-            for chunk in chunks:
-                ps, pe = estimate_page_range(
-                    chunk          = chunk,
-                    module_idx     = mod_idx,
-                    total_modules  = len(modules),
-                    total_pages    = self.total_pages,
-                )
-                chunk.page_start = ps
-                chunk.page_end   = pe
+            # Determine if figures for this module use local page numbering (e.g. 1..N)
+            mod_figs = [f for f in self._all_figures if getattr(f, "module_id", "") == module_id or getattr(f, "id", "").startswith(f"m{mod_idx}_")]
+            min_f_page = min((getattr(f, "page", 1) for f in mod_figs if getattr(f, "page", 0) > 0), default=1)
+            max_f_page = max((getattr(f, "page", 1) for f in mod_figs if getattr(f, "page", 0) > 0), default=1)
+
+            if mod_figs and min_f_page <= 5 and max_f_page <= 60 and len(modules) > 1:
+                # Per-module / multi-document local page numbering:
+                # Interpolate chunk page ranges across this module's local page span
+                for chunk in chunks:
+                    c_frac_start = (chunk.chunk_idx - 1) / max(1, len(chunks))
+                    c_frac_end = chunk.chunk_idx / max(1, len(chunks))
+                    chunk.page_start = max(1, int(1 + c_frac_start * (max_f_page - 1)))
+                    chunk.page_end = max(chunk.page_start, int(1 + c_frac_end * (max_f_page - 1)))
+            else:
+                for chunk in chunks:
+                    ps, pe = estimate_page_range(
+                        chunk          = chunk,
+                        module_idx     = mod_idx,
+                        total_modules  = len(modules),
+                        total_pages    = self.total_pages,
+                    )
+                    chunk.page_start = ps
+                    chunk.page_end   = pe
 
             self._map_figures_to_chunks(
                 chunks    = chunks,
@@ -929,6 +1016,27 @@ class ChunkImageMapper:
         scored.sort(key=lambda x: x[0], reverse=True)
         return scored[0][1]
 
+    def get_unused_figure_for_module(self, module_id: str) -> Optional[Any]:
+        """Find an unused eligible figure for this module."""
+        mod_idx = int(module_id.replace("module_", "")) if "module_" in module_id else 1
+        candidates = [
+            f for f in self._all_figures
+            if (getattr(f, "module_id", "") == module_id or getattr(f, "id", "").startswith(f"m{mod_idx}_"))
+            and getattr(f, "id", "") not in self._used_figure_ids
+            and getattr(f, "eligible", True)
+        ]
+        if not candidates:
+            # Fall back to any unused figure across the entire pool
+            candidates = [
+                f for f in self._all_figures
+                if getattr(f, "id", "") not in self._used_figure_ids
+                and getattr(f, "eligible", True)
+            ]
+        if candidates:
+            candidates.sort(key=lambda x: getattr(x, "provenance_score", 0.0), reverse=True)
+            return candidates[0]
+        return None
+
     def _score_figure_chunk(
         self,
         fig:            Any,
@@ -937,25 +1045,26 @@ class ChunkImageMapper:
     ) -> float:
         score = 0.0
 
-        if chunk.page_start <= fig.page <= chunk.page_end:
-            score += 0.60
+        fig_page = getattr(fig, "page", 1)
+        if chunk.page_start <= fig_page <= chunk.page_end:
+            score += 0.50
         elif (
-            abs(fig.page - chunk.page_start) <= self.page_tolerance or
-            abs(fig.page - chunk.page_end)   <= self.page_tolerance
+            abs(fig_page - chunk.page_start) <= self.page_tolerance or
+            abs(fig_page - chunk.page_end)   <= self.page_tolerance
         ):
             distance = min(
-                abs(fig.page - chunk.page_start),
-                abs(fig.page - chunk.page_end),
+                abs(fig_page - chunk.page_start),
+                abs(fig_page - chunk.page_end),
             )
-            score += max(0.0, 0.40 - distance * 0.08)
+            score += max(0.0, 0.35 - distance * 0.07)
 
-        if score > 0:
-            fig_text   = f"{fig.caption} {fig.ocr_text} {fig.preceding_text}"
-            kw_score   = _keyword_overlap(fig_text, chunk.text)
+        fig_text = f"{getattr(fig, 'caption', '')} {getattr(fig, 'ocr_text', '')} {getattr(fig, 'preceding_text', '')}".strip()
+        if fig_text:
+            kw_score = _keyword_overlap(fig_text, chunk.text)
             if kw_score >= self.keyword_threshold:
-                score += kw_score * 0.30
+                score += kw_score * 0.40
 
-        score += fig.provenance_score * 0.10
+        score += getattr(fig, "provenance_score", 1.0) * 0.10
 
         if len(chunk.nearby_images) >= 2:
             score *= 0.30
@@ -965,23 +1074,32 @@ class ChunkImageMapper:
     @staticmethod
     def _is_valid_figure(fig: Any) -> bool:
         try:
-            return (
-                hasattr(fig, "provenance_score") and
-                hasattr(fig, "eligible") and
-                hasattr(fig, "module_id") and
-                hasattr(fig, "page") and
-                hasattr(fig, "id") and
-                isinstance(fig.eligible, bool) and
-                fig.eligible and
-                isinstance(fig.id, str) and
-                fig.id != ""
-            )
+            if isinstance(fig, dict):
+                img_p = fig.get("image_path") or fig.get("path")
+                has_id = bool(fig.get("id") or fig.get("anchor_id") or img_p)
+                eligible = fig.get("eligible", True)
+                prov = float(fig.get("provenance_score", 1.0))
+                if prov < 0.40:
+                    return False
+                if not (img_p and has_id and eligible):
+                    return False
+                if Path(img_p).exists() and Path(img_p).stat().st_size < 2500:
+                    return False
+                return True
+            # Object (FigureArtifact, FigureCard, etc.)
+            img_p = getattr(fig, "image_path", None) or getattr(fig, "path", None)
+            has_id = bool(getattr(fig, "id", None) or getattr(fig, "figure_id", None) or getattr(fig, "anchor_id", None) or img_p)
+            eligible = getattr(fig, "eligible", True)
+            prov = float(getattr(fig, "provenance_score", 1.0))
+            if prov < 0.40:
+                return False
+            if not (img_p and has_id and eligible):
+                return False
+            if Path(img_p).exists() and Path(img_p).stat().st_size < 2500:
+                return False
+            return True
         except Exception:
             return False
-
-
-
-
 
 
 # -------------------------------------------------------------
@@ -1011,28 +1129,53 @@ class QuestionImageSelector:
         if sub_index != 0:
             return None
 
-        img = chunk.best_image()
+        img = chunk.best_image() if chunk else None
+
+        # Fallback: if chunk has no nearby image or its image was already used,
+        # find an unused figure associated with this module
+        if img is None or getattr(img, "id", "") in self._used_ids:
+            img = self.mapper.get_unused_figure_for_module(module_id)
 
         if img is None:
             return None
 
-        if img.id in self._used_ids:
+        img_id = getattr(img, "id", "")
+        if img_id in self._used_ids:
             return None
 
-        self._used_ids.add(img.id)
-        self.mapper.mark_figure_used(img.id)
+        self._used_ids.add(img_id)
+        self.mapper.mark_figure_used(img_id)
+
+        img_path = getattr(img, "image_path", "")
+        img_cap = getattr(img, "caption", "")
 
         return {
-            "id":           img.id,
-            "url":          img.image_url,
-            "caption":      img.caption,
-            "visual_type":  img.visual_type,
-            "page":         img.page,
-            "confidence":   img.provenance_score,
+            "id":             img_id,
+            "url":            getattr(img, "image_url", ""),
+            "image_path":     img_path,
+            "figure_path":    img_path,
+            "caption":        img_cap,
+            "image_caption":  img_cap,
+            "figure_caption": img_cap,
+            "visual_type":    getattr(img, "visual_type", "diagram"),
+            "page":           getattr(img, "page", 1),
+            "confidence":     getattr(img, "provenance_score", 1.0),
         }
+
+    def select_table(self, module_id: str) -> Optional[dict]:
+        if not self.mapper:
+            return None
+        return self.mapper.get_unused_table_for_module(module_id)
+
+    def get_equations(self, module_id: str) -> list[dict]:
+        if not self.mapper:
+            return []
+        return self.mapper.get_equations_for_module(module_id)
 
     def reset(self) -> None:
         self._used_ids.clear()
+        if self.mapper:
+            self.mapper._used_table_ids.clear()
 
     def stats(self) -> dict:
         return {

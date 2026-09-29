@@ -74,9 +74,13 @@ def latex_to_omml_element(latex_code: str):
         from latex2mathml.converter import convert
         from lxml import etree
         clean_latex = latex_code.strip()
-        if clean_latex.startswith("$") and clean_latex.endswith("$"):
+        if clean_latex.startswith("$$") and clean_latex.endswith("$$"):
+            clean_latex = clean_latex[2:-2].strip()
+        elif clean_latex.startswith("$") and clean_latex.endswith("$"):
             clean_latex = clean_latex[1:-1].strip()
         if clean_latex.startswith("\\[") and clean_latex.endswith("\\]"):
+            clean_latex = clean_latex[2:-2].strip()
+        if clean_latex.startswith("\\(") and clean_latex.endswith("\\)"):
             clean_latex = clean_latex[2:-2].strip()
         mml = convert(clean_latex)
         dom = etree.fromstring(mml)
@@ -87,14 +91,19 @@ def latex_to_omml_element(latex_code: str):
 
 def add_formatted_text_to_paragraph(p, text: str):
     """Adds text runs with native Office Math (OMML) blocks where LaTeX math is detected."""
-    math_pattern = re.compile(r'(\$[^\$]+\$|\\\[.+?\\\])')
+    math_pattern = re.compile(r'(\$\$.+?\$\$|\$[^\$]+?\$|\\\[.+?\\\]|\\\(.+?\\\)|\b[A-Za-z0-9_]+\s*=\s*[\\A-Za-z0-9_\+\-\*\/\^\(\)\{\}\\]+)')
     tokens = math_pattern.split(text)
     
     for token in tokens:
         if not token:
             continue
-        if (token.startswith("$") and token.endswith("$") and len(token) > 2) or \
-           (token.startswith("\\[") and token.endswith("\\]") and len(token) > 4):
+        is_math = (
+            (token.startswith("$$") and token.endswith("$$") and len(token) > 4) or
+            (token.startswith("$") and token.endswith("$") and len(token) > 2) or
+            (token.startswith("\\[") and token.endswith("\\]") and len(token) > 4) or
+            (token.startswith("\\(") and token.endswith("\\)") and len(token) > 4)
+        )
+        if is_math:
             omml_elem = latex_to_omml_element(token)
             if omml_elem is not None:
                 p._element.append(omml_elem)
@@ -104,24 +113,189 @@ def add_formatted_text_to_paragraph(p, text: str):
             p.add_run(_clean_latex_math_for_doc(token))
 
 
-def add_formatted_content_to_cell(cell, text: str, image_path: Optional[str] = None, caption: Optional[str] = None):
+def _parse_markdown_tables(text: str) -> List[tuple[str, Any]]:
+    """Splits text into interleaved ('text', str) and ('table', dict) blocks."""
+    lines = text.split("\n")
+    segments = []
+    current_text = []
+    table_lines = []
+
+    def is_table_row(line: str) -> bool:
+        s = line.strip()
+        return s.startswith("|") and s.endswith("|") and len(s.split("|")) >= 3
+
+    def is_separator_row(line: str) -> bool:
+        s = line.strip()
+        cells = [c.strip() for c in s.strip("|").split("|")]
+        return bool(cells) and all(c and set(c).issubset({"-", ":", " "}) for c in cells)
+
+    for line in lines:
+        if is_table_row(line):
+            table_lines.append(line)
+        else:
+            if table_lines:
+                headers = []
+                rows = []
+                for idx, tline in enumerate(table_lines):
+                    cells = [c.strip() for c in tline.strip().strip("|").split("|")]
+                    if idx == 0:
+                        headers = cells
+                    elif is_separator_row(tline):
+                        continue
+                    else:
+                        rows.append(cells)
+                if rows:
+                    if current_text:
+                        segments.append(("text", "\n".join(current_text).strip()))
+                        current_text = []
+                    segments.append(("table", {"headers": headers, "rows": rows}))
+                else:
+                    current_text.extend(table_lines)
+                table_lines = []
+            current_text.append(line)
+
+    if table_lines:
+        headers = []
+        rows = []
+        for idx, tline in enumerate(table_lines):
+            cells = [c.strip() for c in tline.strip().strip("|").split("|")]
+            if idx == 0:
+                headers = cells
+            elif is_separator_row(tline):
+                continue
+            else:
+                rows.append(cells)
+        if rows:
+            if current_text:
+                segments.append(("text", "\n".join(current_text).strip()))
+                current_text = []
+            segments.append(("table", {"headers": headers, "rows": rows}))
+        else:
+            current_text.extend(table_lines)
+
+    if current_text:
+        segments.append(("text", "\n".join(current_text).strip()))
+
+    return segments
+
+
+def _render_table_in_cell(cell, table_dict: Dict[str, Any]):
+    """Renders a styled native Word table within a container cell."""
+    headers = table_dict.get("headers", [])
+    rows = table_dict.get("rows", [])
+    num_cols = max(len(headers), max((len(r) for r in rows), default=0))
+    if num_cols == 0:
+        return
+    num_rows = len(rows) + (1 if headers else 0)
+
+    t = cell.add_table(rows=num_rows, cols=num_cols)
+    t.alignment = WD_TABLE_ALIGNMENT.CENTER
+    tblPr = t._tbl.tblPr
+    borders = parse_xml(
+        f'<w:tblBorders {nsdecls("w")}>'
+        f'  <w:top w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>'
+        f'  <w:bottom w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>'
+        f'  <w:left w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>'
+        f'  <w:right w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>'
+        f'  <w:insideH w:val="single" w:sz="4" w:space="0" w:color="E0E0E0"/>'
+        f'  <w:insideV w:val="single" w:sz="4" w:space="0" w:color="E0E0E0"/>'
+        f'</w:tblBorders>'
+    )
+    tblPr.append(borders)
+
+    row_idx = 0
+    if headers:
+        hdr_row = t.rows[0]
+        for c_idx, h in enumerate(headers):
+            if c_idx < num_cols:
+                c = hdr_row.cells[c_idx]
+                tc_pr = c._tc.get_or_add_tcPr()
+                shd = parse_xml(f'<w:shd {nsdecls("w")} w:fill="F2F4F8"/>')
+                tc_pr.append(shd)
+                p = c.paragraphs[0]
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                p.paragraph_format.space_before = Pt(3)
+                p.paragraph_format.space_after = Pt(3)
+                run = p.add_run(str(h))
+                run.bold = True
+                run.font.size = Pt(8.5)
+        row_idx += 1
+
+    for r_data in rows:
+        r = t.rows[row_idx]
+        for c_idx, val in enumerate(r_data):
+            if c_idx < num_cols:
+                c = r.cells[c_idx]
+                p = c.paragraphs[0]
+                p.paragraph_format.space_before = Pt(2)
+                p.paragraph_format.space_after = Pt(2)
+                run = p.add_run(str(val))
+                run.font.size = Pt(8.5)
+        row_idx += 1
+
+    caption = table_dict.get("caption")
+    if caption:
+        p_cap = cell.add_paragraph()
+        p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_cap.paragraph_format.space_before = Pt(2)
+        p_cap.paragraph_format.space_after = Pt(2)
+        r_cap = p_cap.add_run(f"Table: {caption}")
+        r_cap.font.size = Pt(8.0)
+        r_cap.font.italic = True
+
+
+def add_formatted_content_to_cell(
+    cell,
+    text: str,
+    image_path: Optional[str] = None,
+    caption: Optional[str] = None,
+    table_data: Optional[Dict[str, Any]] = None,
+):
     """
     Renders text with inline Office Math (OMML) blocks where LaTeX math is detected.
-    Falls back gracefully to unicode clean text.
+    Renders native Word tables when markdown table syntax or explicit table_data is supplied.
     Also embeds images if provided.
     """
-    p = cell.paragraphs[0]
-    p.paragraph_format.space_after = Pt(2)
-    add_formatted_text_to_paragraph(p, text)
-            
-    if image_path and Path(image_path).exists():
+    segments = _parse_markdown_tables(text)
+    first_para_used = False
+
+    for kind, content in segments:
+        if kind == "text":
+            if not content:
+                continue
+            if not first_para_used and cell.paragraphs:
+                p = cell.paragraphs[0]
+                first_para_used = True
+            else:
+                p = cell.add_paragraph()
+            p.paragraph_format.space_after = Pt(2)
+            add_formatted_text_to_paragraph(p, content)
+        elif kind == "table":
+            _render_table_in_cell(cell, content)
+
+    if not first_para_used and cell.paragraphs:
+        cell.paragraphs[0].paragraph_format.space_after = Pt(2)
+
+    if table_data and isinstance(table_data, dict):
+        if not any(kind == "table" for kind, _ in segments):
+            _render_table_in_cell(cell, table_data)
+
+    resolved_img = None
+    if image_path:
+        p = Path(image_path)
+        if p.is_file():
+            resolved_img = p
+        elif (Path.cwd() / image_path).is_file():
+            resolved_img = Path.cwd() / image_path
+
+    if resolved_img:
         try:
             p_img = cell.add_paragraph()
             p_img.paragraph_format.space_before = Pt(4)
             p_img.paragraph_format.space_after = Pt(2)
             p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
             run_img = p_img.add_run()
-            run_img.add_picture(str(image_path), width=Inches(3.2))
+            run_img.add_picture(str(resolved_img), width=Inches(3.2))
             if caption:
                 p_cap = cell.add_paragraph()
                 p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -183,10 +357,10 @@ def get_module_for_q(q: Dict[str, Any]) -> int:
         return 1
 
 
-def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
+def generate_docx_from_paper(paper_data: Dict[str, Any], output_path: Optional[str] = None) -> io.BytesIO:
     """
     Generates a VTU formatted .docx document from a paper dictionary.
-    Returns BytesIO object containing the docx binary.
+    Returns BytesIO object containing the docx binary, and optionally writes to output_path.
     """
     doc = Document()
 
@@ -398,7 +572,8 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
                 cells[0].paragraphs[0].add_run(f"Q{curr_q_no}").bold = True
                 cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
                 cells[1].paragraphs[0].add_run("-").alignment = WD_ALIGN_PARAGRAPH.CENTER
-                add_formatted_content_to_cell(cells[2], q_raw_text, image_path=q_img, caption=q_cap)
+                q_tbl = q.get("table") or q.get("table_data")
+                add_formatted_content_to_cell(cells[2], q_raw_text, image_path=q_img, caption=q_cap, table_data=q_tbl)
                 cells[3].paragraphs[0].add_run(str(q_marks)).alignment = WD_ALIGN_PARAGRAPH.CENTER
                 cells[4].paragraphs[0].add_run(str(q_co)).alignment = WD_ALIGN_PARAGRAPH.CENTER
                 cells[5].paragraphs[0].add_run(str(q_rbt)).alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -408,7 +583,11 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
                     s_label = sq.get("label") or sq.get("sub_label") or (letters[s_idx] if s_idx < len(letters) else f"({s_idx+1})")
                     s_raw_text = sq.get("text") or sq.get("question_text") or ""
                     s_img = sq.get("image_path") or sq.get("figure_path") or q.get("image_path") or q.get("figure_path")
+                    if not s_img and isinstance(sq.get("image"), dict):
+                        s_img = sq["image"].get("image_path") or sq["image"].get("figure_path") or sq["image"].get("url") or sq["image"].get("path")
                     s_cap = sq.get("image_caption") or sq.get("figure_caption") or q.get("image_caption") or q.get("figure_caption")
+                    if not s_cap and isinstance(sq.get("image"), dict):
+                        s_cap = sq["image"].get("caption") or sq["image"].get("image_caption") or sq["image"].get("figure_caption")
                     s_marks = sq.get("marks") or (6 if s_idx == 0 else 4)
                     s_co_raw = sq.get("co") or f"CO{min(mod_idx, 5)}"
                     s_rbt_raw = sq.get("bloom") or sq.get("bloom_level") or sq.get("rbt") or "L2"
@@ -431,7 +610,8 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
                     p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     p1.add_run(f"({s_label})").bold = True
 
-                    add_formatted_content_to_cell(cells[2], s_raw_text, image_path=s_img, caption=s_cap)
+                    s_tbl = sq.get("table") or sq.get("table_data") or q.get("table") or q.get("table_data")
+                    add_formatted_content_to_cell(cells[2], s_raw_text, image_path=s_img, caption=s_cap, table_data=s_tbl)
                     
                     p3 = cells[3].paragraphs[0]
                     p3.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -783,4 +963,7 @@ def generate_docx_from_paper(paper_data: Dict[str, Any]) -> io.BytesIO:
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
+    if output_path:
+        with open(output_path, "wb") as f:
+            f.write(buffer.getvalue())
     return buffer

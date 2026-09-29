@@ -77,4 +77,4 @@ def install_all_safety_layers() -> None:
     ensure_port_free(8100)
     warnings.filterwarnings("ignore", category=DeprecationWarning)
     warnings.filterwarnings("ignore", message=".*fitz.*deprecated.*")
-    print("[RESILIENCE] ✅ Safety layers active.")
+    print("[RESILIENCE] [OK] Safety layers active.")

@@ -251,10 +251,17 @@ class RobustSegmenter:
         return all(s.word_count >= min_words for s in segments)
 
 
-def segment_document(text: str, file_path: str = "") -> SegmentResult:
+def segment_document(text: Any, file_path: str = "") -> SegmentResult:
+    if hasattr(text, "to_canonical_text"):
+        content_str = text.to_canonical_text(include_markers=True)
+    elif hasattr(text, "raw_text"):
+        content_str = text.raw_text
+    else:
+        content_str = str(text)
     segmenter = RobustSegmenter()
-    segments = segmenter.segment(text, target_n=5)
+    segments = segmenter.segment(content_str, target_n=5)
     return SegmentResult(segments=segments)
+
 
 
 # Compatibility alias

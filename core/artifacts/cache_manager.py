@@ -18,27 +18,33 @@ logger = logging.getLogger("AION.CacheManager")
 
 
 class DerivedCacheManager:
-    """Manages derived artifact caches (plain_text, chunks, evidence_json)."""
+    """Manages derived artifact caches (artifact.json, chunks, evidence_json)."""
 
     @classmethod
-    def build_derived_text(cls, document_id: str, store: Optional[ArtifactStore] = None) -> str:
-        """Extract plain text from original source file and cache as derived artifact."""
+    def build_derived_artifact(cls, document_id: str, store: Optional[ArtifactStore] = None) -> str:
+        """Extract structured artifact from original source file and cache as derived artifact."""
         store = store or ArtifactStore()
         manifest = store.get(document_id)
         source_path = manifest.source.path
 
-        try:
-            from core.extraction.gateway import ExtractionGateway
-            artifact = ExtractionGateway.extract(source_path, document_id=document_id)
-            valid_chunks = [c for c in artifact.chunks if c.is_retrieval_eligible()]
-            plain_text = "\n\n".join(c.text for c in valid_chunks)
-        except Exception as e:
-            logger.warning(f"[CACHE_MANAGER] Gateway extraction for text cache failed ({e}), using raw read")
-            plain_text = Path(source_path).read_text(encoding="utf-8", errors="ignore")
+        if Path(source_path).suffix.lower() == ".pdf":
+            from core.extraction.artifact_cache import load_or_extract_artifact
+            doc_art = load_or_extract_artifact(source_path)
+            derived = store.store_derived(document_id, "artifact", doc_art.to_json())
+            logger.info(f"[CACHE] Derived structured artifact built from {source_path} -> {derived.path}")
+            return derived.path
+        else:
+            # User-uploaded text or other non-PDF file
+            raw_text = Path(source_path).read_text(encoding="utf-8", errors="ignore")
+            derived = store.store_derived(document_id, "plain_text", raw_text)
+            logger.info(f"[CACHE] Derived text built from user upload {source_path} -> {derived.path}")
+            return derived.path
 
-        derived = store.store_derived(document_id, "plain_text", plain_text)
-        logger.info(f"[CACHE] Derived plain_text built from {source_path} -> {derived.path}")
-        return derived.path
+    @classmethod
+    def build_derived_text(cls, document_id: str, store: Optional[ArtifactStore] = None) -> str:
+        """Backwards compatibility alias for build_derived_artifact."""
+        return cls.build_derived_artifact(document_id, store)
+
 
     @classmethod
     def invalidate_derived(cls, document_id: str, store: Optional[ArtifactStore] = None):

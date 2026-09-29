@@ -116,9 +116,6 @@ class AutoHealer:
             elif failure_code == "CALCULATION_NOT_DECLARED":
                 return cls._fix_add_calculation(output, slot)
 
-            elif failure_code == "INSUFFICIENT_DECLARED_DIMENSIONS":
-                return cls._fix_add_dimensions(output, slot, failure_message)
-
             elif failure_code == "SIBLING_SIMILARITY":
                 return cls._fix_sibling_similarity(output, slot)
 
@@ -214,6 +211,24 @@ class AutoHealer:
             "construct", "illustrate", "demonstrate", "interpret", "classify",
             "show", "derive", "estimate", "compute", "sketch", "outline",
         } | {v.lower() for verbs in BLOOM_VERB_LEVEL_MAP.values() for v in verbs}
+
+        def _has_embedded_action_verb(text: str) -> bool:
+            if not text:
+                return False
+            words = text.lower().split()
+            if len(words) < 2:
+                return False
+            first_word = words[0].strip(",.?!:;'\"`")
+            if first_word in ALL_ACTION_VERBS:
+                return False
+            return any(w.strip(",.?!:;'\"`") in ALL_ACTION_VERBS for w in words[1:])
+
+        # If a leading preamble clause precedes an embedded action verb, refuse to prepend
+        # to avoid double-verb questions (e.g. "Analyze in satellite communications, explain...").
+        # Returning unmodified output causes the linter to fail and escalate to a clean retry.
+        if _has_embedded_action_verb(getattr(output, "instruction", "")) or _has_embedded_action_verb(getattr(output, "question_text", "")):
+            print(f"[AUTO-HEALER] Preamble detected with embedded action verb; refusing to prepend '{verb}' to avoid double verbs.")
+            return output
 
         def _clean_text_with_verb(text: str) -> str:
             if not text:
@@ -350,33 +365,6 @@ class AutoHealer:
             output.instruction   = f"Calculate {output.instruction[0].lower()}{output.instruction[1:]}"
             output.question_text = f"Calculate {output.question_text[0].lower()}{output.question_text[1:]}"
             print(f"[AUTO-HEALER] Fixed CALCULATION_NOT_DECLARED — prepended Calculate")
-        return output
-
-    @classmethod
-    def _fix_add_dimensions(cls, output, slot, failure_message: str) -> "QuestionOutput":
-        """Adds missing analytical dimensions to instruction."""
-        # Extract required count from failure message
-        import re as _re
-        m = _re.search(r"requires at least (\d+) dimensions", failure_message)
-        required = int(m.group(1)) if m else 2
-        current = output.instruction
-
-        additions = [
-            ", explaining the underlying principles",
-            ", analyzing the key factors involved",
-            ", evaluating the practical implications",
-            ", comparing with alternative approaches",
-        ]
-
-        # Count existing dimensions (clauses separated by and/or/while)
-        existing = len(_re.split(r"\b(?:and|or|while|whereas|as well as)\b", current))
-        needed = required - existing
-
-        for i in range(min(needed, len(additions))):
-            current = current.rstrip(".") + additions[i]
-
-        output.instruction = current + "."
-        print(f"[AUTO-HEALER] Fixed INSUFFICIENT_DECLARED_DIMENSIONS — added {needed} dimensions")
         return output
 
     @classmethod

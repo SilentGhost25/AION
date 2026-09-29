@@ -23,6 +23,7 @@ class LLMRequest:
     seed          : int = field(default_factory=_default_seed)
     timeout_sec   : int = 45
     max_tokens    : int = 4096
+    subject       : str = ""
 
 
 @dataclass
@@ -43,40 +44,79 @@ class RobustLLMCaller:
     """
 
     def __init__(self, backend: Optional[str] = None, host: Optional[str] = None):
-        self.backend = (backend or os.environ.get("AION_BACKEND", "ollama")).lower().strip()
+        env_b = backend or os.environ.get("AION_BACKEND") or os.environ.get("LLM_BACKEND") or os.environ.get("BACKEND")
+        if not env_b:
+            import requests as req
+            try:
+                if req.get("http://localhost:8000/v1/models", timeout=0.3).status_code == 200:
+                    env_b = "vllm"
+            except Exception:
+                pass
+        self.backend = (env_b or "ollama").lower().strip()
         if host:
             self.host = host.rstrip("/")
         else:
             if self.backend == "vllm":
-                self.host = (os.environ.get("AION_LLM_HOST") or os.environ.get("VLLM_URL") or "http://localhost:8000").rstrip("/")
+                self.host = (os.environ.get("AION_LLM_HOST") or os.environ.get("LLM_BASE_URL") or os.environ.get("LLM_HOST") or os.environ.get("VLLM_URL") or "http://localhost:8000").rstrip("/")
             else:
-                self.host = (os.environ.get("OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or os.environ.get("AION_LLM_HOST") or "http://localhost:11434").rstrip("/")
+                raw_host = (os.environ.get("OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or os.environ.get("AION_LLM_HOST") or "http://localhost:11434").strip()
+                if not raw_host.startswith(("http://", "https://")):
+                    raw_host = f"http://{raw_host}"
+                raw_host = raw_host.replace("://0.0.0.0", "://127.0.0.1")
+                self.host = raw_host.rstrip("/")
 
     def check_health(self) -> bool:
         """
         Pre-flight readiness probe verifying that the server is reachable AND
-        is serving the expected model.
+        is serving the expected model. Includes a retry policy for PRODUCTION warmup.
         """
         import requests as req
+        import time
         from core.config.production_model import get_production_model
         model = os.environ.get("AION_MODEL") or get_production_model()
 
         if self.backend == "vllm":
+            last_err = None
+            for attempt in range(1, 4):
+                try:
+                    res = req.get(f"{self.host}/v1/models", timeout=4)
+                    if not res.ok:
+                        raise RuntimeError(f"vLLM server at {self.host} returned HTTP {res.status_code}")
+                    available = [m.get("id") for m in res.json().get("data", [])]
+                    if model not in available:
+                        raise RuntimeError(
+                            f"[LLM STARTUP GATE] vLLM is running but does not serve model '{model}'.\n"
+                            f"Available models: {available}\n"
+                            f"Either update AION_MODEL or restart vLLM with the correct --model flag."
+                        )
+                    return True
+                except Exception as e:
+                    last_err = str(e)
+                    if "[LLM STARTUP GATE]" in last_err:
+                        raise
+                if attempt < 3:
+                    time.sleep(5)
+
+            # If all 3 attempts failed
+            from runtime.profiles import get_active_profile
             try:
-                res = req.get(f"{self.host}/v1/models", timeout=3)
-                if not res.ok:
-                    raise RuntimeError(f"vLLM server at {self.host} returned HTTP {res.status_code}")
-                available = [m.get("id") for m in res.json().get("data", [])]
-                if model not in available:
-                    raise RuntimeError(
-                        f"[LLM STARTUP GATE] vLLM is running but does not serve model '{model}'.\n"
-                        f"Available models: {available}\n"
-                        f"Either update AION_MODEL or restart vLLM with the correct --model flag."
-                    )
-                return True
-            except Exception as e:
-                LOG.error(f"[LLM HEALTH] vLLM health check failed: {e}")
-                raise
+                prof = get_active_profile().name.value if hasattr(get_active_profile().name, "value") else str(get_active_profile().name)
+            except Exception:
+                prof = os.environ.get("AION_PROFILE", "LAPTOP_FAST")
+
+            if prof == "PRODUCTION" or os.environ.get("AION_PROFILE") == "PRODUCTION":
+                raise RuntimeError(
+                    "[AION-FATAL] Production profile requires an active vLLM engine at http://localhost:8000/v1/models.\n"
+                    f"  Attempted: GET {self.host}/v1/models (Failed after 3 attempts: {last_err})\n"
+                    "  Ensure vLLM is running:\n"
+                    "    python -m vllm.entrypoints.openai.api_server \\\n"
+                    "      --model Qwen/Qwen2.5-14B-Instruct-AWQ \\\n"
+                    "      --port 8000 --gpu-memory-utilization 0.85\n"
+                    "  To run in local developer mode, start with: AION_PROFILE=LAPTOP_FAST"
+                )
+            else:
+                LOG.warning(f"[LLM HEALTH] vLLM health check failed after 3 retries ({last_err}); falling back to Ollama.")
+                return False
         else:
             try:
                 res = req.get(f"{self.host}/api/tags", timeout=3)
@@ -174,8 +214,11 @@ class RobustLLMCaller:
     def _call_vllm(self, request: LLMRequest, start: float) -> LLMResponse:
         import requests as req
         max_tok = getattr(request, "max_tokens", 4096)
+        model_name = request.model
+        if (":" in model_name or not model_name.startswith("Qwen/")) and os.environ.get("AION_MODEL"):
+            model_name = os.environ.get("AION_MODEL")
         payload: Dict[str, Any] = {
-            "model": request.model,
+            "model": model_name,
             "messages": [{"role": "user", "content": request.prompt}],
             "max_tokens": max_tok,
             "temperature": request.temperature,
@@ -190,6 +233,9 @@ class RobustLLMCaller:
                     "strict": True,
                 }
             }
+            # Native vLLM guided decoding via xgrammar / outlines
+            payload["guided_json"] = request.schema
+            payload["extra_body"] = {"guided_json": request.schema}
         else:
             payload["response_format"] = {"type": "json_object"}
 
@@ -205,14 +251,15 @@ class RobustLLMCaller:
         elapsed = time.monotonic() - start
 
         if not response.ok:
-            # Fallback for vLLM versions that only support json_object
-            if response.status_code == 400 and request.schema:
+            # Resilient fallback for vLLM versions that reject custom fields or only support basic json_object
+            if response.status_code in (400, 422) and request.schema:
                 LOG.warning(
-                    f"[LLM] vLLM returned HTTP 400 on 'json_schema' response_format. "
-                    f"Falling back to 'json_object'. Server details: {response.text[:200]}. "
-                    f"Note: Verify vLLM version (>=0.5.4 recommended for native structured outputs)."
+                    f"[LLM] vLLM returned HTTP {response.status_code} on structured decoding payload. "
+                    f"Falling back to basic 'json_object'. Server details: {response.text[:200]}."
                 )
                 try:
+                    payload.pop("guided_json", None)
+                    payload.pop("extra_body", None)
                     payload["response_format"] = {"type": "json_object"}
                     response = req.post(
                         f"{self.host}/v1/chat/completions",

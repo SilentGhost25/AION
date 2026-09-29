@@ -62,7 +62,7 @@ class DerivedArtifact:
     Never authoritative. Never the input to ExtractionGateway.
     """
     path            : str
-    derived_type    : str            # "plain_text" | "evidence_json" | "chunks"
+    derived_type    : str            # "artifact" | "plain_text" | "evidence_json" | "chunks"
     authoritative   : bool = False   # ALWAYS False
     build_timestamp : Optional[str] = None
     source_sha256   : Optional[str] = None   # sha256 of source it was built from
@@ -109,12 +109,17 @@ class DocumentManifest:
         """
         return self.source.path
 
+    def get_derived_artifact(self) -> Optional[str]:
+        """Returns cached structured artifact path if available."""
+        d = self.derived.get("artifact") or self.derived.get("plain_text")
+        return d.path if d else None
+
     def get_derived_text(self) -> Optional[str]:
         """
         Returns cached plain text path IF it exists.
         Callers must treat this as a cache, not the source.
         """
-        d = self.derived.get("plain_text")
+        d = self.derived.get("plain_text") or self.derived.get("artifact")
         return d.path if d else None
 
     def is_pdf(self) -> bool:

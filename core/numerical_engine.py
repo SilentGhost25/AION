@@ -23,6 +23,7 @@ import random
 import re
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Tuple, Any
+from pydantic import BaseModel, Field
 
 
 @dataclass
@@ -280,11 +281,50 @@ class AlgorithmicStateTracer:
         )
 
 
+class AuditorNumericOutput(BaseModel):
+    """
+    High-speed numeric verification payload for Tier 3 double-blind verification.
+    Constrains Auditor generation to ~25-35 tokens (<120ms execution).
+    """
+    final_value: float = Field(..., description="The calculated numerical final answer")
+    unit: str = Field(default="", description="The physical unit of the final answer (e.g. V, A, kN, dB)")
+    intermediate_steps: List[str] = Field(default_factory=list, description="Key calculation and substitution steps")
+
+
 class DualVLLMVerifier:
     """
     Tier 3: Dual-vLLM Double-Blind Cross-Verification.
     Verifies that synthesizer solution and independent auditor solution agree within ±3% tolerance.
     """
+
+    @classmethod
+    def get_auditor_schema(cls) -> dict:
+        """Returns the JSON schema to guide Agent 2 into a fast low-token calculation (<120ms)."""
+        if hasattr(AuditorNumericOutput, "model_json_schema"):
+            return AuditorNumericOutput.model_json_schema()
+        return AuditorNumericOutput.schema()
+
+    @classmethod
+    def parse_auditor_output(cls, auditor_response: Any) -> Optional[float]:
+        """
+        Defensively extracts the numeric float from auditor output (dict, Pydantic model, or float).
+        Guarantees zero crashes on malformed payload.
+        """
+        if isinstance(auditor_response, (int, float)):
+            return float(auditor_response)
+        if isinstance(auditor_response, dict):
+            val = auditor_response.get("final_value")
+            if val is not None:
+                try:
+                    return float(val)
+                except (ValueError, TypeError):
+                    pass
+        elif hasattr(auditor_response, "final_value"):
+            try:
+                return float(auditor_response.final_value)
+            except (ValueError, TypeError):
+                pass
+        return None
 
     @classmethod
     def verify(

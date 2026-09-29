@@ -146,6 +146,7 @@ class SubjectWorkspace:
         """
         Concatenate extracted text across all files of the given type.
         """
+        import json
         parts = []
         for rec in self.get_files(material_type):
             if rec.status == "extracted" and rec.extracted_path:
@@ -156,7 +157,16 @@ class SubjectWorkspace:
                         f"SOURCE: {rec.original_name} [{rec.material_type.upper()}]\n"
                         f"{'='*60}\n"
                     )
-                    parts.append(header + ep.read_text(encoding="utf-8", errors="ignore"))
+                    if ep.suffix.lower() == ".json":
+                        try:
+                            from core.contracts.document_artifact import DocumentArtifact
+                            art = DocumentArtifact.from_json(json.loads(ep.read_text(encoding="utf-8")))
+                            text_content = art.to_canonical_text()
+                        except Exception:
+                            text_content = ep.read_text(encoding="utf-8", errors="ignore")
+                    else:
+                        text_content = ep.read_text(encoding="utf-8", errors="ignore")
+                    parts.append(header + text_content)
         return "\n".join(parts)
 
     def get_subject_name(self) -> str:
