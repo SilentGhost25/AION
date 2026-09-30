@@ -167,8 +167,11 @@ def build_task_section(plan) -> str:
 def build_constraints_section() -> str:
     return (
         "[CONSTRAINTS]\n"
-        "  - The question must be self-contained; no references to 'the notes'\n"
-        "    or 'the textbook' or 'chapter N'.\n"
+        "  - The question must be self-contained; no references to 'the notes',\n"
+        "    'the textbook', 'chapter N', or meta-text.\n"
+        "  - FORBIDDEN PHRASES: Do NOT include preamble phrases such as 'Based on the provided evidence',\n"
+        "    'Based on the evidence provided', 'Apply the following', or 'Refer to the text'.\n"
+        "  - Open directly with the target Bloom action verb or scenario context.\n"
         "  - Do not reveal the answer in the question text.\n"
         "  - Do not use the words 'and' or 'or' to combine unrelated tasks.\n"
         "  - If the topic is mathematical or numerical, provide concrete givens.\n"
