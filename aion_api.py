@@ -380,6 +380,15 @@ def run_startup_checks() -> None:
         print(f"[CRITICAL STARTUP ERROR] {e}", sys.stderr)
         sys.exit(1)
 
+    # vLLM Readiness Check (P0.2)
+    if active_profile.backend == "vllm":
+        try:
+            check_vllm_readiness(get_backend_url(), active_profile.model_name)
+            LOG.info("vLLM Readiness    : PASS")
+        except RuntimeError as e:
+            LOG.critical(str(e))
+            sys.exit(1)
+
     # KaTeX mandatory
     try:
         katex_avail = KaTeXAvailabilityGate.probe()
@@ -758,17 +767,15 @@ def upload():
         manifest = store.get(doc.id)
         doc.status = DocumentStatus.READY
 
-        # -- Extraction Caching: cache extracted text for downstream generation --
+        # -- Structured Extraction Caching: cache DocumentArtifact keyed by PDF SHA-256 --
         enable_cache = os.getenv("ENABLE_EXTRACTION_CACHE", "true").lower() == "true"
-        if enable_cache and artifact:
-            extracted_text = getattr(artifact, "text", None) or (artifact.get("text") if isinstance(artifact, dict) else None)
-            if extracted_text:
-                try:
-                    store.store_derived(doc.id, "plain_text", extracted_text)
-                    manifest = store.get(doc.id)
-                    print(f"[CACHE] Saved extraction for {doc.id}: {len(extracted_text)} chars", flush=True)
-                except Exception as _ce:
-                    print(f"[CACHE] Failed to save extraction for {doc.id}: {_ce}", flush=True)
+        if enable_cache and manifest.is_pdf():
+            try:
+                from core.extraction.artifact_cache import load_or_extract_artifact
+                cached_art = load_or_extract_artifact(dest_path)
+                print(f"[CACHE] Saved structured DocumentArtifact for {doc.id} (SHA-256: {cached_art.source_pdf_sha256[:12]}): {len(cached_art.text_blocks)} blocks, {len(cached_art.figures)} figures", flush=True)
+            except Exception as _ce:
+                print(f"[CACHE] Failed to save structured artifact for {doc.id}: {_ce}", flush=True)
 
         # -- Self-Learning: extract concepts from uploaded document ---------
         try:
@@ -865,24 +872,6 @@ def _sse(event: str, data: dict) -> str:
 # Generate — SSE stream
 # -------------------------------------------------------------
 
-def get_document_text(doc_id: str, store: Optional[Any] = None) -> str:
-    from core.artifacts.store import ArtifactStore
-    from core.extraction.gateway import ExtractionGateway
-    store = store or ArtifactStore()
-    manifest = store.get(doc_id)
-    derived_path = manifest.get_derived_text()
-    if derived_path and os.path.exists(derived_path):
-        print(f"[CACHE] Reading cached extraction for {doc_id}: {derived_path}", flush=True)
-        with open(derived_path, "r", encoding="utf-8", errors="replace") as f:
-            return f.read()
-    if manifest.source.path and Path(manifest.source.path).suffix.lower() in (".txt", ".md"):
-        if os.path.exists(manifest.source.path):
-            with open(manifest.source.path, "r", encoding="utf-8", errors="replace") as f:
-                return f.read()
-    artifact = ExtractionGateway.extract(manifest.source.path, document_id=doc_id)
-    return getattr(artifact, "text", "") or ""
-
-
 # -------------------------------------------------------------
 # Generate — SSE stream
 # -------------------------------------------------------------
@@ -900,7 +889,6 @@ def generate_stream():
 
     # Resolve file path
     file_path = gen_req.file_path
-    notes_text_override = None
 
     module_files = body.get("module_files") or body.get("moduleFiles") or {}
     if isinstance(module_files, dict) and module_files:
@@ -913,68 +901,35 @@ def generate_stream():
     else:
         module_files_int = {}
 
-    # --- Explicit Module Slot Mapping (handles sparse uploads like Module 5 only) ---
+    # --- Explicit Module Slot Mapping (handles multi-module uploads by passing PDF paths directly) ---
     if module_files_int:
         from core.artifacts.store import ArtifactStore
-        from core.artifacts.lifecycle import GenerationGuard
         store = ArtifactStore()
-        combined_parts = []
-        
-        raw_notes = gen_req.notes_text or body.get("notes_text") or ""
-        existing_module_notes = {}
-        if "Module " in raw_notes:
-            mod_splits = re.split(r"(?:=== )?Module\s+(\d+)[:\s]", raw_notes)
-            if len(mod_splits) > 1:
-                for idx in range(1, len(mod_splits), 2):
-                    try:
-                        m_num = int(mod_splits[idx])
-                        m_txt = mod_splits[idx + 1].strip()
-                        existing_module_notes[m_num] = m_txt
-                    except (IndexError, ValueError):
-                        pass
-
         is_ia = str(gen_req.exam_type or body.get("exam_type", "")).lower() == "ia"
         if is_ia or len(module_files_int) < 5:
-            target_modules = sorted(set(module_files_int.keys()) | set(existing_module_notes.keys()))
+            target_modules = sorted(set(module_files_int.keys()))
         else:
             target_modules = list(range(1, 6))
 
-        def _clean_mod_header(fname: str, m_num: int) -> str:
-            clean = re.sub(r'\.(?:pdf|docx?|txt|md)$', '', str(fname).strip(), flags=re.IGNORECASE)
-            clean = re.sub(r'(?i)\b(?:notes?|syllabus|handout|module|unit|chapter|part)\b', ' ', clean)
-            clean = re.sub(r'[-_]+', ' ', clean).strip()
-            clean = re.sub(r'\s+', ' ', clean).strip()
-            if len(clean) < 3 or re.match(r'^\d+$', clean) or (getattr(gen_req, "subject", None) and clean.lower() == str(gen_req.subject).lower()):
-                return f"Module {m_num}"
-            return f"Module {m_num}: {clean}"
-
+        pdf_paths = []
         for m_idx in target_modules:
             fid = module_files_int.get(m_idx)
             if fid:
                 manifest = store.get(fid)
-                if manifest:
-                    text = get_document_text(fid, store=store)
-                    filename = getattr(manifest.source, "filename", f"Module_{m_idx}")
-                    mod_hdr = _clean_mod_header(filename, m_idx)
-                    combined_parts.append(f"{mod_hdr}\n{text}")
-                else:
-                    n_txt = existing_module_notes.get(m_idx)
-                    if n_txt:
-                        combined_parts.append(f"Module {m_idx}: {gen_req.subject} - Part {m_idx}\n{n_txt}")
-            else:
-                n_txt = existing_module_notes.get(m_idx)
-                if n_txt:
-                    combined_parts.append(f"Module {m_idx}: {gen_req.subject} - Part {m_idx}\n{n_txt}")
+                if manifest and manifest.source.path:
+                    pdf_p = Path(manifest.source.path)
+                    if pdf_p.exists():
+                        pdf_paths.append(pdf_p)
+        if pdf_paths:
+            print(f"[MODULE-MAPPING] Forwarding {len(pdf_paths)} explicit module PDFs directly to pipeline (no text flattening).", flush=True)
+            file_path = pdf_paths
 
-        notes_text_override = "\n\n".join(combined_parts)
-        print(f"[MODULE-MAPPING] Synthesized explicit module slots {list(module_files_int.keys())} into combined notes ({len(notes_text_override)} chars)", flush=True)
-
-    # --- Multi-file synthesis (runs when file_ids has 2+ entries) ---
+    # --- Multi-file ingestion: pass PDF paths directly to the pipeline ---
     elif gen_req.file_ids and len(gen_req.file_ids) > 1:
         from core.artifacts.store import ArtifactStore
         from core.artifacts.lifecycle import GenerationGuard
         store = ArtifactStore()
-        combined_parts = []
+        pdf_paths = []
         for i, fid in enumerate(gen_req.file_ids):
             manifest = store.get(fid)
             if not manifest:
@@ -982,34 +937,15 @@ def generate_stream():
             guard = GenerationGuard.check(fid, store=store)
             if not guard.allowed:
                 raise ValueError(f"Module {i+1} ('{fid}') is not READY: {guard.message}")
-            text = get_document_text(fid, store=store)
-            word_count = len(text.split())
-            if word_count < 50:
-                filename = getattr(manifest.source, "filename", fid)
-                raise ValueError(
-                    f"Module {i+1} ('{filename}') has only {word_count} extracted words — "
-                    f"below the 50-word minimum for reliable segmentation."
-                )
-            filename = getattr(manifest.source, "filename", f"module_{i+1}")
-            clean = re.sub(r'\.(?:pdf|docx?|txt|md)$', '', str(filename).strip(), flags=re.IGNORECASE)
-            clean = re.sub(r'(?i)\b(?:notes?|syllabus|handout|module|unit|chapter|part)\b', ' ', clean)
-            clean = re.sub(r'[-_]+', ' ', clean).strip()
-            hdr = f"Module {i+1}: {clean}" if len(clean) >= 3 and not re.match(r'^\d+$', clean) else f"Module {i+1}"
-            combined_parts.append(f"{hdr}\n{text}")
-        notes_text_override = "\n\n".join(combined_parts)
-        print(f"[MULTI-FILE] Synthesized {len(gen_req.file_ids)} modules into combined notes ({len(notes_text_override)} chars)", flush=True)
-        print(f"[MULTI-FILE] Synthesized {len(gen_req.file_ids)} modules as text-only. "
-              f"Image/figure extraction is skipped for multi-file requests — "
-              f"original PDF diagrams will not appear in this paper.", flush=True)
+            pdf_p = Path(manifest.source.path)
+            if not pdf_p.exists():
+                raise FileNotFoundError(f"Uploaded PDF for file_id={fid} missing: {pdf_p}")
+            if pdf_p.suffix.lower() != ".pdf":
+                raise ValueError(f"Structured extraction requires PDF. Got {pdf_p.suffix} for {fid}")
+            pdf_paths.append(pdf_p)
+        print(f"[MULTI-FILE] Forwarding {len(pdf_paths)} PDFs directly to pipeline (no text flattening).", flush=True)
+        file_path = pdf_paths  # now a LIST of Path
 
-    if notes_text_override:
-        notes_dir = ROOT / "workspace" / "uploads"
-        notes_dir.mkdir(parents=True, exist_ok=True)
-        notes_file = notes_dir / f"synthesized_multi_{trace.request_id}.txt"
-        with open(notes_file, "w", encoding="utf-8") as f:
-            f.write(notes_text_override)
-        file_path = str(notes_file)
-        gen_req.file_path = file_path
     elif gen_req.file_id:
         doc = doc_registry.get(gen_req.file_id)
         record = file_registry.get(gen_req.file_id)
@@ -1018,31 +954,42 @@ def generate_stream():
         elif record:
             file_path = record["storedPath"]
 
-    # Save inline notes_text if present and file_path not set
+    # Save inline notes_text as PDF document if present and file_path not set
     if not file_path and gen_req.notes_text:
         notes_dir = ROOT / "workspace" / "uploads"
         notes_dir.mkdir(parents=True, exist_ok=True)
-        notes_file = notes_dir / f"inline_{trace.request_id}.txt"
-        with open(notes_file, "w", encoding="utf-8") as f:
-            f.write(gen_req.notes_text)
-        file_path = str(notes_file)
-    # Resolve authoritative ExtractionSource via GenerationRequestResolver
-    from core.artifacts.resolver import GenerationRequestResolver, ExtractionSourceMissingError
+        pdf_out = notes_dir / f"inline_{trace.request_id}.pdf"
+        try:
+            import fitz
+            doc = fitz.open()
+            page = doc.new_page()
+            rect = fitz.Rect(50, 50, page.rect.width - 50, page.rect.height - 50)
+            page.insert_textbox(rect, gen_req.notes_text, fontsize=11)
+            doc.save(str(pdf_out))
+            doc.close()
+        except Exception as _pe:
+            print(f"[NOTES_PDF] Failed to compile inline notes to PDF: {_pe}")
+        file_path = str(pdf_out)
 
-    try:
-        resolver_payload = {"file_path": file_path} if notes_text_override else {"file_id": gen_req.file_id, "file_path": file_path}
-        source = GenerationRequestResolver.resolve(resolver_payload)
-        file_path = source.path
-        gen_req.file_path = file_path
-        print("=" * 60)
-        print("[SOURCE RESOLUTION DIAGNOSTICS]")
-        print(f"  file_id          : {gen_req.file_id or source.document_id}")
-        print(f"  source_path      : {source.path}")
-        print(f"  source_type      : {source.mime_type}")
-        print(f"  source_authority : {'ORIGINAL' if source.manifest.source.authoritative else 'UNKNOWN'}")
-        print("=" * 60)
-    except Exception as e:
-        print(f"[GENERATE RESOLVE WARN] {e}")
+    # Resolve authoritative ExtractionSource via GenerationRequestResolver for single files
+    if isinstance(file_path, list):
+        print(f"[PIPELINE INPUT] Forwarding {len(file_path)} PDF sources directly to run_pipeline.", flush=True)
+    elif file_path:
+        from core.artifacts.resolver import GenerationRequestResolver
+        try:
+            resolver_payload = {"file_id": gen_req.file_id, "file_path": file_path}
+            source = GenerationRequestResolver.resolve(resolver_payload)
+            file_path = source.path
+            gen_req.file_path = file_path
+            print("=" * 60)
+            print("[SOURCE RESOLUTION DIAGNOSTICS]")
+            print(f"  file_id          : {gen_req.file_id or source.document_id}")
+            print(f"  source_path      : {source.path}")
+            print(f"  source_type      : {source.mime_type}")
+            print(f"  source_authority : {'ORIGINAL' if source.manifest.source.authoritative else 'UNKNOWN'}")
+            print("=" * 60)
+        except Exception as e:
+            print(f"[GENERATE RESOLVE WARN] {e}")
 
     # Enforce GenerationGuard — Document must be in READY state
     if gen_req.file_id:
@@ -1214,6 +1161,7 @@ def generate_stream():
                             pass
                     _paper, _qa = _run_pipe(
                         file_path          = file_path,
+                        pdf_paths          = file_path if isinstance(file_path, list) else None,
                         exam_type          = gen_req.exam_type,
                         difficulty         = gen_req.difficulty,
                         include_visual     = getattr(gen_req, "visual_mode", True),
@@ -1222,6 +1170,7 @@ def generate_stream():
                         sub_question_count = _sq_c,
                         marks_split        = _sp or _existing,
                         subject            = getattr(gen_req, "subject", None),
+                        source_kind        = "pdf" if (isinstance(file_path, list) or (file_path and str(file_path).lower().endswith(".pdf"))) else "text",
                     )
                     dur = (time.time() - t0) * 1000
                     trace.stage("PipelineExecution", status="PASS", duration_ms=dur,
@@ -1513,6 +1462,7 @@ def generate_async():
                 sub_question_count = _async_sq_c,
                 marks_split        = _async_raw_m,
                 subject            = body.get("subject", ""),
+                source_kind        = "pdf" if (isinstance(file_path, list) or (file_path and str(file_path).lower().endswith(".pdf"))) else "text",
             )
             job["result"]   = _format_paper(
                 paper,
@@ -2327,10 +2277,15 @@ def regenerate_single_slot():
 # ===========================================================================
 try:
     from core.generation.marks_partitioner import parse_user_split, set_global_user_split
+    from core.safety.resilience import set_request_context
+    import uuid
 
     @app.before_request
-    def _aion_capture_user_marks_split_hook():
+    def _aion_capture_request_context():
         from flask import request
+        req_id = request.headers.get("X-Request-ID") or f"req_{uuid.uuid4().hex[:8]}"
+        set_request_context("request_id", req_id)
+        
         if request.is_json:
             try:
                 body = request.get_json(silent=True) or {}
@@ -2380,6 +2335,8 @@ if __name__ == "__main__":
 
     # Warmup runs in background — Flask starts immediately
     threading.Thread(target=warmup_model, daemon=True).start()
+
+    run_startup_checks()
 
     app.run(
         host     = "0.0.0.0",

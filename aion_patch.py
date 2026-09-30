@@ -158,11 +158,18 @@ SUBJECT_ARCHETYPES = {
 - Structure input data in clear markdown tables and equations in math_blocks."""
     },
     "ai_ml_data": {
-        "aliases": ["machine learning", "artificial intelligence", "ai", "ml", "aiml", "ai & ml", "ai/ml", "data science", "neural networks", "deep learning", "21cs71", "aiml lab", "ai lab", "ml lab"],
-        "directive": r"""[DOMAIN DIRECTIVE: AI, MACHINE LEARNING & DATA SCIENCE]
-- Formulate analytical problems: Calculate Posterior Probability P(A|B) using Bayes' Theorem, Confusion Matrix metrics (Accuracy, Precision, Recall, F1-Score), or Information Gain / Gini Impurity for Decision Trees.
-- For Optimization: Formulate single-step Gradient Descent updates w^{(t+1)} = w^{(t)} - \eta \nabla L(w).
-- Use clean LaTeX for matrices, vectors, and summation formulas."""
+        "aliases": [
+            "machine learning", "artificial intelligence", "ai", "ml", "aiml", "ai & ml", "ai/ml",
+            "iai", "intro to ai", "introduction to artificial intelligence", "intelligent agents",
+            "data science", "neural networks", "deep learning", "21cs71", "21cs54", "18cs54", "bcs502",
+            "aiml lab", "ai lab", "ml lab"
+        ],
+        "directive": r"""[DOMAIN DIRECTIVE: ARTIFICIAL INTELLIGENCE, MACHINE LEARNING & DATA SCIENCE]
+- For Intelligent Agents: Formulate analytical problems analyzing PEAS specifications (Performance measure, Environment, Actuators, Sensors) and environment characteristics (Fully/Partially Observable, Deterministic/Stochastic, Episodic/Sequential, Static/Dynamic, Discrete/Continuous, Single/Multi-agent).
+- For Search Algorithms: Formulate concrete state space search problems (BFS, DFS, Uniform-Cost, or A* Search). Calculate path costs g(n), heuristic values h(n), evaluation function f(n) = g(n) + h(n), or prove heuristic admissibility and consistency.
+- For Knowledge Representation & Logic: Formulate rigorous inference problems in Propositional and First-Order Logic (Modus Ponens, resolution refutation proofs, substitution/unification of terms, or Horn clause chaining).
+- For Machine Learning & Probabilistic Reasoning: Calculate Posterior Probability P(A|B) using Bayes' Theorem, Confusion Matrix metrics (Accuracy, Precision, Recall, F1-Score), or Information Gain / Gini Impurity for Decision Trees.
+- Structure input tables clearly and use clean LaTeX for all formulas, state representations, and logic proofs inside math_blocks."""
     },
     "circuits_dsp": {
         "aliases": ["dsp", "digital signal processing", "signals and systems", "circuits", "analog electronics", "vlsi", "dsp lab", "vlsi lab"],
@@ -211,8 +218,9 @@ COURSE_CODE_MAP = {
     "bis701": "cloud_bigdata", "bcs701": "cloud_bigdata", "21cs72": "cloud_bigdata", "18cs72": "cloud_bigdata",
     # OS & Networks
     "21cs44": "os_networks", "18cs44": "os_networks", "21cs52": "os_networks", "18cs52": "os_networks", "bis403": "os_networks",
-    # AI / ML
+    # AI / ML & Introduction to AI
     "21cs71": "ai_ml_data", "18cs71": "ai_ml_data", "21aiml": "ai_ml_data", "bcs601": "ai_ml_data",
+    "21cs54": "ai_ml_data", "18cs54": "ai_ml_data", "bcs502": "ai_ml_data", "iai": "ai_ml_data",
     # IoT / Smart Systems
     "21cs81": "iot_smart_systems", "18cs81": "iot_smart_systems", "21ec81": "iot_smart_systems",
 }
@@ -279,17 +287,43 @@ def resolve_subject_archetype(subject_name: str = "", topic_text: str = "") -> O
             for alias in arch_data["aliases"]:
                 alias_norm = re.sub(r'[/_&,.\-]', ' ', alias.lower()).strip()
                 alias_norm = re.sub(r'\s+', ' ', alias_norm)
-                # Strict requirement: Topic alias must be at least 5 chars and match full word
-                if len(alias_norm) >= 5:
+                # Allow known domain acronyms or any alias >= 5 chars
+                is_known_acronym = alias_norm in {"iai", "os", "ai", "ml", "aiml", "cn", "dbms", "iot", "dsp", "wsn", "sql"}
+                if len(alias_norm) >= 5 or is_known_acronym:
                     pattern = r'\b' + re.escape(alias_norm) + r'\b'
-                    if re.search(pattern, t_norm) or re.search(pattern, t_raw):
+                    if re.search(pattern, t_norm, re.IGNORECASE) or re.search(pattern, t_raw, re.IGNORECASE):
                         topic_matches.append((len(alias_norm), arch_key))
         if topic_matches:
             topic_matches.sort(key=lambda x: x[0], reverse=True)
             return topic_matches[0][1]
 
-    # FAIL-CLOSED: if subject is unknown or not in registry, inject ZERO domain directives
+    # FAIL-CLOSED: if subject is unknown or not in registry, return None
     return None
+
+
+SUBJECT_NEUTRAL_FALLBACK_DIRECTIVE = (
+    "[DOMAIN DIRECTIVE: ACADEMIC & METHODOLOGICAL RIGOR]\n"
+    "- Require precise technical terminology, worked conceptual examples for application questions, "
+    "and strictly grounded citations from the provided context.\n"
+    "- Formulate questions with clear evaluation criteria, avoid purely descriptive 'write short notes' formats, "
+    "and demand detailed step-by-step reasoning or methodological distinctions."
+)
+
+
+def get_subject_directives(subject_name: str, topic_text: str = "") -> List[str]:
+    """
+    Return active domain directives for the given subject/topic.
+    If matched in SUBJECT_ARCHETYPES, returns the archetype directive.
+    If unmapped, returns the subject-neutral academic fallback directive (guaranteeing 0 misses).
+    """
+    matched_arch = resolve_subject_archetype(subject_name, topic_text)
+    if matched_arch and matched_arch in SUBJECT_ARCHETYPES:
+        return [SUBJECT_ARCHETYPES[matched_arch]["directive"]]
+    
+    # Telemetry miss audit pass
+    print(f"[ARCHETYPE] Registry miss for subject='{subject_name}' | topic='{topic_text}'. Injected subject-neutral academic directive.")
+    return [SUBJECT_NEUTRAL_FALLBACK_DIRECTIVE]
+
 
 # 5. Dynamic Caller with Multi-Domain Detection & Low Temperature
 def self_heal_ollama(ollama_url: str = "http://127.0.0.1:11434") -> bool:
@@ -406,12 +440,10 @@ for module_path in ["v0_1.llm", "core.generation.robust_llm_caller"]:
                     subject_name = kwargs.get("subject", "") or kwargs.get("subject_code", "") or getattr(sys.modules.get(__name__), "ACTIVE_SUBJECT", "")
                     
                     matched_arch = resolve_subject_archetype(subject_name, topic_text)
-                    matched_directives = []
-                    if matched_arch and matched_arch in SUBJECT_ARCHETYPES:
-                        matched_directives.append(SUBJECT_ARCHETYPES[matched_arch]["directive"])
+                    matched_directives = get_subject_directives(subject_name, topic_text)
+                    if matched_arch:
                         print(f"[ARCHETYPE] Subject: '{subject_name}' | Topic: '{topic_text}' -> Matched: {matched_arch}. Injected directive.")
-                    else:
-                        print(f"[ARCHETYPE] Fail-closed: Subject '{subject_name}' | Topic '{topic_text}' not in registry. Injected 0 domain directives.")
+
 
                     if matched_directives:
                         header = (
@@ -887,15 +919,14 @@ def _build_augmented_prompt(prompt, kwargs: Optional[dict] = None) -> str:
 
     topic_m = re.search(r'(?i)\btopic\s*:\s*([^\n]+)', prompt_text)
     topic_text = topic_m.group(1).strip() if topic_m else ""
-    subject_name = kwargs.get("subject", "") or kwargs.get("subject_code", "") or getattr(sys.modules.get(__name__), "ACTIVE_SUBJECT", "")
+    subject_name = kwargs.get("subject", "") or getattr(prompt, "subject", "") or kwargs.get("subject_code", "") or getattr(sys.modules.get(__name__), "ACTIVE_SUBJECT", "")
+
     
     matched_arch = resolve_subject_archetype(subject_name, topic_text)
-    matched_domains = []
-    if matched_arch and matched_arch in SUBJECT_ARCHETYPES:
-        matched_domains.append(SUBJECT_ARCHETYPES[matched_arch]["directive"])
+    matched_domains = get_subject_directives(subject_name, topic_text)
+    if matched_arch:
         logger.info(f"[ARCHETYPE] Subject: '{subject_name}' | Topic: '{topic_text}' -> Matched: {matched_arch}. Injected directive.")
-    else:
-        logger.info(f"[ARCHETYPE] Fail-closed: Subject '{subject_name}' | Topic '{topic_text}' not in registry. Injected 0 domain directives.")
+
 
     # --- Inject strict university exam template directives ---
     header += "\n=== [VTU EXAM PATTERN & DIAGRAM INJECTOR DIRECTIVE] ===\n"
