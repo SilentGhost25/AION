@@ -12,8 +12,11 @@
     .\aiq.ps1 model            # show model config
     .\aiq.ps1 logs             # tail backend log
 #>
-
-param([string]$Command = "")
+param(
+    [string]$Command = "",
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$RemainingArgs
+)
 
 $ROOT         = $PSScriptRoot
 $BACKEND_PORT = if ($env:AION_PORT) { [int]$env:AION_PORT } elseif ($env:BACKEND_PORT) { [int]$env:BACKEND_PORT } else { 8100 }
@@ -240,14 +243,85 @@ function Invoke-Logs {
     }
 }
 
+function Invoke-Smoke {
+    param([string[]]$SmokeArgs)
+    Invoke-VEnv
+    Set-Location $ROOT
+
+    if (-not $env:AION_BACKEND) {
+        if (Test-Port -Port 8000) {
+            $env:AION_BACKEND = "vllm"
+            if (-not $env:AION_LLM_HOST) { $env:AION_LLM_HOST = "http://localhost:8000" }
+            if (-not $env:AION_MODEL) { $env:AION_MODEL = "Qwen/Qwen2.5-14B-Instruct-AWQ" }
+            Write-AIQ "Detected vLLM server on port 8000 (backend=vllm)"
+        } elseif (Test-Port -Port 11434) {
+            $env:AION_BACKEND = "ollama"
+            if (-not $env:AION_LLM_HOST) { $env:AION_LLM_HOST = "http://localhost:11434" }
+            Write-AIQ "Detected Ollama server on port 11434 (backend=ollama)"
+        }
+    }
+
+    $defaultPdfs = "workspace/uploads/0146bb06-199/original.pdf,workspace/uploads/0288b40a-3ae/original.pdf,workspace/uploads/03aae7b2-a37/original.pdf,workspace/uploads/0bdbd6f4-20b/original.pdf,workspace/uploads/1475c262-cd5/original.pdf"
+
+    if (-not $SmokeArgs -or $SmokeArgs.Length -eq 0) {
+        Write-AIQ "Running default smoke test: Satellite Communication (IAT1, standard split)"
+        python scripts/run_v3_smoke_test.py `
+            --subject "Satellite Communication" `
+            --exam-type IAT1 `
+            --split-mode standard `
+            --pdf $defaultPdfs
+    } else {
+        $hasPdf = $false
+        foreach ($a in $SmokeArgs) {
+            if ($a -like "--pdf*") { $hasPdf = $true; break }
+        }
+        if (-not $hasPdf) {
+            python scripts/run_v3_smoke_test.py @SmokeArgs --pdf $defaultPdfs
+        } else {
+            python scripts/run_v3_smoke_test.py @SmokeArgs
+        }
+    }
+}
+
+function Invoke-Tests {
+    param([string]$Suite = "v3")
+    Invoke-VEnv
+    Set-Location $ROOT
+
+    switch ($Suite) {
+        "v3" {
+            Write-AIQ "Running v3 multi-agent test suite..."
+            pytest tests/integration/test_v3_multi_subject.py tests/integration/test_v3_determinism.py -v
+        }
+        "unit" {
+            Write-AIQ "Running unit tests..."
+            pytest tests/unit/ -v
+        }
+        "integration" {
+            Write-AIQ "Running integration tests..."
+            pytest tests/integration/ -v
+        }
+        "all" {
+            Write-AIQ "Running all tests..."
+            pytest tests/ -v
+        }
+        default {
+            pytest $Suite -v
+        }
+    }
+}
+
 function Show-Help {
     Show-Banner
-    Write-Host "Usage: .\aiq.ps1 [command]"
+    Write-Host "Usage: .\aiq.ps1 [command] [args]"
     Write-Host ""
     Write-Host "Commands:"
     Write-Host "  (none)     Start backend + frontend"
     Write-Host "  backend    Start backend only"
     Write-Host "  frontend   Start frontend only"
+    Write-Host "  smoke      Run v3 multi-agent smoke test (auto-detects vLLM/Ollama)"
+    Write-Host "  v3         Alias for 'smoke'"
+    Write-Host "  test       Run tests (e.g. .\aiq.ps1 test v3, .\aiq.ps1 test unit, .\aiq.ps1 test all)"
     Write-Host "  stop       Stop all AIQ processes"
     Write-Host "  status     Show running status"
     Write-Host "  logs       Tail backend logs"
@@ -256,7 +330,9 @@ function Show-Help {
     Write-Host ""
     Write-Host "Environment:"
     Write-Host "  AION_DEVICE=laptop|desktop|server"
-    Write-Host "  AION_MODEL=qwen2.5:7b  (manual override)"
+    Write-Host "  AION_BACKEND=vllm|ollama"
+    Write-Host "  AION_MODEL=Qwen/Qwen2.5-14B-Instruct-AWQ"
+    Write-Host "  AION_ENABLE_V3_AGENTS=true|false"
 }
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
@@ -264,6 +340,10 @@ function Show-Help {
 switch ($Command) {
     "backend"  { Invoke-VEnv; Set-Location $ROOT; Start-Backend; Read-Host "Press Enter to stop" }
     "frontend" { Start-Frontend; Read-Host "Press Enter to stop" }
+    "smoke"    { Invoke-Smoke -SmokeArgs $RemainingArgs }
+    "v3"       { Invoke-Smoke -SmokeArgs $RemainingArgs }
+    "test"     { Invoke-Tests -Suite ($RemainingArgs[0]) }
+    "tests"    { Invoke-Tests -Suite ($RemainingArgs[0]) }
     "stop"     { Invoke-Stop }
     "status"   { Invoke-Status }
     "model"    { Invoke-Model }
@@ -273,3 +353,4 @@ switch ($Command) {
     ""         { Invoke-Start }
     default    { Write-Err "Unknown command: $Command"; Show-Help }
 }
+

@@ -410,6 +410,87 @@ for device, model in sorted(DEVICE_MAP.items()):
 "
 }
 
+cmd_smoke() {
+    header "AIQ v3 Multi-Agent Smoke Test"
+    activate_venv 2>/dev/null
+    cd "$ROOT"
+
+    # Auto-detect running LLM backend if not explicitly set
+    if [[ -z "${AION_BACKEND:-}" ]]; then
+        if is_port_open 8000; then
+            export AION_BACKEND=vllm
+            export AION_LLM_HOST="${AION_LLM_HOST:-http://localhost:8000}"
+            log "Detected vLLM server on port 8000 (backend=vllm, host=$AION_LLM_HOST)"
+        elif is_port_open 11434; then
+            export AION_BACKEND=ollama
+            export AION_LLM_HOST="${AION_LLM_HOST:-http://localhost:11434}"
+            log "Detected Ollama server on port 11434 (backend=ollama, host=$AION_LLM_HOST)"
+        else
+            warn "No LLM server detected on port 8000 or 11434; proceeding with environment defaults."
+        fi
+    fi
+
+    if [[ "${AION_BACKEND:-}" == "vllm" && -z "${AION_MODEL:-}" ]]; then
+        export AION_MODEL="Qwen/Qwen2.5-14B-Instruct-AWQ"
+        log "Setting default vLLM model: $AION_MODEL"
+    fi
+
+    local default_pdfs="workspace/uploads/0146bb06-199/original.pdf,workspace/uploads/0288b40a-3ae/original.pdf,workspace/uploads/03aae7b2-a37/original.pdf,workspace/uploads/0bdbd6f4-20b/original.pdf,workspace/uploads/1475c262-cd5/original.pdf"
+
+    if [ "$#" -eq 0 ]; then
+        log "Running default smoke test: Satellite Communication (IAT1, standard split)"
+        python scripts/run_v3_smoke_test.py \
+            --subject "Satellite Communication" \
+            --exam-type IAT1 \
+            --split-mode standard \
+            --pdf "$default_pdfs"
+    else
+        local has_pdf=0
+        for arg in "$@"; do
+            if [[ "$arg" == "--pdf"* ]]; then
+                has_pdf=1
+                break
+            fi
+        done
+
+        if [ "$has_pdf" -eq 0 ]; then
+            python scripts/run_v3_smoke_test.py "$@" --pdf "$default_pdfs"
+        else
+            python scripts/run_v3_smoke_test.py "$@"
+        fi
+    fi
+}
+
+cmd_test() {
+    header "AIQ Test Runner"
+    activate_venv 2>/dev/null
+    cd "$ROOT"
+
+    local suite="${1:-all}"
+    case "$suite" in
+        v3)
+            log "Running v3 multi-agent test suite (multi-subject + determinism)..."
+            pytest tests/integration/test_v3_multi_subject.py tests/integration/test_v3_determinism.py -v
+            ;;
+        unit)
+            log "Running unit test suite..."
+            pytest tests/unit/ -v
+            ;;
+        integration)
+            log "Running integration test suite..."
+            pytest tests/integration/ -v
+            ;;
+        all|"")
+            log "Running all tests..."
+            pytest tests/ -v
+            ;;
+        *)
+            log "Running pytest with arguments: $*"
+            pytest "$@"
+            ;;
+    esac
+}
+
 cmd_install() {
     header "Installing global 'aiq' launcher"
     local bin_dir="$HOME/.local/bin"
@@ -426,12 +507,15 @@ cmd_install() {
 
 cmd_help() {
     banner
-    echo "Usage: ./aiq [command] [port]  (or 'aiq [command] [port]' if installed)"
+    echo "Usage: ./aiq [command] [port|args]  (or 'aiq [command]' if installed)"
     echo ""
     echo "Commands:"
     echo "  (none)     Start backend + frontend (auto-allocating free ports)"
     echo "  backend    Start backend only (e.g. ./aiq backend 8105)"
     echo "  frontend   Start frontend only (e.g. ./aiq frontend 5175)"
+    echo "  smoke      Run v3 multi-agent smoke test (auto-detects vLLM/Ollama)"
+    echo "  v3         Alias for 'smoke'"
+    echo "  test       Run tests (e.g. ./aiq test v3, ./aiq test unit, ./aiq test all)"
     echo "  stop       Stop all AIQ processes safely"
     echo "  status     Show running status and verified ports"
     echo "  logs       Tail backend logs"
@@ -443,11 +527,14 @@ cmd_help() {
     echo "  AION_PORT=8100      Preferred backend port"
     echo "  FRONTEND_PORT=5174  Preferred frontend port"
     echo "  AION_DEVICE=laptop|desktop|server"
-    echo "  AION_MODEL=qwen2.5:14b  (manual override)"
+    echo "  AION_BACKEND=vllm|ollama"
+    echo "  AION_MODEL=Qwen/Qwen2.5-14B-Instruct-AWQ"
+    echo "  AION_ENABLE_V3_AGENTS=true|false"
     echo ""
     echo "Examples:"
     echo "  ./aiq"
-    echo "  ./aiq 8105"
+    echo "  ./aiq smoke"
+    echo "  ./aiq test v3"
     echo "  ./aiq backend 8102"
     echo "  ./aiq status"
     echo "  ./aiq stop"
@@ -469,6 +556,8 @@ fi
 case "${1:-}" in
     backend)  activate_venv 2>/dev/null; cd "$ROOT"; cmd_backend; wait ;;
     frontend) activate_venv 2>/dev/null; cd "$ROOT"; cmd_frontend; wait ;;
+    smoke|v3|smoke-test) shift; cmd_smoke "$@" ;;
+    test|tests) shift; cmd_test "$@" ;;
     stop)     cmd_stop ;;
     status)   cmd_status ;;
     logs)     cmd_logs ;;
@@ -478,3 +567,4 @@ case "${1:-}" in
     start|"") cmd_start ;;
     *)        error "Unknown command: $1"; cmd_help; exit 1 ;;
 esac
+
