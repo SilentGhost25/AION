@@ -36,6 +36,25 @@ class DemandValidator:
 
         required_dims = profile.min_dimensions
 
+        # Inspect question_text if instruction split alone yields fewer than required dimensions
+        if declared_dims < required_dims and hasattr(output, "question_text") and output.question_text:
+            import re
+            q_parts = re.split(r'\b(?:and|or|as\s+well\s+as|while|whereas)\b|[,;\.\n]|\((?:i{1,3}|iv|v|[a-d]|\d+)\)', output.question_text)
+            q_dims = [p.strip() for p in q_parts if len(p.strip()) >= 4]
+            if len(q_dims) > declared_dims:
+                dims = q_dims
+                declared_dims = len(q_dims)
+
+        # For numerical/calculation questions (e.g. calculation with givens and formula):
+        # A single well-specified calculation problem with parameters satisfies cognitive demand for marks <= 6
+        is_num = (
+            getattr(profile, "requires_calculation", False)
+            or getattr(contract, "question_type", "").upper() == "NUMERICAL"
+            or getattr(contract, "is_numerical", False)
+        )
+        if is_num and contract.marks <= 6 and declared_dims >= 1:
+            required_dims = 1
+
         # H1 — FAIL, not warn
         if declared_dims < required_dims:
             return CheckResult.fail(

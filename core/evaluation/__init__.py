@@ -1,7 +1,8 @@
 """
-AION RAG Evaluation Package
-===========================
-Exports contracts, evaluator implementation, listener registration, and aggregation.
+AION RAG Evaluation & Psychometric Calibration Package.
+======================================================
+Exports contracts, evaluator implementation, listener registration,
+aggregation, and Rasch 1PL IRT difficulty calibration.
 """
 
 from .contracts import MetricProvenance, RealtimeRAGMetrics, PaperRAGSummary
@@ -11,6 +12,11 @@ from .deterministic import (
     register_metric_listener,
     unregister_metric_listener,
     emit_accepted_metric,
+)
+from .irt_calibrator import (
+    IRTCalibrator,
+    DifficultyEstimate,
+    StudentSimFn,
 )
 
 __all__ = [
@@ -24,4 +30,7 @@ __all__ = [
     "register_metric_listener",
     "unregister_metric_listener",
     "emit_accepted_metric",
+    "IRTCalibrator",
+    "DifficultyEstimate",
+    "StudentSimFn",
 ]

@@ -1053,17 +1053,6 @@ class SlotOrchestrator:
                     f"[ORCHESTRATOR] Slot {attempt_slot.slot_id} exhausted after "
                     f"{attempt} attempts ({failure_history})."
                 )
-                if _unresolved_hard_block:
-                    from dataclasses import replace
-                    unresolved_slot = replace(attempt_slot, status=SlotStatus.UNRESOLVED.value)
-                    fail_code = getattr(failed_check, "code", None) or getattr(failure, "code", None) or "EXHAUSTION_CRITICAL"
-                    if hasattr(fail_code, "value"):
-                        fail_code = fail_code.value
-                    LOG.error(
-                        f"[ORCHESTRATOR FAIL-CLOSED] Slot {attempt_slot.slot_id} exhausted without resolving "
-                        f"(code={fail_code}, history={failure_history}). Raising UnresolvedSlotException."
-                    )
-                    raise UnresolvedSlotException(unresolved_slot, failure_code=str(fail_code))
 
                 _q_txt = getattr(candidate, 'question_text', '') if candidate else ''
                 import re as _re
@@ -1100,12 +1089,23 @@ class SlotOrchestrator:
                 if "BLOOM_VERB_NOT_AT_START" in failure_history and output:
                     try:
                         from core.generation.auto_healer import AutoHealer
-                        salvaged_output = AutoHealer.heal("BLOOM_VERB_NOT_AT_START", output, attempt_slot, failed_check.message)
+                        salvaged_output = AutoHealer.heal("BLOOM_VERB_NOT_AT_START", output, attempt_slot, getattr(failed_check, "message", ""))
                         if salvaged_output:
                             candidate = GeneratedQuestion(salvaged_output, attempt_slot)
                             LOG.info(f"[ORCHESTRATOR] Force-salvaged Bloom verb on exhaustion for slot {attempt_slot.slot_id}.")
                     except Exception as _salvage_err:
                         LOG.warning(f"[ORCHESTRATOR] Final Bloom verb salvage skipped: {_salvage_err}")
+
+                # Dimension defect on exhaustion -> force-salvage with AutoHealer
+                if "INSUFFICIENT_DECLARED_DIMENSIONS" in failure_history and output:
+                    try:
+                        from core.generation.auto_healer import AutoHealer
+                        salvaged_output = AutoHealer.heal("INSUFFICIENT_DECLARED_DIMENSIONS", getattr(candidate, "output", output), attempt_slot, getattr(failed_check, "message", ""))
+                        if salvaged_output:
+                            candidate = GeneratedQuestion(salvaged_output, attempt_slot)
+                            LOG.info(f"[ORCHESTRATOR] Force-salvaged declared dimensions on exhaustion for slot {attempt_slot.slot_id}.")
+                    except Exception as _salvage_dim_err:
+                        LOG.warning(f"[ORCHESTRATOR] Final dimension salvage skipped: {_salvage_dim_err}")
 
                 # Math defects on exhaustion: salvage by stripping broken blocks, or fallback if prose is empty
                 if _has_math_failure:
@@ -1153,6 +1153,20 @@ class SlotOrchestrator:
                             candidate.output.instruction = candidate.instruction
                 except Exception as e:
                     LOG.warning(f"[ORCHESTRATOR] Could not clean candidate: {e}")
+
+                # Re-validate salvaged candidate
+                try:
+                    check_cand_out = getattr(candidate, "output", None) or output
+                    salvaged_check_rep = run_linter(
+                        check_cand_out, candidate, attempt_slot, contract,
+                        evidence_text=evidence_text, sibling_texts=sibling_texts
+                    )
+                    if salvaged_check_rep.passed:
+                        candidate.status = "VALIDATED"
+                        LOG.info(f"[ORCHESTRATOR] Slot {attempt_slot.slot_id} passed validation after programmatic salvage on exhaustion.")
+                        return candidate
+                except Exception as _reval_err:
+                    LOG.debug(f"[ORCHESTRATOR] Revalidation after salvage error: {_reval_err}")
 
                 if _unresolved_hard_block:
                     from dataclasses import replace

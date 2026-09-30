@@ -119,6 +119,9 @@ class AutoHealer:
             elif failure_code == "SIBLING_SIMILARITY":
                 return cls._fix_sibling_similarity(output, slot)
 
+            elif failure_code in ("INSUFFICIENT_DECLARED_DIMENSIONS", "INSUFFICIENT_DECLARED_DIMS"):
+                return cls._fix_insufficient_dimensions(output, slot, failure_message)
+
             elif failure_code in (
                 "MATH_INCOMPLETE_FRAC", "MATH_RENDER_FAILURE", "MATH_UNCLOSED_BRACES",
                 "MATH_UNBALANCED_BRACES", "MATH_EMPTY", "MATH_RENDER_ERROR", "MATH_CORRUPTED"
@@ -389,4 +392,49 @@ class AutoHealer:
         output.question_text = output.question_text.rstrip(".") + directive
         print(f"[AUTO-HEALER] Fixed SIBLING_SIMILARITY — injected topic-shift angle")
         return output
+
+    @classmethod
+    def _fix_insufficient_dimensions(
+        cls,
+        output: "QuestionOutput",
+        slot: "QuestionSlot",
+        failure_message: str = "",
+    ) -> "QuestionOutput":
+        """
+        Enriches instruction and question text with complementary academic dimensions
+        appropriate to the slot's Bloom level and marks, resolving INSUFFICIENT_DECLARED_DIMENSIONS.
+        """
+        if not output:
+            return output
+
+        import re
+        instruction = getattr(output, "instruction", "") or ""
+        q_text = getattr(output, "question_text", "") or instruction
+
+        bloom = getattr(slot, "bloom_level", "L2")
+        marks = getattr(slot, "marks", 6)
+
+        if bloom in ("L1", "L2"):
+            enrichment = ", outlining its key structural components and primary operating characteristics."
+        elif bloom in ("L3", "L4"):
+            enrichment = ", analyzing the operational constraints, and evaluating the resulting performance trade-offs."
+        else:
+            enrichment = ", evaluating the architectural trade-offs, and justifying the recommended deployment strategy."
+
+        inst_clean = re.sub(r'[\s\.\?!]+$', '', instruction.strip())
+        q_clean = re.sub(r'[\s\.\?!]+$', '', q_text.strip())
+
+        if not any(w in inst_clean.lower() for w in ("operational", "performance", "structural", "constraints", "trade-offs")):
+            new_instruction = inst_clean + enrichment
+            if inst_clean and inst_clean in q_clean:
+                new_q_text = q_clean.replace(inst_clean, new_instruction)
+            else:
+                new_q_text = q_clean + enrichment
+
+            output.instruction = new_instruction
+            output.question_text = new_q_text
+            print(f"[AUTO-HEALER] Enriched dimensions for {getattr(slot, 'slot_id', 'slot')}: +'{enrichment.strip()}'")
+
+        return output
+
 

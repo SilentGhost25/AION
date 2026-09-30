@@ -158,3 +158,45 @@ def test_demand_validation_mark_proportionality():
     )
     result_pass = DemandValidator.validate(output=multi_clause_output, contract=contract_10m)
     assert result_pass.passed is True
+
+
+def test_insufficient_dimensions_healing_and_6m_l3_validation():
+    """
+    Verify that 6M/L3 questions require 2 dimensions, and single-clause outputs
+    are automatically healed by AutoHealer so they pass DemandValidator.
+    """
+    from core.generation.auto_healer import AutoHealer
+
+    contract_6m = QuestionContract(
+        slot_id="module_1_Q2_a",
+        question_no=2,
+        sub_label="a",
+        module_id=1,
+        marks=6,
+        bloom_level="L3",
+        bloom_verb="Calculate",
+        bloom_operation="CALCULATE",
+        co="CO1",
+        difficulty="EASY",
+        question_type="APPLICATION",
+        topic="Databases",
+        evidence_ids=("m1_c1",),
+        task_signature=TaskSignature("CALCULATE", (), False, True, False),
+        math_required=False,
+        visual_required=False,
+    )
+    dp_6m = DemandProfile.from_contract(contract_6m)
+    assert dp_6m.min_dimensions == 2
+
+    # Single clause output without dimensions
+    raw_output = QuestionOutput(
+        instruction="Calculate the impact of removing the Docker Engine on the ability to manage data.",
+        question_text="Calculate the impact of removing the Docker Engine on the ability to manage data.",
+        math_blocks=[],
+    )
+
+    # Heal with AutoHealer
+    healed = AutoHealer.heal("INSUFFICIENT_DECLARED_DIMENSIONS", raw_output, contract_6m)
+    result = DemandValidator.validate(output=healed, contract=contract_6m)
+    assert result.passed is True
+

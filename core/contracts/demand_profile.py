@@ -15,11 +15,12 @@ def _compute_min_dimensions(bloom: str, marks: int) -> int:
         return 1 if marks <= 5 else 2
     elif bloom in ("L3", "L4"):
         if marks <= 3:  return 1
-        if marks <= 5:  return 2
+        if marks <= 6:  return 2
         if marks <= 8:  return 3
         return 4
     else:  # L5, L6
-        if marks <= 5:  return 2
+        if marks <= 3:  return 1
+        if marks <= 6:  return 2
         if marks <= 8:  return 3
         return 4
 

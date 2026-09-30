@@ -297,9 +297,9 @@ def run_pipeline(
         if not meta["success"]:
             # v3 failed — fail-closed (return empty; caller's gate blocks)
             print(f"[V3] pipeline failed: {meta.get('failure_code')}", flush=True)
-            return [], []
+            return [], {}
 
-        return paper_parts, full_paper
+        return paper_parts, meta.get("qa_report") or {}
 
     artifact = None
     """
@@ -1983,18 +1983,34 @@ def _load_artifact_for_v3(file_path, source_kind, enable_structured):
     if not file_path:
         return None
 
-    if source_kind == "text":
-        # User-uploaded text — synthesize a minimal artifact
+    path_target = Path(file_path[0] if isinstance(file_path, list) and file_path else file_path)
+    is_txt = source_kind == "text" or str(path_target).lower().endswith(".txt")
+
+    if is_txt:
+        # User-uploaded text — synthesize a multi-page artifact so module partitioning succeeds
         from core.contracts.document_artifact import DocumentArtifact, TextBlock
-        path = Path(file_path) if not isinstance(file_path, list) else Path(file_path[0])
-        text = path.read_text(encoding="utf-8", errors="ignore")
+        text = path_target.read_text(encoding="utf-8", errors="ignore")
+        words = text.split()
+        page_size = 400
+        blocks = []
+        page = 1
+        for i in range(0, max(len(words), 1), page_size):
+            chunk_text = " ".join(words[i:i + page_size])
+            if chunk_text.strip():
+                blocks.append(TextBlock(
+                    id=f"block_{page}",
+                    text=chunk_text,
+                    page=page,
+                    block_role="BODY",
+                    source_pdf_sha256="text_upload",
+                ))
+                page += 1
+        if not blocks:
+            blocks = [TextBlock(id="block_1", text=text, page=1, block_role="BODY", source_pdf_sha256="text_upload")]
         return DocumentArtifact(
             source_pdf_sha256="text_upload",
-            source_pdf_path=str(path),
-            text_blocks=[TextBlock(
-                id="block_1", text=text, page=1,
-                block_role="BODY", source_pdf_sha256="text_upload",
-            )],
+            source_pdf_path=str(path_target),
+            text_blocks=blocks,
         )
 
     # PDF path
@@ -2003,7 +2019,7 @@ def _load_artifact_for_v3(file_path, source_kind, enable_structured):
         from core.extraction.artifact_cache import merge_artifacts
         artifacts = [load_or_extract_artifact(Path(p)) for p in file_path]
         return merge_artifacts(artifacts)
-    return load_or_extract_artifact(Path(file_path))
+    return load_or_extract_artifact(path_target)
 
 
 def _default_marks_split(paper_spec):
