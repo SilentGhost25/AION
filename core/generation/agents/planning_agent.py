@@ -171,12 +171,16 @@ class PlanningAgent(Agent):
                 )
                 if topic:
                     used_topics[module_id].add(topic.lower())
+                else:
+                    topic = f"Module {module_idx} — Topic {within_idx + 1}"
+                    used_topics[module_id].add(topic.lower())
 
                 neighborhood = self._get_neighborhood(kg, module_id, topic)
                 evidence_blocks = self._pick_evidence_blocks(
                     artifact=artifact,
                     module_idx=module_idx,
                     module_count=spec.module_count,
+                    slot_idx=within_idx,
                 )
 
                 visual_required, figure = self._resolve_visual(
@@ -309,7 +313,7 @@ class PlanningAgent(Agent):
             if not kg.has_module(module_id):
                 return ""
             graph = kg.get_module(module_id)
-            top = graph.top_concepts(20)
+            top = graph.top_concepts(100)
             for concept, _weight in top:
                 if concept.lower() not in exclude:
                     return concept
@@ -332,12 +336,11 @@ class PlanningAgent(Agent):
         artifact,
         module_idx: int,
         module_count: int,
+        slot_idx: int = 0,
     ) -> List[Any]:
         """
-        Return up to N evidence blocks from this module only.
-
-        Block roles are filtered to BODY and HEADING. The blocks are
-        returned in page order; the Writing Agent trims further.
+        Return up to N evidence blocks from this module, windowed by slot_idx
+        so sibling slots receive distinct/offset evidence contexts.
         """
         blocks = getattr(artifact, "text_blocks", []) or []
         max_page = self._max_page(artifact)
@@ -357,9 +360,21 @@ class PlanningAgent(Agent):
             and getattr(b, "block_role", "BODY") in EVIDENCE_ROLES
         ]
 
-        # Take first N BODY blocks (skip HEADING if BODYs available)
+        # Filter BODY blocks (fall back to module_blocks if none marked BODY)
         body = [b for b in module_blocks if getattr(b, "block_role", "") == "BODY"]
-        chosen = body[: self.max_evidence_blocks_per_slot] if body else module_blocks[: self.max_evidence_blocks_per_slot]
+        candidates = body if body else module_blocks
+        if not candidates:
+            return []
+
+        # Window/offset by slot_idx to vary context across sibling questions in same module
+        limit = self.max_evidence_blocks_per_slot
+        step = max(1, limit // 2)
+        start_offset = (slot_idx * step) % len(candidates)
+        
+        # Wrap-around slicing if start_offset + limit exceeds length
+        chosen = candidates[start_offset: start_offset + limit]
+        if len(chosen) < limit and len(candidates) > len(chosen):
+            chosen += candidates[: limit - len(chosen)]
         return chosen
 
     def _resolve_visual(
