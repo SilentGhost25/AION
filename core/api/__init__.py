@@ -18,6 +18,7 @@ from .providers import APIProvider, PROVIDERS
 from .circuit_breaker import CircuitBreaker, CircuitState
 from .router import APIRouter, AllProvidersUnavailable
 from .http_caller import HTTPAPICaller, APIUnavailable
+from .vlm_caller import VLMCaller
 
 __all__ = [
     "APIProvider",
@@ -28,4 +29,5 @@ __all__ = [
     "AllProvidersUnavailable",
     "HTTPAPICaller",
     "APIUnavailable",
+    "VLMCaller",
 ]

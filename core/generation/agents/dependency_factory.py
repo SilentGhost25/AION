@@ -194,16 +194,39 @@ def default_llm_caller_factory():
 
 def default_vlm_caller_factory():
     """
-    Construct the VLM caller. Returns None if no VLM is configured.
-    The VLM caller is expected to have .call(prompt, image_path, ...).
+    Construct the VLM caller if AION_VLM_URL is set.
+
+    Returns None if:
+        - AION_VLM_URL is unset (no VLM endpoint configured)
+        - The configured URL is unreachable at construction time
+
+    When None, the Writing Agent routes visual slots to the text LLM.
+    The visual directive is still in the prompt, but the model cannot
+    see the figure — it will produce a question that references the
+    figure by caption, not by content.
     """
+    from core.api import VLMCaller
+
     vlm_url = os.getenv("AION_VLM_URL", "").strip()
     if not vlm_url:
         return None
+
+    vlm_model = os.getenv(
+        "AION_VLM_MODEL",
+        "Qwen/Qwen2.5-VL-72B-Instruct-AWQ",
+    ).strip()
+
     try:
-        from core.generation.vlm_caller import VLMCaller
-        return VLMCaller(base_url=vlm_url)
-    except ImportError:
+        return VLMCaller(
+            base_url=vlm_url,
+            model=vlm_model,
+            api_key=os.getenv("AION_VLM_API_KEY", "").strip() or None,
+            timeout_seconds=float(os.getenv("AION_VLM_TIMEOUT", "60")),
+            max_attempts=int(os.getenv("AION_VLM_MAX_ATTEMPTS", "3")),
+            seed=int(os.getenv("AION_SEED", "42")),
+        )
+    except Exception as e:
+        print(f"[DEP-FACTORY] VLM caller construction failed: {e}", flush=True)
         return None
 
 
