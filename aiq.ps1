@@ -261,7 +261,7 @@ function Invoke-Smoke {
         }
     }
 
-    $defaultPdfs = "workspace/uploads/0146bb06-199/original.pdf,workspace/uploads/0288b40a-3ae/original.pdf,workspace/uploads/03aae7b2-a37/original.pdf,workspace/uploads/0bdbd6f4-20b/original.pdf,workspace/uploads/1475c262-cd5/original.pdf"
+    $defaultPdfs = "tests/fixtures/satcom/module1.pdf,tests/fixtures/satcom/module2.pdf,tests/fixtures/satcom/module3.pdf,tests/fixtures/satcom/module4.pdf,tests/fixtures/satcom/module5.pdf"
 
     if (-not $SmokeArgs -or $SmokeArgs.Length -eq 0) {
         Write-AIQ "Running default smoke test: Satellite Communication (IAT1, standard split)"
