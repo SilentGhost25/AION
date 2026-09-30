@@ -116,3 +116,10 @@ def resolve_paper_spec(
         f"{spec.co_count} COs."
     )
     return spec
+
+
+class PaperSpecResolver:
+    """Class-style resolver interface for compatibility."""
+    @staticmethod
+    def resolve(exam_type: str = "IAT1", override: Optional[Dict[str, Any]] = None) -> PaperSpec:
+        return resolve_paper_spec(exam_type=exam_type, override=override)

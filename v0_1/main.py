@@ -271,6 +271,36 @@ def run_pipeline(
     source_kind:        Optional[str] = None,  # "pdf" | "text"
     enable_structured:  Optional[bool] = None,
 ) -> Tuple[List[dict], List[dict]]:
+    # --- v3 feature flag branch ---
+    import os
+    if os.getenv("AION_ENABLE_V3_AGENTS", "false").lower() in ("true", "1", "yes", "on"):
+        from core.generation.agents.pipeline_bridge import run_v3_pipeline
+
+        # Build the paper_spec from exam_type
+        from core.generation.paper_spec_resolver import PaperSpecResolver
+        paper_spec = PaperSpecResolver.resolve(exam_type)
+
+        # Load the DocumentArtifact (using the same loader the legacy path uses)
+        target_file = file_path if file_path is not None else pdf_paths
+        artifact = _load_artifact_for_v3(target_file, source_kind, enable_structured)
+
+        # Resolve marks_split: default to per-slot splits if not provided
+        effective_marks_split = marks_split or _default_marks_split(paper_spec)
+
+        paper_parts, full_paper, meta = run_v3_pipeline(
+            paper_spec=paper_spec,
+            artifact=artifact,
+            marks_split=effective_marks_split,
+            request={"exam_type": exam_type, "subject": subject},
+        )
+
+        if not meta["success"]:
+            # v3 failed — fail-closed (return empty; caller's gate blocks)
+            print(f"[V3] pipeline failed: {meta.get('failure_code')}", flush=True)
+            return [], []
+
+        return paper_parts, full_paper
+
     artifact = None
     """
     Saves and generates an aligned VTU Question Paper grouped strictly by Module.
@@ -1943,3 +1973,60 @@ def _print_mq(mq: dict):
                 f"   ({sq['letter']}) {sq['text']} "
                 f"({sq['marks']} Marks) {diff_tag}{img_tag}"
             )
+
+
+def _load_artifact_for_v3(file_path, source_kind, enable_structured):
+    """Load a DocumentArtifact for v3, reusing existing extraction."""
+    from core.extraction.artifact_cache import load_or_extract_artifact
+    from pathlib import Path
+
+    if not file_path:
+        return None
+
+    if source_kind == "text":
+        # User-uploaded text — synthesize a minimal artifact
+        from core.contracts.document_artifact import DocumentArtifact, TextBlock
+        path = Path(file_path) if not isinstance(file_path, list) else Path(file_path[0])
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        return DocumentArtifact(
+            source_pdf_sha256="text_upload",
+            source_pdf_path=str(path),
+            text_blocks=[TextBlock(
+                id="block_1", text=text, page=1,
+                block_role="BODY", source_pdf_sha256="text_upload",
+            )],
+        )
+
+    # PDF path
+    if isinstance(file_path, list):
+        # Multi-file: merge artifacts
+        from core.extraction.artifact_cache import merge_artifacts
+        artifacts = [load_or_extract_artifact(Path(p)) for p in file_path]
+        return merge_artifacts(artifacts)
+    return load_or_extract_artifact(Path(file_path))
+
+
+def _default_marks_split(paper_spec):
+    """Generate a default marks_split for the paper spec if not provided."""
+    exam_type = getattr(paper_spec, "exam_type", "IAT1")
+    try:
+        from tests.fixtures.v3_paper_specs import (
+            IAT1_MARKS_SPLIT,
+            IAT2_MARKS_SPLIT,
+            ELECTIVE_3MOD_MARKS_SPLIT,
+        )
+        splits = {
+            "IAT1": IAT1_MARKS_SPLIT,
+            "IAT2": IAT2_MARKS_SPLIT,
+            "ELECTIVE_3MOD": ELECTIVE_3MOD_MARKS_SPLIT,
+        }
+        if exam_type in splits:
+            return splits[exam_type]
+    except Exception:
+        pass
+    # Each slot gets one partition equal to marks_per_question
+    return [
+        [getattr(paper_spec, "marks_per_question", 10)]
+        for _ in range(getattr(paper_spec, "total_questions", 10))
+    ]
+

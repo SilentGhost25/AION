@@ -164,6 +164,7 @@ class RobustLLMCaller:
                 "temperature": request.temperature,
                 "seed"       : request.seed,
                 "num_ctx"    : 8192,
+                "num_thread" : int(os.environ.get("OLLAMA_NUM_THREADS", "16")),
             }
         }
         if request.schema:
