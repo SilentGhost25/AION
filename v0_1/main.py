@@ -272,8 +272,8 @@ def run_pipeline(
     enable_structured:  Optional[bool] = None,
 ) -> Tuple[List[dict], List[dict]]:
     # --- v3 feature flag branch ---
-    import os
-    if os.getenv("AION_ENABLE_V3_AGENTS", "false").lower() in ("true", "1", "yes", "on"):
+    from core.generation.agents.pipeline_bridge import v3_enabled
+    if v3_enabled():
         from core.generation.agents.pipeline_bridge import run_v3_pipeline
 
         # Build the paper_spec from exam_type

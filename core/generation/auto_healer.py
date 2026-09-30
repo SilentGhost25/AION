@@ -122,6 +122,9 @@ class AutoHealer:
             elif failure_code in ("INSUFFICIENT_DECLARED_DIMENSIONS", "INSUFFICIENT_DECLARED_DIMS"):
                 return cls._fix_insufficient_dimensions(output, slot, failure_message)
 
+            elif failure_code == "VISUAL_POLICY_VIOLATION":
+                return cls._fix_visual_policy(output, slot)
+
             elif failure_code in (
                 "MATH_INCOMPLETE_FRAC", "MATH_RENDER_FAILURE", "MATH_UNCLOSED_BRACES",
                 "MATH_UNBALANCED_BRACES", "MATH_EMPTY", "MATH_RENDER_ERROR", "MATH_CORRUPTED"
@@ -436,5 +439,44 @@ class AutoHealer:
             print(f"[AUTO-HEALER] Enriched dimensions for {getattr(slot, 'slot_id', 'slot')}: +'{enrichment.strip()}'")
 
         return output
+
+    @classmethod
+    def _fix_visual_policy(
+        cls,
+        output: "QuestionOutput",
+        slot: "QuestionSlot",
+    ) -> "QuestionOutput":
+        """
+        Removes forbidden stimulus diagram requests and strips visual-dependency phrasing
+        when visual policy is FORBIDDEN.
+        """
+        if not output:
+            return output
+
+        import re
+        output.diagram_request = None
+
+        def _strip_visual_phrases(text: str) -> str:
+            if not text:
+                return ""
+            s = text
+            # Strip references like "with a neat diagram", "illustrate with a diagram", "refer to the figure"
+            patterns = [
+                r'(?i)\bwith\s+a\s+(?:neat\s+)?diagram\b',
+                r'(?i)\busing\s+a\s+(?:neat\s+)?diagram\b',
+                r'(?i)\bdraw\s+and\s+explain\b',
+                r'(?i)\billustrate\s+with\s+(?:a\s+)?(?:neat\s+)?(?:diagram|sketch|figure)\b',
+                r'(?i)\b(?:as\s+shown\s+in|refer\s+to)\s+(?:the\s+)?(?:figure|diagram|sketch)\b',
+            ]
+            for p in patterns:
+                s = re.sub(p, 'explain', s) if 'explain' in p or 'draw' in p else re.sub(p, '', s)
+            s = re.sub(r'\s+', ' ', s).strip()
+            return s
+
+        output.instruction = _strip_visual_phrases(output.instruction)
+        output.question_text = _strip_visual_phrases(output.question_text)
+        print(f"[AUTO-HEALER] Fixed VISUAL_POLICY_VIOLATION for {getattr(slot, 'slot_id', 'slot')} — stripped diagram request & visual phrasing.")
+        return output
+
 
 

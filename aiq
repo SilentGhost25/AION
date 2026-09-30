@@ -184,8 +184,8 @@ cmd_backend() {
     model=$(resolve_model)
     log "Resolved model: $model"
     log "Backend log: $BACKEND_LOG"
-    log "Starting on port $BACKEND_PORT..."
-
+    export AION_ENABLE_V3_AGENTS="${AION_ENABLE_V3_AGENTS:-true}"
+    log "V3 Multi-Agent Architecture: $AION_ENABLE_V3_AGENTS"
     python aion_api.py >> "$BACKEND_LOG" 2>&1 &
     local pid=$!
     write_pid "$pid" "$BACKEND_PID_FILE"

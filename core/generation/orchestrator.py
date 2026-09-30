@@ -981,7 +981,8 @@ class SlotOrchestrator:
             # --- AUTO-HEALER: Test programmatic healing immediately before LLM retry ---
             if failed_check.code in (
                 "BLOOM_VERB_NOT_AT_START", "DISALLOWED_SECONDARY_TASK",
-                "ANSWER_LEAK", "META_LANGUAGE", "INSUFFICIENT_DECLARED_DIMENSIONS"
+                "ANSWER_LEAK", "META_LANGUAGE", "INSUFFICIENT_DECLARED_DIMENSIONS",
+                "VISUAL_POLICY_VIOLATION"
             ):
                 try:
                     from core.generation.auto_healer import AutoHealer
