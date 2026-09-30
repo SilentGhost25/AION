@@ -203,6 +203,7 @@ class WritingAgent(Agent):
                     )
             except Exception as e:
                 last_error = f"caller raised: {e}"
+                print(f"[WRITING-WARN] slot={plan.slot_id} attempt={attempt} caller raised: {e}", flush=True)
                 continue
 
             parsed = self._parse_response(raw)

@@ -168,6 +168,9 @@ class RobustLLMCallerAdapter:
         from core.generation.robust_llm_caller import LLMRequest
         from core.config.production_model import get_production_model
         model = os.getenv("AION_MODEL") or get_production_model()
+        backend = (os.getenv("AION_BACKEND") or getattr(self._caller, "backend", "") or "").lower().strip()
+        if backend == "vllm" and (not model or model == "qwen2.5:14b" or ":" in model):
+            model = os.getenv("AION_VLLM_MODEL") or "Qwen/Qwen2.5-14B-Instruct-AWQ"
         timeout = int(os.getenv("AION_LLM_TIMEOUT", "180"))
         req = LLMRequest(
             model=model,
@@ -209,24 +212,10 @@ def default_api_caller_factory():
     Construct the API caller that wraps the router with a real HTTP client.
     Returns None if no provider keys are present.
     """
+    from core.api.http_caller import HTTPAPICaller
+
     router = APIRouter(providers=PROVIDERS)
-    # A working HTTP client is not yet implemented; the wrapper defers
-    # the actual network call until Phase 5. Until then, return a stub
-    # that raises APIUnavailable so the Evaluation Agent degrades.
-    try:
-        from core.api.http_caller import HTTPAPICaller
-        return HTTPAPICaller(router=router)
-    except ImportError:
-        return _AlwaysUnavailableAPICaller()
-
-
-class _AlwaysUnavailableAPICaller:
-    """Placeholder until the HTTP layer is built in Phase 5."""
-    last_provider_name = None
-
-    def call(self, prompt, schema=None):
-        from .evaluation_agent import APIUnavailable
-        raise APIUnavailable("HTTP API caller not yet implemented (Phase 5)")
+    return HTTPAPICaller(router=router)
 
 
 def default_sympy_verifier_factory():

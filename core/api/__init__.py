@@ -17,6 +17,7 @@ Public surface:
 from .providers import APIProvider, PROVIDERS
 from .circuit_breaker import CircuitBreaker, CircuitState
 from .router import APIRouter, AllProvidersUnavailable
+from .http_caller import HTTPAPICaller, APIUnavailable
 
 __all__ = [
     "APIProvider",
@@ -25,4 +26,6 @@ __all__ = [
     "CircuitState",
     "APIRouter",
     "AllProvidersUnavailable",
+    "HTTPAPICaller",
+    "APIUnavailable",
 ]
