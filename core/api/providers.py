@@ -32,6 +32,11 @@ class APIProvider:
         return len(self.vision_models) > 0
 
     def best_text_model(self) -> str:
+        import os
+        if self.name == "groq":
+            custom = os.getenv("AION_GROQ_MODEL", "").strip()
+            if custom:
+                return custom
         return self.text_models[0] if self.text_models else ""
 
     def best_vision_model(self) -> str:
@@ -56,6 +61,8 @@ PROVIDERS: List[APIProvider] = [
         rpm_limit=30,
         rpd_limit=14_400,
         text_models=[
+            "qwen/qwen3.8-27b",
+            "openai/gpt-oss-120b",
             "llama-3.3-70b-versatile",
             "llama-3.1-8b-instant",
         ],
