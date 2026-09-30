@@ -49,12 +49,8 @@ def main():
 
         spec = IAT1_SPEC if args.exam_type == "IAT1" else ELECTIVE_3MOD_SPEC
         if args.split_mode == "standard":
-            splits_by_exam = {
-                "IAT1": IAT1_MARKS_SPLIT,
-                "IAT2": IAT2_MARKS_SPLIT,
-                "ELECTIVE_3MOD": ELECTIVE_3MOD_MARKS_SPLIT,
-            }
-            split = splits_by_exam.get(args.exam_type, IAT1_MARKS_SPLIT)
+            from core.contracts.paper_spec import STANDARD_MARKS_SPLITS
+            split = STANDARD_MARKS_SPLITS.get(args.exam_type, IAT1_MARKS_SPLIT)
         else:
             split = [[spec.marks_per_question] for _ in range(spec.total_questions)]
         artifact = make_fake_artifact(spec.module_count, subject_prefix=args.subject)
@@ -72,6 +68,7 @@ def main():
 
         from core.extraction.artifact_cache import load_or_extract_artifact, merge_artifacts
         from core.generation.paper_spec_resolver import resolve_paper_spec
+        from core.contracts.paper_spec import STANDARD_MARKS_SPLITS
         from core.generation.agents.dependency_factory import (
             DependencyFactory,
             default_llm_caller_factory,
@@ -80,11 +77,6 @@ def main():
             default_sympy_verifier_factory,
         )
         from core.generation.agents.pipeline_bridge import run_v3_pipeline
-        from tests.fixtures.v3_paper_specs import (
-            IAT1_MARKS_SPLIT,
-            IAT2_MARKS_SPLIT,
-            ELECTIVE_3MOD_MARKS_SPLIT,
-        )
 
         spec = resolve_paper_spec(args.exam_type)
         pdfs = [Path(p.strip()) for p in args.pdf.split(",")]
@@ -92,12 +84,7 @@ def main():
         artifact = merge_artifacts(artifacts) if len(artifacts) > 1 else artifacts[0]
 
         if args.split_mode == "standard":
-            splits_by_exam = {
-                "IAT1": IAT1_MARKS_SPLIT,
-                "IAT2": IAT2_MARKS_SPLIT,
-                "ELECTIVE_3MOD": ELECTIVE_3MOD_MARKS_SPLIT,
-            }
-            split = splits_by_exam.get(
+            split = STANDARD_MARKS_SPLITS.get(
                 args.exam_type,
                 [[spec.marks_per_question] for _ in range(spec.total_questions)],
             )

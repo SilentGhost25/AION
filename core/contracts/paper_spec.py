@@ -99,3 +99,16 @@ class PaperSpec:
             co_idx = min(m, self.co_count)
             mapping[str(m)] = f"CO{co_idx}"
         return mapping
+
+
+STANDARD_MARKS_SPLITS: Dict[str, List[List[int]]] = {
+    "IAT1": [
+        [10], [10], [6, 4], [6, 4], [6, 4], [6, 4], [10], [10], [10], [10],
+    ],
+    "IAT2": [
+        [6, 4], [6, 4], [10], [10], [6, 4], [6, 4], [6, 4], [6, 4], [10], [10],
+    ],
+    "ELECTIVE_3MOD": [
+        [10], [6, 4], [5, 5], [10], [6, 4], [5, 5], [10], [6, 4], [5, 5],
+    ],
+}

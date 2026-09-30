@@ -2010,18 +2010,9 @@ def _default_marks_split(paper_spec):
     """Generate a default marks_split for the paper spec if not provided."""
     exam_type = getattr(paper_spec, "exam_type", "IAT1")
     try:
-        from tests.fixtures.v3_paper_specs import (
-            IAT1_MARKS_SPLIT,
-            IAT2_MARKS_SPLIT,
-            ELECTIVE_3MOD_MARKS_SPLIT,
-        )
-        splits = {
-            "IAT1": IAT1_MARKS_SPLIT,
-            "IAT2": IAT2_MARKS_SPLIT,
-            "ELECTIVE_3MOD": ELECTIVE_3MOD_MARKS_SPLIT,
-        }
-        if exam_type in splits:
-            return splits[exam_type]
+        from core.contracts.paper_spec import STANDARD_MARKS_SPLITS
+        if exam_type in STANDARD_MARKS_SPLITS:
+            return STANDARD_MARKS_SPLITS[exam_type]
     except Exception:
         pass
     # Each slot gets one partition equal to marks_per_question

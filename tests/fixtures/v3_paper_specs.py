@@ -167,22 +167,11 @@ ELECTIVE_3MOD_SPEC = V3PaperSpec(
 )
 
 
-# -----------------------------------------------------------------------------
-# Standard marks splits
-# -----------------------------------------------------------------------------
+from core.contracts.paper_spec import STANDARD_MARKS_SPLITS
 
-
-IAT1_MARKS_SPLIT = [
-    [10], [10], [6, 4], [6, 4], [6, 4], [6, 4], [10], [10], [10], [10],
-]
-
-IAT2_MARKS_SPLIT = [
-    [6, 4], [6, 4], [10], [10], [6, 4], [6, 4], [6, 4], [6, 4], [10], [10],
-]
-
-ELECTIVE_3MOD_MARKS_SPLIT = [
-    [10], [6, 4], [5, 5], [10], [6, 4], [5, 5], [10], [6, 4], [5, 5],
-]
+IAT1_MARKS_SPLIT = STANDARD_MARKS_SPLITS["IAT1"]
+IAT2_MARKS_SPLIT = STANDARD_MARKS_SPLITS["IAT2"]
+ELECTIVE_3MOD_MARKS_SPLIT = STANDARD_MARKS_SPLITS["ELECTIVE_3MOD"]
 
 
 # -----------------------------------------------------------------------------
