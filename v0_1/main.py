@@ -271,35 +271,33 @@ def run_pipeline(
     source_kind:        Optional[str] = None,  # "pdf" | "text"
     enable_structured:  Optional[bool] = None,
 ) -> Tuple[List[dict], List[dict]]:
-    # --- v3 feature flag branch ---
-    from core.generation.agents.pipeline_bridge import v3_enabled
-    if v3_enabled():
-        from core.generation.agents.pipeline_bridge import run_v3_pipeline
+    # --- v3 Multi-Agent Architecture (Unconditionally Enforced) ---
+    from core.generation.agents.pipeline_bridge import run_v3_pipeline
 
-        # Build the paper_spec from exam_type
-        from core.generation.paper_spec_resolver import PaperSpecResolver
-        paper_spec = PaperSpecResolver.resolve(exam_type)
+    # Build the paper_spec from exam_type
+    from core.generation.paper_spec_resolver import PaperSpecResolver
+    paper_spec = PaperSpecResolver.resolve(exam_type)
 
-        # Load the DocumentArtifact (using the same loader the legacy path uses)
-        target_file = file_path if file_path is not None else pdf_paths
-        artifact = _load_artifact_for_v3(target_file, source_kind, enable_structured)
+    # Load the DocumentArtifact (using the same loader the legacy path uses)
+    target_file = file_path if file_path is not None else pdf_paths
+    artifact = _load_artifact_for_v3(target_file, source_kind, enable_structured)
 
-        # Resolve marks_split: default to per-slot splits if not provided
-        effective_marks_split = marks_split or _default_marks_split(paper_spec)
+    # Resolve marks_split: default to per-slot splits if not provided
+    effective_marks_split = marks_split or _default_marks_split(paper_spec)
 
-        paper_parts, full_paper, meta = run_v3_pipeline(
-            paper_spec=paper_spec,
-            artifact=artifact,
-            marks_split=effective_marks_split,
-            request={"exam_type": exam_type, "subject": subject},
-        )
+    paper_parts, full_paper, meta = run_v3_pipeline(
+        paper_spec=paper_spec,
+        artifact=artifact,
+        marks_split=effective_marks_split,
+        request={"exam_type": exam_type, "subject": subject},
+    )
 
-        if not meta["success"]:
-            # v3 failed — fail-closed (return empty; caller's gate blocks)
-            print(f"[V3] pipeline failed: {meta.get('failure_code')}", flush=True)
-            return [], {}
+    if not meta["success"]:
+        # v3 failed — fail-closed (return empty; caller's gate blocks)
+        print(f"[V3] pipeline failed: {meta.get('failure_code')}", flush=True)
+        return [], {}
 
-        return paper_parts, meta.get("qa_report") or {}
+    return paper_parts, meta.get("qa_report") or {}
 
     artifact = None
     """

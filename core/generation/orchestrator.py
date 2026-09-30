@@ -323,6 +323,13 @@ class SlotOrchestrator:
         return text
 
     def generate(self, slot: QuestionSlot, evidence_pack, excluded_concepts: Set[str] = None) -> GeneratedQuestion:
+        # HARD GUARD: Legacy SlotOrchestrator is disabled
+        if os.getenv("AION_ALLOW_LEGACY_ORCHESTRATOR", "false").lower() not in ("true", "1", "yes"):
+            raise RuntimeError(
+                "Legacy SlotOrchestrator is disabled. "
+                "All generation must go through core.generation.agents.AgentOrchestrator."
+            )
+
         # Reset per-slot state (NOT per-request — global dedup persists across the paper)
 
         if excluded_concepts is None:

@@ -166,7 +166,7 @@ def test_orchestrator_raises_on_linter_exhaustion_when_flag_enabled():
     })
 
     with patch("core.generation.orchestrator.run_linter", return_value=failing_report):
-        with patch.dict(os.environ, {"AION_ENABLE_UNRESOLVED_HARD_BLOCK": "true"}):
+        with patch.dict(os.environ, {"AION_ENABLE_UNRESOLVED_HARD_BLOCK": "true", "AION_ALLOW_LEGACY_ORCHESTRATOR": "true"}):
             with pytest.raises(UnresolvedSlotException) as exc_info:
                 orch.generate(slot, "Some evidence text")
 
@@ -195,6 +195,7 @@ def test_degraded_mode_path(monkeypatch):
     })
 
     monkeypatch.setenv("AION_ENABLE_UNRESOLVED_HARD_BLOCK", "false")
+    monkeypatch.setenv("AION_ALLOW_LEGACY_ORCHESTRATOR", "true")
     with patch("core.generation.orchestrator.run_linter", return_value=failing_report):
         result_q = orch.generate(slot, "Some evidence text")
         assert result_q is not None
