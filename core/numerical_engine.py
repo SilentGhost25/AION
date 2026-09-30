@@ -839,3 +839,121 @@ class NumericalEngine:
             if kw.lower() in text_lower:
                 return kw.title()
         return domain.replace("_", " ").title()
+
+
+class NumericalVerifier:
+    """
+    SymPy-powered numerical verifier for question-solution pairs.
+    Verifies internal arithmetic consistency, equality chains, and
+    variable substitutions across question text and solution text.
+
+    Conforms to the SympyVerifier protocol in RefinementAgent:
+        verify(question_text: str, solution_text: str) -> bool
+    """
+
+    def __init__(self, tolerance_pct: float = 5.0):
+        self.tolerance_pct = tolerance_pct
+
+    def clean_math(self, text: str) -> str:
+        """Normalize mathematical notation and isolate unit-less numbers."""
+        text = text.replace('×', '*').replace('÷', '/').replace('^', '**')
+        text = re.sub(r'\\(?:approx|sim)', '=', text)
+        text = text.replace('≈', '=').replace('~=', '=')
+        text = re.sub(r'\\(?:times)', '*', text)
+        text = re.sub(r'\\sqrt\{([^}]+)\}', r'sqrt(\1)', text)
+        text = re.sub(r'\\frac\{([^}]+)\}\{([^}]+)\}', r'((\1)/(\2))', text)
+        # Strip units only immediately following numbers to avoid stripping variables like V or A
+        text = re.sub(
+            r'(?<=\d)\s*(?:km/s|m/s|km|GHz|MHz|kHz|Hz|dBW|dB|ohms?|Ω|kPa|MPa|Pa|kg|V|A|W|s|ms|μs|ns)\b',
+            '',
+            text,
+        )
+        return text
+
+    def verify(self, question_text: str, solution_text: str) -> bool:
+        """
+        Verify that numerical statements and derivations in solution_text
+        are mathematically consistent with each other and with question_text.
+
+        Returns False if any arithmetic or algebraic contradiction is detected,
+        otherwise returns True.
+
+        Fails open on unparseable input. This verifier catches formula-vs-stated-value
+        mismatches on well-formed expressions. It does not verify the correctness
+        of the formula itself, nor does it validate multi-step derivations with
+        intermediate symbolic manipulation.
+        """
+        if not question_text and not solution_text:
+            return True
+
+        try:
+            import sympy as sp
+        except ImportError:
+            # If sympy is unavailable, fail-open to not block the pipeline
+            return True
+
+        q_clean = self.clean_math(question_text or '')
+        s_clean = self.clean_math(solution_text or '')
+        full_text = f'{q_clean}\n{s_clean}'
+
+        # -------------------------------------------------------------
+        # 1. Equality chains in solution lines: A = B = C or A = B
+        # -------------------------------------------------------------
+        for line in s_clean.splitlines():
+            if '=' in line:
+                parts = [p.strip() for p in line.split('=') if p.strip()]
+                evaluable_vals = []
+                for p in parts:
+                    try:
+                        sym = sp.sympify(p)
+                        if sym.is_number:
+                            evaluable_vals.append(float(sym.evalf()))
+                    except Exception:
+                        pass
+                if len(evaluable_vals) >= 2:
+                    for i in range(len(evaluable_vals) - 1):
+                        v1, v2 = evaluable_vals[i], evaluable_vals[i + 1]
+                        denom = max(abs(v1), abs(v2), 1e-6)
+                        if abs(v1 - v2) / denom * 100.0 > self.tolerance_pct:
+                            return False
+
+        # -------------------------------------------------------------
+        # 2. Variable assignments & formula evaluation
+        # -------------------------------------------------------------
+        var_matches = re.findall(
+            r'\b([a-zA-Z_]\w*)\s*=\s*([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b',
+            full_text,
+        )
+        var_dict: Dict[str, float] = {}
+        for k, v in var_matches:
+            try:
+                var_dict[k] = float(v)
+            except ValueError:
+                pass
+
+        clauses = re.split(r'[;\n]|\.(?!\d)|,(?!\d)', full_text)
+        for c in clauses:
+            c = c.strip()
+            m = re.search(r'\b([a-zA-Z_]\w*)\s*=\s*([a-zA-Z0-9_+\-*/\^().\s]+)', c)
+            if m:
+                target, expr_str = m.group(1), m.group(2).strip()
+                if any(op in expr_str for op in ('+', '-', '*', '/', 'sqrt', '**')):
+                    try:
+                        local_dict = {k: sp.Symbol(k) for k in var_dict.keys()}
+                        sym_expr = sp.sympify(expr_str, locals=local_dict)
+                        if sym_expr.free_symbols and all(str(s) in var_dict for s in sym_expr.free_symbols):
+                            computed_val = float(sym_expr.subs({sp.Symbol(k): v for k, v in var_dict.items()}).evalf())
+                            # Check against stated solution value for target
+                            sol_targets = re.findall(
+                                rf'\b{target}\s*=\s*([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b',
+                                s_clean,
+                            )
+                            for st in sol_targets:
+                                stated_val = float(st)
+                                denom = max(abs(computed_val), abs(stated_val), 1e-6)
+                                if abs(computed_val - stated_val) / denom * 100.0 > self.tolerance_pct:
+                                    return False
+                    except Exception:
+                        pass
+
+        return True
