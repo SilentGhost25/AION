@@ -389,17 +389,16 @@ def run_startup_checks() -> None:
             LOG.critical(str(e))
             sys.exit(1)
 
-    # KaTeX mandatory
+    # KaTeX check
     try:
         katex_avail = KaTeXAvailabilityGate.probe()
-        if not katex_avail:
-            raise RuntimeError("KaTeX executable unavailable")
-        version_str = getattr(KaTeXAvailabilityGate, "_version", "active")
-        LOG.info(f"KaTeX             : OK [{version_str}]")
+        if katex_avail:
+            version_str = getattr(KaTeXAvailabilityGate, "_version", "active")
+            LOG.info(f"KaTeX             : OK [{version_str}]")
+        else:
+            LOG.info("KaTeX             : DEGRADED [pure-Python fallback active]")
     except Exception as e:
-        LOG.critical(f"KaTeX             : FAIL — {e}")
-        LOG.critical("Install: pip install katex")
-        sys.exit(1)
+        LOG.warning(f"KaTeX probe warning: {e}")
 
     # Extraction adapters
     try:
