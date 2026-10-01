@@ -392,6 +392,8 @@ def run_startup_checks() -> None:
     # KaTeX mandatory
     try:
         katex_avail = KaTeXAvailabilityGate.probe()
+        if not katex_avail:
+            raise RuntimeError("KaTeX executable unavailable")
         version_str = getattr(KaTeXAvailabilityGate, "_version", "active")
         LOG.info(f"KaTeX             : OK [{version_str}]")
     except Exception as e:

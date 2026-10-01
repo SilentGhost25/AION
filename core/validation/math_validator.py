@@ -77,6 +77,11 @@ class KaTeXAvailabilityGate:
         return False
 
     @classmethod
+    def probe(cls) -> bool:
+        """Probe KaTeX availability by verifying rendering capability."""
+        return cls.verify()
+
+    @classmethod
     def render(cls, latex: str, display_mode: bool = False) -> str:
         """Render one LaTeX expression using KaTeX."""
         import subprocess
