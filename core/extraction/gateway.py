@@ -272,9 +272,26 @@ class ExtractionGateway:
 
         # --- B. Try Docling Extraction ---
         try:
-            from docling.document_converter import DocumentConverter
-            converter = DocumentConverter()
-            result = converter.convert(pdf_path)
+            from v0_1.docling_parser import get_safe_docling_converter
+            converter = get_safe_docling_converter()
+            try:
+                result = converter.convert(pdf_path)
+            except Exception as conv_err:
+                err_str = str(conv_err).lower()
+                if "out of memory" in err_str or "cuda" in err_str or "oom" in err_str:
+                    from docling.document_converter import DocumentConverter, PdfFormatOption
+                    from docling.datamodel.base_models import InputFormat
+                    from docling.datamodel.pipeline_options import PdfPipelineOptions, AcceleratorOptions, AcceleratorDevice
+                    opts = PdfPipelineOptions()
+                    opts.accelerator_options = AcceleratorOptions(num_threads=4, device=AcceleratorDevice.CPU)
+                    cpu_conv = DocumentConverter(
+                        format_options={
+                            InputFormat.PDF: PdfFormatOption(pipeline_options=opts)
+                        }
+                    )
+                    result = cpu_conv.convert(pdf_path)
+                else:
+                    raise conv_err
             content = result.document.export_to_markdown()
             
             blocks = [b.strip() for b in re.split(r"\n{2,}", content) if len(b.strip()) > 15]

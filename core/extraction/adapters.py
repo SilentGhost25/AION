@@ -281,9 +281,26 @@ class DoclingAdapter:
             )
 
         try:
-            from docling.document_converter import DocumentConverter
-            converter = DocumentConverter()
-            raw_result = converter.convert(source_path)
+            from v0_1.docling_parser import get_safe_docling_converter
+            converter = get_safe_docling_converter()
+            try:
+                raw_result = converter.convert(source_path)
+            except Exception as conv_err:
+                err_str = str(conv_err).lower()
+                if "out of memory" in err_str or "cuda" in err_str or "oom" in err_str:
+                    from docling.document_converter import DocumentConverter, PdfFormatOption
+                    from docling.datamodel.base_models import InputFormat
+                    from docling.datamodel.pipeline_options import PdfPipelineOptions, AcceleratorOptions, AcceleratorDevice
+                    opts = PdfPipelineOptions()
+                    opts.accelerator_options = AcceleratorOptions(num_threads=4, device=AcceleratorDevice.CPU)
+                    cpu_conv = DocumentConverter(
+                        format_options={
+                            InputFormat.PDF: PdfFormatOption(pipeline_options=opts)
+                        }
+                    )
+                    raw_result = cpu_conv.convert(source_path)
+                else:
+                    raise conv_err
             normalized = DoclingResultNormalizer.normalize(raw_result)
 
             text_blocks: List[TextBlock] = []

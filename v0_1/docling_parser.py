@@ -40,13 +40,59 @@ class DoclingResult:
     method:      str = "docling"
 
 
+def get_safe_docling_converter(options=None):
+    """
+    Safely instantiates a Docling DocumentConverter.
+    If GPU free VRAM is less than 2 GB, forces Docling to run on CPU using AcceleratorOptions
+    to prevent torch.OutOfMemoryError when vLLM or other models occupy the GPU.
+    """
+    from docling.document_converter import DocumentConverter, PdfFormatOption
+    from docling.datamodel.base_models import InputFormat
+
+    use_cpu = True
+    try:
+        import torch
+        if torch.cuda.is_available():
+            free_bytes, _ = torch.cuda.mem_get_info()
+            if free_bytes >= 2 * 1024 * 1024 * 1024:  # At least 2GB free
+                use_cpu = False
+    except Exception:
+        use_cpu = True
+
+    if use_cpu:
+        try:
+            from docling.datamodel.pipeline_options import PdfPipelineOptions, AcceleratorOptions, AcceleratorDevice
+            if options is None:
+                options = PdfPipelineOptions()
+            options.accelerator_options = AcceleratorOptions(num_threads=4, device=AcceleratorDevice.CPU)
+            return DocumentConverter(
+                format_options={
+                    InputFormat.PDF: PdfFormatOption(pipeline_options=options)
+                }
+            )
+        except Exception:
+            pass
+
+    if options is not None:
+        try:
+            return DocumentConverter(
+                format_options={
+                    InputFormat.PDF: PdfFormatOption(pipeline_options=options)
+                }
+            )
+        except Exception:
+            pass
+
+    return DocumentConverter()
+
+
 def parse_with_docling(pdf_path: str) -> Optional[DoclingResult]:
     """
     Uses Docling to extract layout, tables, and document structure.
     Returns None if Docling is not installed or fails.
     """
     try:
-        from docling.document_converter import DocumentConverter
+        from docling.document_converter import DocumentConverter, PdfFormatOption
         from docling.datamodel.base_models import InputFormat
         from docling.datamodel.pipeline_options import PdfPipelineOptions
 
@@ -55,8 +101,24 @@ def parse_with_docling(pdf_path: str) -> Optional[DoclingResult]:
         options.do_table_structure  = True
         options.table_structure_options.do_cell_matching = True
 
-        converter = DocumentConverter()
-        result    = converter.convert(pdf_path)
+        converter = get_safe_docling_converter(options)
+        try:
+            result = converter.convert(pdf_path)
+        except Exception as conv_err:
+            err_str = str(conv_err).lower()
+            if "out of memory" in err_str or "cuda" in err_str or "oom" in err_str:
+                print(f"[DOCLING] CUDA OOM encountered ({conv_err}). Retrying Docling conversion on CPU...")
+                from docling.datamodel.pipeline_options import AcceleratorOptions, AcceleratorDevice
+                options.accelerator_options = AcceleratorOptions(num_threads=4, device=AcceleratorDevice.CPU)
+                cpu_converter = DocumentConverter(
+                    format_options={
+                        InputFormat.PDF: PdfFormatOption(pipeline_options=options)
+                    }
+                )
+                result = cpu_converter.convert(pdf_path)
+            else:
+                raise conv_err
+
         doc       = result.document
 
         # -- Extract structure (heading hierarchy) -------------
