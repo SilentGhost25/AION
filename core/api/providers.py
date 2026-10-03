@@ -61,10 +61,9 @@ PROVIDERS: List[APIProvider] = [
         rpm_limit=30,
         rpd_limit=14_400,
         text_models=[
-            "qwen/qwen3.8-27b",
-            "openai/gpt-oss-120b",
             "llama-3.3-70b-versatile",
             "llama-3.1-8b-instant",
+            "mixtral-8x7b-32768",
         ],
         vision_models=[
             "llama-3.2-11b-vision-preview",
@@ -79,11 +78,10 @@ PROVIDERS: List[APIProvider] = [
         rpd_limit=None,
         text_models=[
             "meta/llama-3.3-70b-instruct",
-            "deepseek-ai/deepseek-v3.2",
+            "nvidia/llama-3.1-nemotron-70b-instruct",
         ],
         vision_models=[
             "meta/llama-3.2-11b-vision-instruct",
-            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         ],
         priority=20,
     ),

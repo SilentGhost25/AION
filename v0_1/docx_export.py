@@ -16,8 +16,9 @@ try:
     from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
     from docx.oxml import OxmlElement, parse_xml
     from docx.oxml.ns import nsdecls, qn
-except ImportError:
+except (ImportError, Exception):
     docx = None
+    Document = None
 from v0_1.difficulty_policy import format_co_and_rbt
 
 
