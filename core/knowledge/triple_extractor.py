@@ -88,7 +88,14 @@ _TRAILING_PUNCT = re.compile(r"[\s.,;:!?]+$")
 
 # Word-count bounds for valid subjects/objects
 _MIN_WORDS = 1
-_MAX_WORDS = 12
+_MAX_WORDS = 6
+
+_CLAUSE_STARTERS = {
+    "it", "this", "that", "these", "those", "there", "which", "what", "where",
+    "when", "why", "how", "who", "whom", "whose", "we", "you", "they", "he",
+    "she", "but", "and", "or", "because", "although", "since", "while", "if",
+    "however", "therefore", "thus", "moreover", "furthermore",
+}
 
 
 class RuleBasedTripleExtractor:
@@ -183,6 +190,14 @@ class RuleBasedTripleExtractor:
             return False
         # Reject phrases that are only punctuation or digits
         if not any(c.isalpha() for c in phrase):
+            return False
+        # Reject phrases starting with pronouns, conjunctions, or clause markers
+        first_word = words[0].lower().rstrip(".,:;!?")
+        if first_word in _CLAUSE_STARTERS:
+            return False
+        # Reject phrases ending with conjunctions or prepositions
+        last_word = words[-1].lower().rstrip(".,:;!?")
+        if last_word in _CLAUSE_STARTERS or last_word in {"in", "on", "at", "for", "with", "by", "from", "as", "to", "of", "and", "or", "but"}:
             return False
         return True
 

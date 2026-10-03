@@ -1080,9 +1080,10 @@ def generate_stream():
                     return
 
             # Stage 3: Extraction / Evidence Validation
+            _source_disp = Path(file_path[0]).name if isinstance(file_path, list) and file_path else (Path(file_path).name if file_path else 'unknown')
             yield _sse("stage_update", {
                 "stage": "extraction",
-                "message": f"Extracting from original source {Path(file_path).name if file_path else 'unknown'}..."
+                "message": f"Extracting from original source {_source_disp}..."
             })
             time.sleep(0.1)
 
@@ -1312,8 +1313,6 @@ def generate_stream():
             validator = PaperValidator()
             val_report = validator.validate({"modules": result.get("modules", []), "totalMarks": target_attemptable}, exam_type=_exam_type)
 
-            export_passed = (qa_report or {}).get("export_gate_passed", True)
-            qa_status = "PASS" if export_passed else "FAILED"
             err_details = [e.message for e in val_report.errors()]
 
             # Calculate total subquestions authoritative count across all modules (🔴 11 & 🔴 12)
@@ -1323,6 +1322,15 @@ def generate_stream():
                     subs = q.get("subQuestions") or q.get("sub_questions") or []
                     if isinstance(subs, (list, tuple)):
                         total_subquestions += len(subs)
+
+            export_passed = (qa_report or {}).get("export_gate_passed", True)
+            if total_subquestions == 0:
+                export_passed = False
+                qa_status = "FAILED"
+                qa_score = 0
+                err_details.append("EMPTY_PAPER: 0 subquestions generated across all modules")
+            else:
+                qa_status = "PASS" if export_passed else "FAILED"
 
             # Calculate SHA-256 canonical hash of the modules list
             import hashlib

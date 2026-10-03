@@ -91,17 +91,46 @@ def to_legacy_shape(
 # -----------------------------------------------------------------------------
 
 
+def _extract_subpart_texts(text: str, n_parts: int) -> List[str]:
+    if n_parts <= 1 or not text:
+        return [text]
+    import re
+    parts = re.split(r'(?i)(?:^|\n|\s+)(?:\([a-z0-9]\)|[a-z0-9]\.|\bPart\s+[a-z0-9]:?)\s*', text)
+    parts = [p.strip() for p in parts if p.strip()]
+    if len(parts) == n_parts:
+        return parts
+    return [text for _ in range(n_parts)]
+
+
 def _to_question_dict(q: GeneratedQuestion) -> dict:
-    """Convert one GeneratedQuestion to the legacy question dict."""
+    """Convert one GeneratedQuestion to the legacy question dict with synthesized subquestions."""
+    partition = [int(m) for m in (q.partition or ([q.marks] if q.marks else [10]))]
+    letters = ["a", "b", "c", "d", "e"]
+    sub_texts = _extract_subpart_texts(q.question_text, len(partition))
+
+    sub_questions = [
+        {
+            "letter": letters[i] if i < len(letters) else f"sub_{i+1}",
+            "text": sub_texts[i] if i < len(sub_texts) else q.question_text,
+            "marks": partition[i],
+            "co": q.co,
+            "bloom": q.bloom,
+        }
+        for i in range(len(partition))
+    ]
+
     return {
         "slot_id": q.slot_id,
         "module_id": q.module_id,
         "global_q_idx": q.global_q_idx,
         "question_text": q.question_text,
+        "sub_questions": sub_questions,
+        "subQuestions": sub_questions,
         "solution": q.solution,
         "marking_scheme": list(q.marking_scheme or []),
-        "marks": q.marks,
-        "partition": list(q.partition or []),
+        "marks": sum(partition),
+        "total_marks": sum(partition),
+        "partition": partition,
         "bloom": q.bloom,
         "co": q.co,
         "topic": q.topic,
