@@ -1593,11 +1593,15 @@ def _enforce_marks(modules_or_paper, exam_type: str = "IA", declared_splits: Opt
 
             # Apply identical split to all questions in the OR pair
             for q in pair_qs:
-                q_subs = q.get("sub_questions", []) or q.get("subQuestions", [])
-                for idx, sq in enumerate(q_subs):
-                    sq["marks"] = active_split[idx] if idx < len(active_split) else 0
-                q["marks"] = sum(active_split)
-                q["total_marks"] = sum(active_split)
+                for sq_key in ("sub_questions", "subQuestions"):
+                    if sq_key in q and isinstance(q[sq_key], list):
+                        for idx, sq in enumerate(q[sq_key]):
+                            if isinstance(sq, dict):
+                                sq["marks"] = active_split[idx] if idx < len(active_split) else 0
+                total_split = sum(active_split)
+                q["marks"] = total_split
+                q["total_marks"] = total_split
+                q["totalMarks"] = total_split
 
     return modules_or_paper
 
@@ -1611,11 +1615,12 @@ def validate_final_paper_contract(paper_dict: dict, exam_type: str = "IA") -> bo
         raise ValueError("ContractViolation: EMPTY_FINAL_PAPER")
 
     modules = paper_dict.get("modules", [])
-    if len(modules) != 5:
-        raise ValueError(f"ContractViolation: EXPECTED_5_MODULES (got {len(modules)})")
-
     exam_upper = str(exam_type).upper() if exam_type else "IA"
-    is_ia      = exam_upper in ("IA", "IAT1", "IAT2", "IAT3", "MID")
+    expected_modules = 3 if ("3MOD" in exam_upper or "ELECTIVE" in exam_upper) else 5
+    if len(modules) != expected_modules:
+        raise ValueError(f"ContractViolation: EXPECTED_{expected_modules}_MODULES (got {len(modules)})")
+
+    is_ia = exam_upper in ("IA", "IAT1", "IAT2", "IAT3", "MID")
     expected_q_marks = 10 if is_ia else 20
 
     for mod_idx, module in enumerate(modules):
@@ -1633,8 +1638,10 @@ def validate_final_paper_contract(paper_dict: dict, exam_type: str = "IA") -> bo
         for p_key, pair_qs in pairs.items():
             if len(pair_qs) >= 2:
                 q_a, q_b = pair_qs[0], pair_qs[1]
-                part_a = [int(s.get("marks", 0)) for s in q_a.get("subQuestions", [])]
-                part_b = [int(s.get("marks", 0)) for s in q_b.get("subQuestions", [])]
+                subs_a = q_a.get("subQuestions") or q_a.get("sub_questions") or []
+                subs_b = q_b.get("subQuestions") or q_b.get("sub_questions") or []
+                part_a = [int(s.get("marks", 0)) for s in subs_a if isinstance(s, dict)]
+                part_b = [int(s.get("marks", 0)) for s in subs_b if isinstance(s, dict)]
 
                 if part_a != part_b:
                     raise ValueError(f"ContractViolation: Module {mod_idx+1} OR pair partition mismatch: {part_a} != {part_b}")

@@ -5,6 +5,7 @@ Extracts layout, tables, and document structure using Docling.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -49,15 +50,26 @@ def get_safe_docling_converter(options=None):
     from docling.document_converter import DocumentConverter, PdfFormatOption
     from docling.datamodel.base_models import InputFormat
 
-    use_cpu = True
-    try:
-        import torch
-        if torch.cuda.is_available():
-            free_bytes, _ = torch.cuda.mem_get_info()
-            if free_bytes >= 2 * 1024 * 1024 * 1024:  # At least 2GB free
-                use_cpu = False
-    except Exception:
+    override = os.getenv("AION_DOCLING_DEVICE", "").strip().lower()
+    free_gb = 0.0
+    if override == "cpu":
         use_cpu = True
+    elif override in ("cuda", "gpu"):
+        use_cpu = False
+    else:
+        use_cpu = True
+        try:
+            import torch
+            if torch.cuda.is_available():
+                free_bytes, _ = torch.cuda.mem_get_info()
+                free_gb = free_bytes / (1024 ** 3)
+                if free_bytes >= 2 * 1024 * 1024 * 1024:  # At least 2GB free
+                    use_cpu = False
+        except Exception:
+            use_cpu = True
+
+    device_str = "cpu" if use_cpu else "cuda"
+    print(f"[DOCLING] Initializing DocumentConverter using device: {device_str} (free VRAM: {free_gb:.2f}GB)", flush=True)
 
     if use_cpu:
         try:
