@@ -41,3 +41,7 @@ Thumbs.db
 .venv/
 *.zip
 *.bak*
+
+# Transient extraction dumps from gateway tests
+original.md
+/original.md
