@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 .pytest_cache/
 .ov_cache/
+.aion_cache/
 
 # Databases & logs
 *.db
