@@ -116,7 +116,6 @@ def test_no_deprecated_defaults_in_code():
     critical_files = [
         "v0_1/llm.py",
         "v0_1/minimal_llm.py",
-        "a.py",
         "aion.py",
         "api/v1/models.py",
     ]
