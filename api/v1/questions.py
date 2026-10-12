@@ -168,9 +168,12 @@ def generate_questions():
         }), 400
 
     gen_req.print_received_summary()
-    job_id = create_job("question_generation", gen_req.raw_payload)
+    payload = getattr(gen_req, "raw_payload", None)
+    if payload is None:
+        payload = raw_config
+    job_id = create_job("question_generation", payload)
 
-    t = threading.Thread(target=_async_generate_question, args=(job_id, gen_req.raw_payload), daemon=True)
+    t = threading.Thread(target=_async_generate_question, args=(job_id, payload), daemon=True)
     t.start()
 
     return jsonify({

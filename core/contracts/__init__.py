@@ -40,6 +40,7 @@ class GenerationRequest:
         department:  str,
         semester:    int,
         file_ids:    Optional[List[str]] = None,
+        raw_payload: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.subject    = subject
         self.exam_type  = exam_type
@@ -52,6 +53,7 @@ class GenerationRequest:
         self.notes_text = notes_text
         self.department = department
         self.semester   = semester
+        self.raw_payload = raw_payload or {}
 
     # -- factory ---------------------------------------------------------------
 
@@ -77,6 +79,7 @@ class GenerationRequest:
             notes_text = body.get("notes_text")  or body.get("notesText"),
             department = (body.get("department") or "Engineering").strip(),
             semester   = int(body.get("semester") or 5),
+            raw_payload = dict(body),
         )
 
     # -- validation ------------------------------------------------------------
