@@ -34,6 +34,7 @@ class GeneratedQuestion:
     bloom: str = "L2"
     co: str = "CO1"
     topic: str = ""
+    evidence_summary: str = ""
 
     # Visual contract
     references_image: bool = False

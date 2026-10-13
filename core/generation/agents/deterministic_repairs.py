@@ -45,20 +45,14 @@ _PREAMBLE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-_FORBIDDEN_PREAMBLES = [
-    "based on the provided evidence,",
-    "based on the provided evidence",
-    "based on the evidence provided,",
-    "based on the evidence provided",
-    "apply the following:",
-    "apply the following",
-    "refer to the text,",
-    "refer to the text",
-    "using the provided evidence,",
-    "using the provided evidence",
-    "using the provided text,",
-    "using the provided text",
-]
+_FORBIDDEN_PREAMBLE_REGEX = re.compile(
+    r"^(?:Based\s+on\s+(?:the\s+)?evidence\s*(?:provided)?\s*[,.:;]?\s*|"
+    r"Based\s+on\s+the\s+provided\s+evidence\s*[,.:;]?\s*|"
+    r"Apply\s+the\s+following\s*[:.,;]?\s*|"
+    r"Refer\s+to\s+the\s+(?:text|notes|book)\s*[,.:;]?\s*|"
+    r"Using\s+the\s+provided\s+(?:evidence|text)\s*[,.:;]?\s*)",
+    re.IGNORECASE,
+)
 
 
 def repair_forbidden_preamble(
@@ -70,14 +64,13 @@ def repair_forbidden_preamble(
     text = (question.question_text or "").lstrip()
     if not text:
         return None
-    text_lower = text.lower()
-    for prefix in _FORBIDDEN_PREAMBLES:
-        if text_lower.startswith(prefix):
-            stripped = text[len(prefix):].strip()
-            if stripped:
-                # Capitalize the first letter of the remaining text
-                stripped = stripped[0].upper() + stripped[1:]
-                return _replace_text(question, stripped)
+    m = _FORBIDDEN_PREAMBLE_REGEX.match(text)
+    if m:
+        stripped = text[m.end():].strip()
+        if stripped:
+            # Capitalize the first letter of the remaining text
+            stripped = stripped[0].upper() + stripped[1:]
+            return _replace_text(question, stripped)
     return None
 
 

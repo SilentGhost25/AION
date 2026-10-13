@@ -289,26 +289,19 @@ class WritingAgent(Agent):
         caption = getattr(figure, "caption", None) if figure else None
 
         q_text = str(parsed.get("question_text", "")).strip()
-        q_text_lower = q_text.lower()
-        for prefix in (
-            "based on the provided evidence,",
-            "based on the provided evidence",
-            "based on the evidence provided,",
-            "based on the evidence provided",
-            "apply the following:",
-            "apply the following",
-            "refer to the text,",
-            "refer to the text",
-            "using the provided evidence,",
-            "using the provided evidence",
-            "using the provided text,",
-            "using the provided text",
-        ):
-            if q_text_lower.startswith(prefix):
-                q_text = q_text[len(prefix):].strip()
-                if q_text:
-                    q_text = q_text[0].upper() + q_text[1:]
-                break
+        _preamble_regex = re.compile(
+            r"^(?:Based\s+on\s+(?:the\s+)?evidence\s*(?:provided)?\s*[,.:;]?\s*|"
+            r"Based\s+on\s+the\s+provided\s+evidence\s*[,.:;]?\s*|"
+            r"Apply\s+the\s+following\s*[:.,;]?\s*|"
+            r"Refer\s+to\s+the\s+(?:text|notes|book)\s*[,.:;]?\s*|"
+            r"Using\s+the\s+provided\s+(?:evidence|text)\s*[,.:;]?\s*)",
+            re.IGNORECASE,
+        )
+        m = _preamble_regex.match(q_text)
+        if m:
+            stripped = q_text[m.end():].strip()
+            if stripped:
+                q_text = stripped[0].upper() + stripped[1:]
 
         scheme = list(parsed.get("marking_scheme", []) or [])
         if scheme and all(isinstance(e, dict) for e in scheme):
@@ -324,6 +317,14 @@ class WritingAgent(Agent):
                     new_scheme.append(dict(entry, marks=new_marks))
                 scheme = new_scheme
 
+        # Build evidence summary from the plan's evidence blocks
+        evidence_texts = []
+        for block in (getattr(plan, "evidence_blocks", None) or [])[:3]:
+            text = getattr(block, "text", "")
+            if text:
+                evidence_texts.append(text[:400])
+        evidence_summary = " ".join(evidence_texts)[:1000]
+
         return GeneratedQuestion(
             slot_id=plan.slot_id,
             module_id=plan.module_id,
@@ -336,6 +337,7 @@ class WritingAgent(Agent):
             bloom=plan.bloom,
             co=plan.co,
             topic=plan.topic,
+            evidence_summary=evidence_summary,
             references_image=references_image,
             image_path=image_path,
             figure_caption=caption,
