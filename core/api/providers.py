@@ -61,11 +61,11 @@ PROVIDERS: List[APIProvider] = [
         rpm_limit=30,
         rpd_limit=14_400,
         text_models=[
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
         ],
         vision_models=[
-            "llama-3.2-11b-vision-preview",
+            "qwen/qwen3.8-27b",
         ],
         priority=10,
     ),
