@@ -9,12 +9,12 @@ Update this file after every session on the server.
 
 Each session entry has:
 - **Date** — YYYY-MM-DD
-- **Commit(s)** — git hashes that landed
+- **Commits** — git hashes that landed
 - **Changed** — what files/functions were modified
 - **Errors** — bugs or failures discovered
 - **Fixes** — what resolved them
 - **Open** — items still needing work
-- **Context** — anything a future session needs to know
+- **Next session** — where to start
 
 ---
 
