@@ -91,3 +91,67 @@ Each session entry has:
 2. Re-run smoke test
 3. If `paper_status: PASS`, move to Phase 3 (VLM wiring, sibling context, test cleanup)
 4. If still BLOCKED, inspect the new `[EVAL]` verdicts
+
+---
+
+## Session: 2026-10-13 (Part 2) - First PASS
+
+### Commits landed
+- 52f321f6a - Groq model IDs updated to gpt-oss-120b
+- 8fb9738f9 - Bloom verb and marking scheme false positive fixes
+- bfe4fbedf - deterministic preamble strip and marking rescale
+- cfd6d4bc2 - evidence_summary plumbed to GeneratedQuestion
+- 0434fc0df - LLM repair budget 5 to 8, evidence sample 3x400 to 5x500
+
+### Files changed
+- core/api/providers.py - Groq model IDs
+- core/generation/agents/local_evaluators.py - stopword skip, adjacent Bloom
+- core/generation/agents/prompts.py - marking sum enforced
+- core/generation/agents/deterministic_repairs.py - preamble strip, marking rescale, DET-REPAIR logs
+- core/generation/agents/writing_agent.py - preamble strip, evidence summary
+- core/generation/agents/generated_question.py - evidence_summary field
+- core/generation/agents/evaluation_prompts.py - MAX_EVIDENCE_SUMMARY_CHARS 300 to 600
+- core/generation/agents/evaluation_agent.py - EVAL diagnostic logging
+- core/generation/agents/refinement_agent.py - max_llm_repairs 5 to 8
+
+### Pipeline state - FIRST PASS
+- paper_status: PASS
+- questions: 10
+- unresolved: 0
+- EVAL: all 6 API-audited slots passed Groq
+- DET-REPAIR: 4 MULTI_PART_STRUCTURE_MISMATCH, all resolved by LLM tier
+- degraded_reasons: empty
+- slot_count: 10
+
+### Open items for next session
+1. Web UI test not yet run - smoke passes, UI path untested
+2. AION_MODEL in backend process is qwen2.5:14b (WRONG)
+   vLLM serves Qwen/Qwen2.5-14B-Instruct-AWQ
+   Fix in ~/.bashrc and .env.server, restart backend
+   Will 404 on write calls from UI
+3. Frontend not running (port 3000 returns 000)
+   Start with: ./aiq frontend
+4. Sibling duplication in module 1 - Q1/Q2 near-identical
+   Phase 3: pass sibling stems as context to WritingAgent
+5. MULTI_PART_STRUCTURE_MISMATCH costs 4 LLM repairs per paper
+   Deterministic handler would save budget
+6. VLM endpoint not configured - AION_VLM_URL unset
+7. 15 legacy test failures in tests/test_*.py - test debt
+8. Groq key rotation pending - key was pasted in chat
+
+### Next session: start here
+1. Fix AION_MODEL:
+   grep -rn 'qwen2.5:14b' ~/.bashrc ~/AIQ/AION/.env.server
+   Change to: Qwen/Qwen2.5-14B-Instruct-AWQ
+   source ~/.bashrc
+   ./aiq stop && ./aiq backend
+2. Start frontend: ./aiq frontend (separate terminal)
+3. Verify services:
+   curl localhost:8100/health
+   curl localhost:3000/
+   curl localhost:8000/v1/models
+   cat /proc/$(pgrep -f aion_api.py | head -1)/environ | tr '\0' '\n' | grep AION_MODEL
+4. Open browser, upload 3 IoT PDFs, generate
+5. Capture: [AGENT:*], [CONTRACT GATE], [QUALITY GATE] from backend terminal
+6. If PASS through UI, pipeline is production-ready
+
