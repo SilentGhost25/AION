@@ -98,6 +98,27 @@ export const aionAPI = {
 
   generateAsync: (payload: unknown) => post<{ jobId: string; status: string }>("/api/generate", payload),
 
+  generateV3: (payload: {
+    file_id?: string;
+    fileId?: string;
+    file_ids?: string[];
+    fileIds?: string[];
+    subject?: string;
+    exam_type?: string;
+    examType?: string;
+    marks_split?: number[][];
+    [key: string]: any;
+  }) =>
+    post<{
+      success: boolean;
+      paper_status?: string;
+      paper?: any;
+      questions?: any[];
+      modules?: any[];
+      meta?: any;
+      error?: string;
+    }>("/api/v3/generate", payload),
+
   jobStatus: (jobId: string) => get(`/api/generate/status/${jobId}`),
 
   preview: (payload: unknown) => post("/api/preview", payload),
