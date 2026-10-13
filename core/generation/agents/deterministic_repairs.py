@@ -125,7 +125,7 @@ def repair_marking_scheme(
         return _replace_marking_scheme(question, new_scheme)
 
     # Multi-entry: only fix if the delta is small relative to current
-    if current > 0 and abs(delta) / current > 0.2:
+    if current > 0 and abs(delta) / current > 0.35:
         return None  # too risky to redistribute
 
     # Distribute delta proportionally
@@ -142,8 +142,10 @@ def repair_marking_scheme(
             new_scheme.append(dict(entry, marks=share))
             remaining -= share
 
-    if remaining != target - sum(e["marks"] for e in new_scheme[:-1]):
-        return None  # arithmetic drift; bail out
+    # Clamp the last entry to eliminate rounding drift
+    if new_scheme:
+        distributed = sum(e["marks"] for e in new_scheme[:-1])
+        new_scheme[-1]["marks"] = target - distributed
 
     return _replace_marking_scheme(question, new_scheme)
 

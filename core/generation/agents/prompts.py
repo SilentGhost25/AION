@@ -65,7 +65,15 @@ OUTPUT_SCHEMA_DESCRIPTION = """{
   },
   "references_image": boolean,
   "bloom_verb_used": "string — the first verb of the question_text"
-}"""
+}
+
+CRITICAL: marking_scheme rules
+  - Provide 2 to 4 entries.
+  - Each entry has {"criterion": "...", "marks": N}.
+  - The FINAL entry's marks MUST equal TOTAL_MARKS - sum(all previous entries).
+  - The sum of all entries MUST equal TOTAL_MARKS exactly.
+  - Do NOT invent a different total. TOTAL_MARKS is given in the slot contract.
+  - Double-check your arithmetic before returning."""
 
 
 # -----------------------------------------------------------------------------
@@ -164,7 +172,7 @@ def build_task_section(plan) -> str:
     return "\n".join(lines)
 
 
-def build_constraints_section() -> str:
+def build_constraints_section(total_marks: int = 10) -> str:
     return (
         "[CONSTRAINTS]\n"
         "  - The question must be self-contained; no references to 'the notes',\n"
@@ -175,6 +183,8 @@ def build_constraints_section() -> str:
         "  - Do not reveal the answer in the question text.\n"
         "  - Do not use the words 'and' or 'or' to combine unrelated tasks.\n"
         "  - If the topic is mathematical or numerical, provide concrete givens.\n"
+        f"  - The marking_scheme MUST sum to exactly {total_marks}.\n"
+        f"    Make the final entry absorb any remainder so the sum equals {total_marks}.\n"
         "  - Return ONLY valid JSON. No commentary, no code fences, no preamble."
     )
 
@@ -209,7 +219,7 @@ def build_prompt(plan, *, strict_json: bool = False) -> str:
         sections.append(vis)
 
     sections.append(build_task_section(plan))
-    sections.append(build_constraints_section())
+    sections.append(build_constraints_section(total_marks=plan.total_marks))
     sections.append(f"[OUTPUT JSON SCHEMA]\n{OUTPUT_SCHEMA_DESCRIPTION}")
 
     if strict_json:

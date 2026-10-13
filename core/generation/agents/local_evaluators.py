@@ -66,20 +66,73 @@ def _fail(question, code: str, detail: str, fix: Optional[str] = None) -> SlotVe
 # -----------------------------------------------------------------------------
 
 
+# -----------------------------------------------------------------------------
+# Bloom Verb Rules & Normalization
+# -----------------------------------------------------------------------------
+
+
+SKIP_WORDS = frozenset({
+    "a", "an", "the",
+    "this", "that", "these", "those",
+    "in", "on", "at", "for", "with", "using", "given",
+    "from", "by", "during", "considering",
+})
+
+ALL_BLOOM_VERBS = frozenset(
+    v.lower() for verbs in BLOOM_VERBS.values() for v in verbs
+)
+
+BLOOM_ADJACENCY = {
+    "L1": {"L1"},
+    "L2": {"L2"},
+    "L3": {"L3", "L4"},
+    "L4": {"L4", "L5"},
+    "L5": {"L5", "L6"},
+    "L6": {"L5", "L6"},
+}
+
+BLOOM_LEVEL_EXTRAS = {
+    # Engineering practical design tasks are accepted at L3 application
+    "L3": {"design"},
+}
+
+
+def _first_meaningful_word(text: str) -> str:
+    """Return the first Bloom verb if present, or first non-stopword."""
+    if not text:
+        return ""
+    words = [w.rstrip(".,:;!?").lower() for w in text.split()]
+    clean_words = [w for w in words if w and w not in SKIP_WORDS]
+    if not clean_words:
+        return ""
+    for w in clean_words:
+        if w in ALL_BLOOM_VERBS:
+            return w
+    return clean_words[0]
+
+
 def bloom_verb_evaluator(question) -> Optional[SlotVerdict]:
-    """First word must be an approved Bloom verb for the slot's Bloom level."""
-    first = question.first_word
+    """First meaningful word must be a Bloom verb from this level or an adjacent one."""
+    first = _first_meaningful_word(question.question_text or "")
     if not first:
         return _fail(
             question, BLOOM_MISMATCH,
-            "question text is empty",
+            "question text is empty or contains only stopwords",
         )
-    allowed = BLOOM_VERBS.get(question.bloom, [])
-    if first not in allowed:
+
+    allowed_levels = BLOOM_ADJACENCY.get(question.bloom, {question.bloom})
+    allowed_verbs = set()
+    for level in allowed_levels:
+        allowed_verbs.update(BLOOM_VERBS.get(level, []))
+    allowed_verbs.update(BLOOM_LEVEL_EXTRAS.get(question.bloom, set()))
+
+    if first not in allowed_verbs:
+        canonical = BLOOM_VERBS.get(question.bloom, [])
         return _fail(
             question, BLOOM_MISMATCH,
-            f"first word {first!r} not in approved verbs for {question.bloom}: {allowed}",
-            fix=f"Start the question with one of: {', '.join(allowed)}",
+            f"first meaningful word {first!r} not in approved verbs for "
+            f"{question.bloom} (or adjacent): {sorted(allowed_verbs)}",
+            fix=f"Start the question with one of: {', '.join(canonical)}",
         )
     return None
 
