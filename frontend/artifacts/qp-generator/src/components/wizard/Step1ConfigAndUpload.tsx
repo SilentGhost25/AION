@@ -56,6 +56,58 @@ const formatRbt = (v: any): string => {
   return `L${s || "2"}`
 }
 
+function mapPaperResultToGeneratedPaper(formattedResult: any, config: any): GeneratedPaper | null {
+  if (!formattedResult) return null
+  const paper = formattedResult.paper || formattedResult
+  const modules = paper.modules || formattedResult.modules || []
+  if (!modules || modules.length === 0) return null
+
+  const markPerQuestion = Math.floor((config?.maxMarks || 50) / 5)
+  const questions: any[] = []
+  let globalQNo = 1
+  for (let mIdx = 0; mIdx < modules.length; mIdx++) {
+    const mod = modules[mIdx]
+    const modQuestions = mod.questions || []
+    for (let qIdx = 0; qIdx < modQuestions.length; qIdx++) {
+      const q = modQuestions[qIdx]
+      const isOr = q.isOr ?? q.is_or ?? (qIdx % 2 === 1)
+      const co = `CO${mIdx + 1}`
+      const rawSubs = q.subQuestions || q.sub_questions || []
+      const subs = rawSubs.map((sq: any) => ({
+        label: sq.letter || sq.label || "a",
+        text: sq.text || "",
+        marks: sq.marks,
+        co: sq.co || co,
+        rbt: formatRbt(sq.bloom || q.bloom_level || q.bloomLevel || 2),
+      }))
+      questions.push({
+        qNo: globalQNo,
+        text: "",
+        marks: q.totalMarks || q.total_marks || markPerQuestion,
+        co,
+        rbt: formatRbt(q.bloom_level || q.bloomLevel || 2),
+        sectionNumber: globalQNo,
+        isOrQuestion: isOr,
+        subQuestions: subs,
+      })
+      globalQNo++
+    }
+  }
+  return {
+    config,
+    questions,
+    courseOutcomes: [
+      "Understand fundamental concepts and theoretical foundations",
+      "Apply analytical methods and problem-solving techniques",
+      "Implement algorithms and system architectures",
+      "Analyze performance tradeoffs and design alternatives",
+      "Evaluate solution quality and system specifications",
+    ],
+    coCoverage: paper.coCoverage || { co1: 40, co2: 40, co3: 20, co4: 0, co5: 0 },
+    syllabusCoverage: paper.syllabusCoverage || { s1: 20, s2: 20, s3: 20, s4: 20, s5: 20 },
+  } as GeneratedPaper
+}
+
 const ERROR_MESSAGES_CONTINUED: Record<string, { title: string; hint: string }> = {
   GENERATION_FAILED: {
     title: "Question generation failed",
@@ -211,6 +263,33 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
         if (primaryFileId) fileIds.push(primaryFileId)
       }
 
+      // Direct v3 generation attempt
+      setCurrentStage("generation")
+      setStageMessage("AIQ v3 Multi-Agent Pipeline executing...")
+
+      const v3Payload = {
+        file_id: primaryFileId,
+        fileId: primaryFileId,
+        file_ids: fileIds.length > 0 ? fileIds : (primaryFileId ? [primaryFileId] : undefined),
+        subject: config.subjectName || "Subject",
+        exam_type: config.examType || "IAT1",
+        marks_split: markSplits,
+      }
+
+      try {
+        console.log("[AION FRONTEND] Invoking direct /api/v3/generate:", v3Payload)
+        const v3Res = await aionAPI.generateV3(v3Payload)
+        if (v3Res && v3Res.success && (v3Res.paper || v3Res.modules)) {
+          const mapped = mapPaperResultToGeneratedPaper(v3Res.paper || v3Res, config)
+          if (mapped) {
+            console.log("[AION FRONTEND] Direct v3 generation succeeded!", mapped)
+            return mapped
+          }
+        }
+      } catch (v3Err) {
+        console.warn("[AION FRONTEND] /api/v3/generate direct call failed, falling back to SSE stream:", v3Err)
+      }
+
       const response = await aionAPI.generateStream({
         file_id: primaryFileId,
         fileId: primaryFileId,
@@ -269,51 +348,9 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
         }
       }
 
-      if (formattedResult && formattedResult.modules && formattedResult.modules.length > 0) {
-        const markPerQuestion = Math.floor(config.maxMarks / 5)
-        const questions: any[] = []
-        let globalQNo = 1
-        for (let mIdx = 0; mIdx < formattedResult.modules.length; mIdx++) {
-          const mod = formattedResult.modules[mIdx]
-          const modQuestions = mod.questions || []
-          for (let qIdx = 0; qIdx < modQuestions.length; qIdx++) {
-            const q = modQuestions[qIdx]
-            const isOr = q.isOr ?? q.is_or ?? (qIdx % 2 === 1)
-            const co = `CO${mIdx + 1}`
-            const rawSubs = q.subQuestions || q.sub_questions || []
-            const subs = rawSubs.map((sq: any) => ({
-              label: sq.letter || sq.label || "a",
-              text: sq.text || "",
-              marks: sq.marks,
-              co: sq.co || co,
-              rbt: formatRbt(sq.bloom || q.bloom_level || q.bloomLevel || 2),
-            }))
-            questions.push({
-              qNo: globalQNo,
-              text: "",
-              marks: q.totalMarks || q.total_marks || markPerQuestion,
-              co,
-              rbt: formatRbt(q.bloom_level || q.bloomLevel || 2),
-              sectionNumber: globalQNo,
-              isOrQuestion: isOr,
-              subQuestions: subs,
-            })
-            globalQNo++
-          }
-        }
-        return {
-          config,
-          questions,
-          courseOutcomes: [
-            "Understand fundamental concepts and theoretical foundations",
-            "Apply analytical methods and problem-solving techniques",
-            "Implement algorithms and system architectures",
-            "Analyze performance tradeoffs and design alternatives",
-            "Evaluate solution quality and system specifications",
-          ],
-          coCoverage: formattedResult.coCoverage || { co1: 40, co2: 40, co3: 20, co4: 0, co5: 0 },
-          syllabusCoverage: formattedResult.syllabusCoverage || { s1: 20, s2: 20, s3: 20, s4: 20, s5: 20 },
-        } as GeneratedPaper
+      if (formattedResult) {
+        const mapped = mapPaperResultToGeneratedPaper(formattedResult, config)
+        if (mapped) return mapped
       }
     } catch (e: any) {
       console.error("[AION] Generation error:", e)
@@ -517,60 +554,12 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
         return
       }
 
-      if (formattedResult && formattedResult.modules && formattedResult.modules.length > 0) {
-        const markPerQuestion = Math.floor(config.maxMarks / 5)
-        const questions: QuestionWithSubs[] = []
-
-        let globalQNo = 1
-        for (let mIdx = 0; mIdx < formattedResult.modules.length; mIdx++) {
-          const mod = formattedResult.modules[mIdx]
-          const modQuestions = mod.questions || []
-
-          for (let qIdx = 0; qIdx < modQuestions.length; qIdx++) {
-            const q = modQuestions[qIdx]
-            const isOr = q.isOr ?? q.is_or ?? (qIdx % 2 === 1)
-            const co = `CO${mIdx + 1}`
-            const rawSubs = q.subQuestions || q.sub_questions || []
-            const subs = rawSubs.map((sq: any) => ({
-              label: sq.letter || sq.label || "a",
-              text: sq.text || "",
-              marks: sq.marks,
-              co: sq.co || co,
-              rbt: formatRbt(sq.bloom || q.bloom_level || q.bloomLevel || 2),
-            }))
-
-            questions.push({
-              qNo: globalQNo,
-              text: "",   // Pure renderer — text is in subQuestions
-              marks: q.totalMarks || q.total_marks || markPerQuestion,
-              co,
-              rbt: formatRbt(q.bloom_level || q.bloomLevel || 2),
-              sectionNumber: globalQNo,
-              isOrQuestion: isOr,
-              subQuestions: subs,
-            })
-            globalQNo++
-          }
-        }
-
-        const paper: GeneratedPaper = {
-          config,
-          questions,
-          courseOutcomes: [
-            "Understand fundamental concepts and theoretical foundations",
-            "Apply analytical methods and problem-solving techniques",
-            "Implement algorithms and system architectures",
-            "Analyze performance tradeoffs and design alternatives",
-            "Evaluate solution quality and system specifications",
-          ],
-          coCoverage: { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 },
-          syllabusCoverage: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0 },
-        }
-
+      const mappedPaper = mapPaperResultToGeneratedPaper(formattedResult, config)
+      if (mappedPaper) {
         setCurrentStage(null)
         setStageMessage(null)
         toast.success("Question paper generated successfully!")
-        onSuccess(paper)
+        onSuccess(mappedPaper)
       } else {
         const err: PipelineError = {
           code: "INCOMPLETE_PAPER",
