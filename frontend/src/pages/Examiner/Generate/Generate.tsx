@@ -150,7 +150,7 @@ export default function GeneratePaper() {
         marks: form1.getValues("maxMarks") || 50,
         difficulty: "Medium",
         bloom_levels: selectedModules.map(m => MODULE_CO_BLOOM[m]?.bloom || "L2"),
-        model: "qwen2.5:14b",
+        model: (import.meta as any).env?.VITE_AION_MODEL || "Qwen/Qwen2.5-14B-Instruct-AWQ",
       };
 
       const res = await aion.questions.generate(payload);

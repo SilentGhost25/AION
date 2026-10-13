@@ -84,6 +84,17 @@ class RobustLLMCaller:
                         raise RuntimeError(f"vLLM server at {self.host} returned HTTP {res.status_code}")
                     available = [m.get("id") for m in res.json().get("data", [])]
                     if model not in available:
+                        for cand in available:
+                            if "qwen" in str(cand).lower() and ("14b" in str(cand).lower() or "instruct" in str(cand).lower()):
+                                LOG.warning(f"[LLM AUTO-ALIGN] Remapping model '{model}' -> '{cand}' from active vLLM engine")
+                                os.environ["AION_MODEL"] = str(cand)
+                                model = str(cand)
+                                break
+                        if model not in available and available:
+                            LOG.warning(f"[LLM AUTO-ALIGN] Remapping model '{model}' -> '{available[0]}' from active vLLM engine")
+                            os.environ["AION_MODEL"] = str(available[0])
+                            model = str(available[0])
+                    if model not in available:
                         raise RuntimeError(
                             f"[LLM STARTUP GATE] vLLM is running but does not serve model '{model}'.\n"
                             f"Available models: {available}\n"
@@ -216,6 +227,8 @@ class RobustLLMCaller:
         import requests as req
         max_tok = getattr(request, "max_tokens", 4096)
         model_name = request.model
+        if ":" in model_name or model_name.startswith("qwen2.5"):
+            model_name = os.environ.get("AION_MODEL") or os.environ.get("AION_VLLM_MODEL") or "Qwen/Qwen2.5-14B-Instruct-AWQ"
         if (":" in model_name or not model_name.startswith("Qwen/")) and os.environ.get("AION_MODEL"):
             model_name = os.environ.get("AION_MODEL")
         payload: Dict[str, Any] = {

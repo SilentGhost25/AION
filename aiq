@@ -81,6 +81,49 @@ activate_venv() {
     fi
 }
 
+init_env() {
+    # Auto-detect device if unset
+    if [[ -z "${AION_DEVICE:-}" ]]; then
+        local free_gb
+        free_gb=$(free -g 2>/dev/null | awk '/^Mem:/{print $7}' || echo "16")
+        if   [[ "$free_gb" -ge 30 ]]; then AION_DEVICE="server"
+        elif [[ "$free_gb" -ge 10 ]]; then AION_DEVICE="desktop"
+        else                               AION_DEVICE="laptop"
+        fi
+        export AION_DEVICE
+        log "Auto-detected device: $AION_DEVICE (${free_gb}GB free RAM)"
+    fi
+
+    # Load .env.$AION_DEVICE if present
+    local envfile="$ROOT/.env.$AION_DEVICE"
+    if [[ -f "$envfile" ]]; then
+        set -a
+        source "$envfile"
+        set +a
+        log "Loaded: .env.$AION_DEVICE"
+    fi
+
+    # Load root .env if present (local overrides)
+    if [[ -f "$ROOT/.env" ]]; then
+        set -a
+        source "$ROOT/.env"
+        set +a
+    fi
+
+    # Enforce vLLM alignment if port 8000 is open or backend is vllm
+    if is_port_open 8000; then
+        export AION_BACKEND="${AION_BACKEND:-vllm}"
+        export AION_LLM_HOST="${AION_LLM_HOST:-http://localhost:8000}"
+    fi
+
+    if [[ "${AION_BACKEND:-}" == "vllm" ]]; then
+        if [[ -z "${AION_MODEL:-}" || "${AION_MODEL:-}" == "qwen2.5:14b" || "${AION_MODEL:-}" == *"qwen2.5:"* ]]; then
+            export AION_MODEL="Qwen/Qwen2.5-14B-Instruct-AWQ"
+            log "vLLM active: aligned AION_MODEL to $AION_MODEL"
+        fi
+    fi
+}
+
 resolve_model() {
     python -c "
 from core.config.production_model import get_production_model, get_resolution_info
@@ -167,6 +210,7 @@ cleanup() {
 cmd_backend() {
     header "Starting AIQ Backend"
     ensure_dirs
+    init_env
     cd "$ROOT"
     activate_venv
     # Stop prior instance BEFORE allocating ports so default port 8100 is reclaimed!
@@ -203,8 +247,8 @@ cmd_backend() {
         fi
         sleep 1
         retries=$((retries + 1))
-        if [[ $retries -ge 30 ]]; then
-            error "Backend did not start within 30 seconds"
+        if [[ $retries -ge 60 ]]; then
+            error "Backend did not start within 60 seconds"
             error "Check logs: $BACKEND_LOG"
             return 1
         fi
@@ -217,6 +261,7 @@ cmd_backend() {
 cmd_frontend() {
     header "Starting AIQ Frontend"
     ensure_dirs
+    init_env
     read_ports
 
     if [[ ! -d "$FRONTEND_DIR" ]]; then
@@ -233,21 +278,47 @@ cmd_frontend() {
     fi
 
     cd "$FRONTEND_DIR"
-    require pnpm
+    local runner=""
+    if command -v pnpm >/dev/null 2>&1; then
+        runner="pnpm"
+    elif command -v npx >/dev/null 2>&1; then
+        runner="npx pnpm"
+    elif command -v npm >/dev/null 2>&1; then
+        runner="npm"
+    else
+        error "Neither pnpm, npx, nor npm was found. Please install Node.js & pnpm."
+        return 1
+    fi
 
     export BACKEND_PORT="$BACKEND_PORT"
     export AION_PORT="$BACKEND_PORT"
     export FRONTEND_PORT="$FRONTEND_PORT"
 
-    pnpm run dev --host --port "$FRONTEND_PORT" &
+    $runner run dev --host --port "$FRONTEND_PORT" &
     local pid=$!
     write_pid "$pid" "$FRONTEND_PID_FILE"
     log "Frontend PID: $pid"
     log "Frontend starting on port $FRONTEND_PORT (mapping backend $BACKEND_PORT)..."
 
     # Wait for Vite to initialize
-    sleep 3
-    log "Frontend ready — accessible at http://0.0.0.0:$FRONTEND_PORT"
+    local retries=0
+    while ! is_port_open "$FRONTEND_PORT"; do
+        if ! is_running "$pid"; then
+            echo ""
+            error "Frontend process (PID $pid) exited prematurely!"
+            return 1
+        fi
+        sleep 1
+        retries=$((retries + 1))
+        if [[ $retries -ge 20 ]]; then
+            warn "Frontend port $FRONTEND_PORT did not respond after 20s"
+            break
+        fi
+        echo -n "."
+    done
+    echo ""
+    log "Frontend ready at http://0.0.0.0:$FRONTEND_PORT"
+    log "Open in browser: http://localhost:$FRONTEND_PORT"
 }
 
 cmd_start() {
@@ -255,30 +326,13 @@ cmd_start() {
 
     header "System Check"
     require python
-    require pnpm
-
-    # Load environment
-    local device="${AION_DEVICE:-}"
-    if [[ -z "$device" ]]; then
-        # Auto-detect from available RAM
-        local free_gb
-        free_gb=$(free -g 2>/dev/null | awk '/^Mem:/{print $7}' || echo "16")
-        if   [[ "$free_gb" -ge 30 ]]; then device="server"
-        elif [[ "$free_gb" -ge 10 ]]; then device="desktop"
-        else                               device="laptop"
-        fi
-        log "Auto-detected device: $device (${free_gb}GB free RAM)"
-        export AION_DEVICE="$device"
+    if ! command -v pnpm >/dev/null 2>&1 && ! command -v npm >/dev/null 2>&1; then
+        error "Neither pnpm nor npm found."
+        exit 1
     fi
 
-    # Load .env file if present
-    local envfile="$ROOT/.env.$device"
-    if [[ -f "$envfile" ]]; then
-        set -a
-        source "$envfile"
-        set +a
-        log "Loaded: .env.$device"
-    fi
+    init_env
+    local device="${AION_DEVICE:-server}"
 
     trap cleanup EXIT INT TERM
 
@@ -337,6 +391,7 @@ cmd_stop() {
 
 cmd_status() {
     header "AIQ Status"
+    init_env
     read_ports
 
     local backend_pid frontend_pid
@@ -548,20 +603,37 @@ if [[ "${1:-}" =~ ^[0-9]+$ ]]; then
     set -- ""
 fi
 
-# Check if second argument is a numeric port for subcommands (e.g. ./aiq backend 8105)
-if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+# Check if second argument is a numeric port for subcommands (e.g. ./aiq backend 8105, ./aiq frontend 3000)
+if [[ "${1:-}" == "frontend" && "${2:-}" =~ ^[0-9]+$ ]]; then
+    FRONTEND_PORT_OVERRIDE="$2"
+elif [[ "${2:-}" =~ ^[0-9]+$ ]]; then
     PORT_OVERRIDE="$2"
 fi
 
 case "${1:-}" in
-    backend)  activate_venv 2>/dev/null; cd "$ROOT"; cmd_backend; wait ;;
-    frontend) activate_venv 2>/dev/null; cd "$ROOT"; cmd_frontend; wait ;;
+    backend)
+        init_env
+        activate_venv 2>/dev/null
+        cd "$ROOT"
+        trap cleanup INT TERM
+        cmd_backend
+        log "Streaming backend logs (Ctrl+C to stop)..."
+        tail -n 0 -f "$BACKEND_LOG"
+        ;;
+    frontend)
+        init_env
+        activate_venv 2>/dev/null
+        cd "$ROOT"
+        trap cleanup INT TERM
+        cmd_frontend
+        wait
+        ;;
     smoke|v3|smoke-test) shift; cmd_smoke "$@" ;;
     test|tests) shift; cmd_test "$@" ;;
     stop)     cmd_stop ;;
     status)   cmd_status ;;
     logs)     cmd_logs ;;
-    model)    cmd_model ;;
+    model)    init_env; cmd_model ;;
     install)  cmd_install ;;
     help|--help|-h) cmd_help ;;
     start|"") cmd_start ;;
