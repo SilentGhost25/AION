@@ -295,9 +295,18 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
             console.log("[AION FRONTEND] Direct v3 generation succeeded!", mapped)
             return mapped
           }
+          throw new Error("v3 response succeeded but paper/modules could not be mapped")
         }
-      } catch (v3Err) {
-        console.warn("[AION FRONTEND] /api/v3/generate direct call failed, falling back to SSE stream:", v3Err)
+        throw new Error(v3Res?.error || `v3 generation failed with status: ${v3Res?.paper_status || 'UNKNOWN'}`)
+      } catch (v3Err: any) {
+        console.error("[AION FRONTEND] Strict verification mode: direct /api/v3/generate failed:", v3Err)
+        setPipelineError({
+          code: "GENERATION_ERROR",
+          stage: "generation",
+          message: v3Err?.message || "Direct /api/v3/generate call failed",
+          recoverable: true,
+        })
+        throw v3Err
       }
 
       const response = await aionAPI.generateStream({
