@@ -435,170 +435,27 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
   }
 
   const handleGenerate = async () => {
-    const paper = await generateSinglePaper(1)
-    if (paper) {
-      toast.success("Question paper generated successfully!")
-      onSuccess(paper)
-      return
-    }
-    setPipelineError(null)
-    setShowDebug(false)
-    setCurrentStage("connecting")
-    setStageMessage("Establishing connection to AION...")
-    toast.info("Sending reference material to AION AI...", { description: "Generating questions with Qwen LLM..." })
-
     try {
-      const combinedNotes = sections
-        .map((s, i) => `=== Module ${Math.floor(i / 2) + 1} Question ${i + 1} ===\n${s.notesText}`)
-        .join("\n\n")
-
-      const uploadedFile = rawFiles.find(f => f !== null)
-      let uploadRes: any
-
-      if (uploadedFile) {
-        toast.info(`Uploading ${uploadedFile.name}...`)
-        uploadRes = await aionAPI.upload(uploadedFile, config.subjectName || "Subject", "notes")
-      } else {
-        const blob = new Blob([combinedNotes], { type: "text/plain" })
-        const file = new File([blob], `${config.subjectCode || 'syllabus'}_notes.txt`, { type: "text/plain" })
-        uploadRes = await aionAPI.upload(file, config.subjectName || "Subject", "notes")
-      }
-      const fileId = uploadRes.id || uploadRes.document_id
-
-      const response = await aionAPI.generateStream({
-        file_id: fileId,
-        fileId: fileId,
-        subject: config.subjectName || "Subject",
-        department: (config as any).department || "Computer Science & Engineering",
-        semester: (config as any).semester || 5,
-        exam_type: config.examType || "IA",
-        examType: config.examType || "IA",
-        difficulty: "mixed",
-        notes_text: combinedNotes,
-        model: (import.meta as any).env?.VITE_AION_MODEL || "Qwen/Qwen2.5-14B-Instruct-AWQ",
-        sub_question_count: sections[0]?.subQuestionsPerQ ?? 2,
-        subQuestionCount: sections[0]?.subQuestionsPerQ ?? 2,
-      })
-
-      if (!response.ok) {
-        const err: PipelineError = {
-          code: "HTTP_ERROR",
-          stage: "connection",
-          message: `Server returned ${response.status}: ${response.statusText}`,
-          recoverable: response.status >= 500,
-        }
-        setPipelineError(err)
-        toast.error("Connection failed", { description: err.message })
-        return
-      }
-
-      const reader = response.body!.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ""
-      let formattedResult: any = null
-      let terminalReceived = false
-      let currentEvent = ""
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split("\n")
-        buffer = lines.pop() ?? ""
-
-        for (const line of lines) {
-          const trimmed = line.trim()
-          if (trimmed.startsWith("event:")) {
-            currentEvent = trimmed.slice(6).trim()
-            continue
-          }
-          if (!trimmed.startsWith("data:")) continue
-
-          let data: any
-          try {
-            data = JSON.parse(trimmed.slice(5).trim())
-          } catch {
-            console.warn("[AION] Malformed SSE data:", trimmed)
-            continue
-          }
-
-          if (currentEvent === "stage_update") {
-            setCurrentStage(data.stage)
-            setStageMessage(data.message || STAGE_LABELS[data.stage] || data.stage)
-
-          } else if (currentEvent === "pipeline_error") {
-            terminalReceived = true
-            const errData = data.error || data
-            const err: PipelineError = {
-              code: errData.code || "UNKNOWN_ERROR",
-              stage: errData.stage || "unknown",
-              message: errData.message || "An error occurred during generation.",
-              recoverable: errData.recoverable !== undefined ? errData.recoverable : true,
-              debug: errData.debug,
-            }
-            console.error("[AION] pipeline_error:", err)
-            setPipelineError(err)
-            const errInfo = ERROR_MESSAGES[err.code] ?? { title: `Error: ${err.code}`, hint: err.message }
-            toast.error(errInfo.title, { description: errInfo.hint })
-            return
-
-          } else if (currentEvent === "paper_ready") {
-            const paper = data.paper || data
-            formattedResult = paper
-
-          } else if (currentEvent === "result") {
-            // Legacy compat — accept both wrapped and flat
-            formattedResult = data.paper || data
-
-          } else if (currentEvent === "done") {
-            terminalReceived = true
-            if (data.status !== "SUCCESS") {
-              // If done arrived without paper_ready, pipeline_error should have already fired
-              return
-            }
-          }
-        }
-      }
-
-      if (!terminalReceived) {
-        const err: PipelineError = {
-          code: "STREAM_ENDED_WITHOUT_TERMINAL",
-          stage: currentStage || "unknown",
-          message: "Server closed connection without sending a completion event.",
-          recoverable: true,
-        }
-        setPipelineError(err)
-        toast.error("Generation incomplete", { description: err.message })
-        return
-      }
-
-      const mappedPaper = mapPaperResultToGeneratedPaper(formattedResult, config)
-      if (mappedPaper) {
-        setCurrentStage(null)
-        setStageMessage(null)
+      const paper = await generateSinglePaper(1)
+      if (paper) {
         toast.success("Question paper generated successfully!")
-        onSuccess(mappedPaper)
-      } else {
-        const err: PipelineError = {
-          code: "INCOMPLETE_PAPER",
-          stage: "qa",
-          message: "Backend returned no modules. Generation may have failed silently.",
-          recoverable: true,
-        }
-        setPipelineError(err)
-        toast.error("Generation Failed", { description: err.message })
+        onSuccess(paper)
+        return
       }
+      // In strict v3 mode, generateSinglePaper already populated pipelineError and stopped generation
+      toast.error("Generation Failed", {
+        description: "Direct /api/v3/generate failed. Check the error details panel below.",
+      })
     } catch (err: any) {
-      console.error("[AION] Generation error:", err)
-      const netErr: PipelineError = {
-        code: "NETWORK_ERROR",
-        stage: "connection",
-        message: err?.message || "A network error occurred during generation.",
+      console.error("[AION FRONTEND] handleGenerate error:", err)
+      const errObj: PipelineError = {
+        code: "GENERATION_ERROR",
+        stage: "generation",
+        message: err?.message || "Direct /api/v3/generate failed",
         recoverable: true,
       }
-      setPipelineError(netErr)
-      toast.error("AION Generation Failed", { description: netErr.message })
+      setPipelineError(errObj)
+      toast.error("Generation Failed", { description: errObj.message })
     } finally {
       setIsGenerating(false)
     }

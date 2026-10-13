@@ -227,10 +227,16 @@ class RobustLLMCaller:
         import requests as req
         max_tok = getattr(request, "max_tokens", 4096)
         model_name = request.model
-        if ":" in model_name or model_name.startswith("qwen2.5"):
-            model_name = os.environ.get("AION_MODEL") or os.environ.get("AION_VLLM_MODEL") or "Qwen/Qwen2.5-14B-Instruct-AWQ"
-        if (":" in model_name or not model_name.startswith("Qwen/")) and os.environ.get("AION_MODEL"):
-            model_name = os.environ.get("AION_MODEL")
+        env_model = os.environ.get("AION_MODEL") or ""
+        # If model_name or AION_MODEL is an Ollama-style tag (e.g. "qwen2.5:14b"), remap to HF vLLM repo ID
+        if ":" in model_name or model_name.startswith("qwen2.5") or ":" in env_model:
+            model_name = (
+                (env_model if env_model and ":" not in env_model and not env_model.startswith("qwen2.5") else None)
+                or os.environ.get("AION_VLLM_MODEL")
+                or "Qwen/Qwen2.5-14B-Instruct-AWQ"
+            )
+        elif not model_name.startswith("Qwen/") and env_model and ":" not in env_model:
+            model_name = env_model
         payload: Dict[str, Any] = {
             "model": model_name,
             "messages": [{"role": "user", "content": request.prompt}],
