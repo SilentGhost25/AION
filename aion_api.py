@@ -1504,6 +1504,76 @@ def job_status(job_id):
     })
 
 
+@app.route("/api/v3/generate", methods=["POST"])
+def v3_direct_generate():
+    """
+    Direct v3 generation endpoint.
+    Bypasses legacy orchestrator and contract gate drop points.
+    Returns clean GeneratedPaper JSON directly.
+    """
+    from core.generation.agents.pipeline_bridge import run_v3_pipeline
+    from core.generation.paper_spec_resolver import PaperSpecResolver
+    from core.extraction.artifact_cache import load_or_extract_artifact, merge_artifacts
+    from core.contracts.paper_spec import STANDARD_MARKS_SPLITS
+
+    body = request.get_json(silent=True) or {}
+    file_ids = body.get("file_ids") or ([body.get("file_id")] if body.get("file_id") else [])
+    file_path = body.get("file_path")
+    exam_type = body.get("exam_type") or body.get("examType") or "IAT1"
+    subject = body.get("subject") or "Engineering"
+
+    pdfs = []
+    if file_ids:
+        for fid in file_ids:
+            p = ROOT / "workspace" / "uploads" / fid / "original.pdf"
+            if p.exists():
+                pdfs.append(p)
+    elif file_path:
+        if isinstance(file_path, list):
+            pdfs = [Path(p) for p in file_path if Path(p).exists()]
+        elif Path(file_path).exists():
+            pdfs = [Path(file_path)]
+
+    if not pdfs:
+        # Check if uploads exist or satcom fixtures
+        satcom = [ROOT / "tests" / "fixtures" / "satcom" / f"module{i}.pdf" for i in range(1, 6)]
+        pdfs = [p for p in satcom if p.exists()]
+
+    if not pdfs:
+        return jsonify({"success": False, "error": "No valid PDF input sources found"}), 400
+
+    artifacts = [load_or_extract_artifact(p) for p in pdfs]
+    artifact = merge_artifacts(artifacts) if len(artifacts) > 1 else artifacts[0]
+
+    spec = PaperSpecResolver.resolve(exam_type)
+    raw_splits = body.get("marks_split") or body.get("marksDistribution") or STANDARD_MARKS_SPLITS.get(exam_type)
+    splits = raw_splits or [[spec.marks_per_question] for _ in range(spec.total_questions)]
+
+    paper_parts, full_paper, meta = run_v3_pipeline(
+        paper_spec=spec,
+        artifact=artifact,
+        marks_split=splits,
+        request={"exam_type": exam_type, "subject": subject},
+    )
+
+    formatted = _format_paper(
+        paper=paper_parts,
+        subject=subject,
+        exam_type=exam_type,
+        mode="turbo",
+        qa_report=meta.get("qa_report"),
+    )
+
+    return jsonify({
+        "success": meta.get("success", False),
+        "paper_status": meta.get("paper_status"),
+        "paper": formatted,
+        "questions": full_paper,
+        "modules": formatted.get("modules", []),
+        "meta": meta,
+    })
+
+
 
 def normalize_or_pair_structure(pair: list, is_ia: bool) -> list:
     """
