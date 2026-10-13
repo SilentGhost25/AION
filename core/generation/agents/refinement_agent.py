@@ -90,7 +90,7 @@ class RefinementAgent(Agent):
         self,
         llm_caller: Optional[LLMCaller] = None,
         sympy_verifier: Optional[SympyVerifier] = None,
-        max_llm_repairs_per_paper: int = 5,
+        max_llm_repairs_per_paper: int = 8,
         max_attempts_per_slot: int = 2,
         seed: int = 42,
         clock: Optional[Callable[[], float]] = None,

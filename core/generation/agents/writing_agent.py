@@ -319,11 +319,11 @@ class WritingAgent(Agent):
 
         # Build evidence summary from the plan's evidence blocks
         evidence_texts = []
-        for block in (getattr(plan, "evidence_blocks", None) or [])[:3]:
+        for block in (getattr(plan, "evidence_blocks", None) or [])[:5]:
             text = getattr(block, "text", "")
             if text:
-                evidence_texts.append(text[:400])
-        evidence_summary = " ".join(evidence_texts)[:1000]
+                evidence_texts.append(text[:500])
+        evidence_summary = " ".join(evidence_texts)[:2500]
 
         return GeneratedQuestion(
             slot_id=plan.slot_id,
