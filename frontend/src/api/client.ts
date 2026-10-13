@@ -2,7 +2,7 @@
 // Single source of truth for all backend communication.
 // Never call the backend directly from components — always use this client.
 
-const BASE_URL = import.meta.env.VITE_AION_API_URL ?? "http://127.0.0.1:8100";
+const BASE_URL = (import.meta as any).env?.VITE_AION_API_URL ?? "http://127.0.0.1:8100";
 
 // ── Core fetch wrapper ────────────────────────────────────────────────────────
 
@@ -192,6 +192,11 @@ export const aion = {
   papers: {
     generate: (config: Record<string, unknown>) =>
       aionFetch<JobResponse>("/api/v1/papers/generate", {
+        method: "POST",
+        body: JSON.stringify(config),
+      }),
+    generateV3: (config: Record<string, unknown>) =>
+      aionFetch<any>("/api/v3/generate", {
         method: "POST",
         body: JSON.stringify(config),
       }),
