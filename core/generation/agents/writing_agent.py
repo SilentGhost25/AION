@@ -288,13 +288,49 @@ class WritingAgent(Agent):
         image_path = getattr(figure, "image_path", None) if figure else None
         caption = getattr(figure, "caption", None) if figure else None
 
+        q_text = str(parsed.get("question_text", "")).strip()
+        q_text_lower = q_text.lower()
+        for prefix in (
+            "based on the provided evidence,",
+            "based on the provided evidence",
+            "based on the evidence provided,",
+            "based on the evidence provided",
+            "apply the following:",
+            "apply the following",
+            "refer to the text,",
+            "refer to the text",
+            "using the provided evidence,",
+            "using the provided evidence",
+            "using the provided text,",
+            "using the provided text",
+        ):
+            if q_text_lower.startswith(prefix):
+                q_text = q_text[len(prefix):].strip()
+                if q_text:
+                    q_text = q_text[0].upper() + q_text[1:]
+                break
+
+        scheme = list(parsed.get("marking_scheme", []) or [])
+        if scheme and all(isinstance(e, dict) for e in scheme):
+            current_sum = sum(e.get("marks", 0) for e in scheme if isinstance(e.get("marks"), (int, float)))
+            if current_sum > 0 and current_sum != plan.total_marks:
+                scale = plan.total_marks / current_sum
+                new_scheme = []
+                for i, entry in enumerate(scheme):
+                    if i < len(scheme) - 1:
+                        new_marks = max(1, round(entry.get("marks", 0) * scale))
+                    else:
+                        new_marks = plan.total_marks - sum(e["marks"] for e in new_scheme)
+                    new_scheme.append(dict(entry, marks=new_marks))
+                scheme = new_scheme
+
         return GeneratedQuestion(
             slot_id=plan.slot_id,
             module_id=plan.module_id,
             global_q_idx=plan.global_q_idx,
-            question_text=str(parsed.get("question_text", "")).strip(),
+            question_text=q_text,
             solution=str(parsed.get("solution", "")).strip(),
-            marking_scheme=list(parsed.get("marking_scheme", []) or []),
+            marking_scheme=scheme,
             marks=plan.total_marks,
             partition=list(plan.partition),
             bloom=plan.bloom,

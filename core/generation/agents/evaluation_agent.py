@@ -270,7 +270,12 @@ class EvaluationAgent(Agent):
                     detail="slot missing from api response",
                 ))
                 continue
-            result.append(self._entry_to_verdict(q.slot_id, entry))
+            v = self._entry_to_verdict(q.slot_id, entry)
+            result.append(v)
+
+        for v in result:
+            print(f"[EVAL] {v.slot_id} verdict={v.verdict} reason={v.reason_code} source={v.source}", flush=True)
+
         return result
 
     def _entry_to_verdict(self, slot_id: str, entry: dict) -> SlotVerdict:

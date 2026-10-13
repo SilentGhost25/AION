@@ -45,6 +45,41 @@ _PREAMBLE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+_FORBIDDEN_PREAMBLES = [
+    "based on the provided evidence,",
+    "based on the provided evidence",
+    "based on the evidence provided,",
+    "based on the evidence provided",
+    "apply the following:",
+    "apply the following",
+    "refer to the text,",
+    "refer to the text",
+    "using the provided evidence,",
+    "using the provided evidence",
+    "using the provided text,",
+    "using the provided text",
+]
+
+
+def repair_forbidden_preamble(
+    question: GeneratedQuestion,
+    reason_code: str,
+    detail: str,
+) -> Optional[GeneratedQuestion]:
+    """Strip forbidden preamble phrases when present at the start of the question."""
+    text = (question.question_text or "").lstrip()
+    if not text:
+        return None
+    text_lower = text.lower()
+    for prefix in _FORBIDDEN_PREAMBLES:
+        if text_lower.startswith(prefix):
+            stripped = text[len(prefix):].strip()
+            if stripped:
+                # Capitalize the first letter of the remaining text
+                stripped = stripped[0].upper() + stripped[1:]
+                return _replace_text(question, stripped)
+    return None
+
 
 def _first_alpha_word(text: str) -> str:
     m = re.search(r"[A-Za-z]+", text)
@@ -150,6 +185,41 @@ def repair_marking_scheme(
     return _replace_marking_scheme(question, new_scheme)
 
 
+def repair_marking_scheme_rescale(
+    question: GeneratedQuestion,
+    reason_code: str,
+    detail: str,
+) -> Optional[GeneratedQuestion]:
+    """Always rescale marking scheme to sum to total marks."""
+    scheme = list(question.marking_scheme or [])
+    if not scheme:
+        return None
+    current = sum(
+        e.get("marks", 0) for e in scheme
+        if isinstance(e, dict) and isinstance(e.get("marks"), (int, float))
+    )
+    if current == question.marks or current <= 0:
+        return None
+
+    # Proportional rescale, then clamp last entry to eliminate drift
+    scale = question.marks / current
+    new_scheme = []
+    for i, entry in enumerate(scheme):
+        if not isinstance(entry, dict):
+            return None
+        if i < len(scheme) - 1:
+            new_marks = max(1, round(entry.get("marks", 0) * scale))
+        else:
+            new_marks = question.marks - sum(e["marks"] for e in new_scheme)
+        new_scheme.append(dict(entry, marks=new_marks))
+
+    # Verify sum
+    final_sum = sum(e["marks"] for e in new_scheme)
+    if final_sum != question.marks:
+        return None
+    return _replace_marking_scheme(question, new_scheme)
+
+
 def repair_figure_reference(
     question: GeneratedQuestion,
     reason_code: str,
@@ -243,9 +313,11 @@ def repair_multi_part_structure(
 
 # Ordered list of deterministic repair functions.
 REPAIR_PIPELINE = [
+    repair_forbidden_preamble,
     repair_bloom_verb,
     repair_figure_reference,
     repair_marking_scheme,
+    repair_marking_scheme_rescale,
     repair_short_question,
     repair_short_solution,
     repair_multi_part_structure,
@@ -261,13 +333,17 @@ def try_deterministic_repair(
     Try each repair in order. Return the first successful repair,
     or None if no deterministic repair applies.
     """
+    print(f"[DET-REPAIR] trying {reason_code} for {question.slot_id}", flush=True)
     for repair in REPAIR_PIPELINE:
         try:
             result = repair(question, reason_code, detail)
-        except Exception:
+        except Exception as e:
+            print(f"[DET-REPAIR] {repair.__name__} raised: {e}", flush=True)
             result = None
         if result is not None:
+            print(f"[DET-REPAIR] {repair.__name__} succeeded for {question.slot_id}", flush=True)
             return result
+    print(f"[DET-REPAIR] no repair succeeded for {question.slot_id}", flush=True)
     return None
 
 
