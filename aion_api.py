@@ -1542,36 +1542,44 @@ def v3_direct_generate():
     if not pdfs:
         return jsonify({"success": False, "error": "No valid PDF input sources found"}), 400
 
-    artifacts = [load_or_extract_artifact(p) for p in pdfs]
-    artifact = merge_artifacts(artifacts) if len(artifacts) > 1 else artifacts[0]
+    try:
+        artifacts = [load_or_extract_artifact(p) for p in pdfs]
+        artifact = merge_artifacts(artifacts) if len(artifacts) > 1 else artifacts[0]
 
-    spec = PaperSpecResolver.resolve(exam_type)
-    raw_splits = body.get("marks_split") or body.get("marksDistribution") or STANDARD_MARKS_SPLITS.get(exam_type)
-    splits = raw_splits or [[spec.marks_per_question] for _ in range(spec.total_questions)]
+        spec = PaperSpecResolver.resolve(exam_type)
+        raw_splits = body.get("marks_split") or body.get("marksDistribution") or STANDARD_MARKS_SPLITS.get(exam_type)
+        splits = raw_splits or [[spec.marks_per_question] for _ in range(spec.total_questions)]
 
-    paper_parts, full_paper, meta = run_v3_pipeline(
-        paper_spec=spec,
-        artifact=artifact,
-        marks_split=splits,
-        request={"exam_type": exam_type, "subject": subject},
-    )
+        paper_parts, full_paper, meta = run_v3_pipeline(
+            paper_spec=spec,
+            artifact=artifact,
+            marks_split=splits,
+            request={"exam_type": exam_type, "subject": subject},
+        )
 
-    formatted = _format_paper(
-        paper=paper_parts,
-        subject=subject,
-        exam_type=exam_type,
-        mode="turbo",
-        qa_report=meta.get("qa_report"),
-    )
+        formatted = _format_paper(
+            paper=paper_parts,
+            subject=subject,
+            exam_type=exam_type,
+            mode="turbo",
+            qa_report=meta.get("qa_report"),
+        )
 
-    return jsonify({
-        "success": meta.get("success", False),
-        "paper_status": meta.get("paper_status"),
-        "paper": formatted,
-        "questions": full_paper,
-        "modules": formatted.get("modules", []),
-        "meta": meta,
-    })
+        return jsonify({
+            "success": meta.get("success", False),
+            "paper_status": meta.get("paper_status"),
+            "paper": formatted,
+            "questions": full_paper,
+            "modules": formatted.get("modules", []),
+            "meta": meta,
+        })
+    except Exception as e:
+        print(f"[AION API v3] Pipeline generation failed: {e}", flush=True)
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "paper_status": "FAILED",
+        }), 500
 
 
 
