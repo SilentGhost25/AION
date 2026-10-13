@@ -71,18 +71,28 @@ function mapPaperResultToGeneratedPaper(formattedResult: any, config: any): Gene
     for (let qIdx = 0; qIdx < modQuestions.length; qIdx++) {
       const q = modQuestions[qIdx]
       const isOr = q.isOr ?? q.is_or ?? (qIdx % 2 === 1)
+      const qText = q.text || q.question_text || ""
       const co = `CO${mIdx + 1}`
       const rawSubs = q.subQuestions || q.sub_questions || []
       const subs = rawSubs.map((sq: any) => ({
         label: sq.letter || sq.label || "a",
-        text: sq.text || "",
+        text: sq.text || sq.question_text || "",
         marks: sq.marks,
         co: sq.co || co,
         rbt: formatRbt(sq.bloom || q.bloom_level || q.bloomLevel || 2),
       }))
+      if (subs.length === 0 && qText) {
+        subs.push({
+          label: "a",
+          text: qText,
+          marks: q.totalMarks || q.total_marks || markPerQuestion,
+          co,
+          rbt: formatRbt(q.bloom_level || q.bloomLevel || 2),
+        })
+      }
       questions.push({
         qNo: globalQNo,
-        text: "",
+        text: qText,
         marks: q.totalMarks || q.total_marks || markPerQuestion,
         co,
         rbt: formatRbt(q.bloom_level || q.bloomLevel || 2),
