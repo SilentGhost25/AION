@@ -64,23 +64,17 @@ def port_free(port: int, allow_listening: bool = False) -> None:
         s.close()
 
 
-def gpu_available() -> None:
-    try:
-        out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except FileNotFoundError:
-        WARNS.append("nvidia-smi not found in PATH (running on CPU/laptop?)")
-        return
+def gpu_available():
+    out = subprocess.run(
+        ["nvidia-smi", "--query-gpu=memory.total,memory.used,memory.free",
+         "--format=csv,noheader,nounits"],
+        capture_output=True, text=True, timeout=5)
     if out.returncode != 0:
-        raise RuntimeError(f"nvidia-smi error: {out.stderr.strip() or 'failed'}")
-    free_mb = int(out.stdout.strip().splitlines()[0])
-    if free_mb < 16_000:
-        raise RuntimeError(f"only {free_mb} MiB free VRAM (<16 GB available)")
-    print(f"         GPU VRAM free: {free_mb} MiB")
+        raise RuntimeError("nvidia-smi failed (no GPU?)")
+    total, used, free = (int(x) for x in out.stdout.strip().splitlines()[0].split(", "))
+    if total < 8000:
+        raise RuntimeError(f"GPU has only {total} MiB total (<8 GB)")
+    print(f"     GPU: {used}/{total} MiB used, {free} MiB free")
 
 
 # ---- Phase 1: vLLM alive, model exact, schema support ----
