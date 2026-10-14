@@ -71,29 +71,33 @@ function mapPaperResultToGeneratedPaper(formattedResult: any, config: any): Gene
     for (let qIdx = 0; qIdx < modQuestions.length; qIdx++) {
       const q = modQuestions[qIdx]
       const isOr = q.isOr ?? q.is_or ?? (qIdx % 2 === 1)
-      const qText = q.text || q.question_text || ""
-      const co = `CO${mIdx + 1}`
+      const qText = q.text || q.question_text || q.question || ""
+      const qMarks = Number(q.marks ?? q.totalMarks ?? q.total_marks ?? markPerQuestion) || markPerQuestion
+      const co = q.co || `CO${mIdx + 1}`
       const rawSubs = q.subQuestions || q.sub_questions || []
-      const subs = rawSubs.map((sq: any) => ({
+      
+      let subs = rawSubs.map((sq: any) => ({
         label: sq.letter || sq.label || "a",
         text: sq.text || sq.question_text || "",
-        marks: sq.marks,
+        marks: Number(sq.marks ?? 0) || Math.round(qMarks / Math.max(1, rawSubs.length)),
         co: sq.co || co,
-        rbt: formatRbt(sq.bloom || q.bloom_level || q.bloomLevel || 2),
+        rbt: formatRbt(sq.bloom || sq.bloom_level || q.bloom_level || q.bloomLevel || 2),
       }))
+
       if (subs.length === 0 && qText) {
-        subs.push({
+        subs = [{
           label: "a",
           text: qText,
-          marks: q.totalMarks || q.total_marks || markPerQuestion,
+          marks: qMarks,
           co,
           rbt: formatRbt(q.bloom_level || q.bloomLevel || 2),
-        })
+        }]
       }
+
       questions.push({
         qNo: globalQNo,
         text: qText,
-        marks: q.totalMarks || q.total_marks || markPerQuestion,
+        marks: qMarks,
         co,
         rbt: formatRbt(q.bloom_level || q.bloomLevel || 2),
         sectionNumber: globalQNo,
@@ -289,15 +293,27 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
       try {
         console.log("[AION FRONTEND] Invoking direct /api/v3/generate:", v3Payload)
         const v3Res = await aionAPI.generateV3(v3Payload)
-        if (v3Res && v3Res.success && (v3Res.paper || v3Res.modules)) {
-          const mapped = mapPaperResultToGeneratedPaper(v3Res.paper || v3Res, config)
-          if (mapped) {
-            console.log("[AION FRONTEND] Direct v3 generation succeeded!", mapped)
-            return mapped
-          }
-          throw new Error("v3 response succeeded but paper/modules could not be mapped")
+        const status = String(v3Res?.paper_status || "").toUpperCase()
+
+        if (status === "BLOCKED" || status === "FAILED" || !v3Res?.success) {
+          const reasons = (v3Res?.blocked_reasons && v3Res.blocked_reasons.length > 0)
+            ? v3Res.blocked_reasons.join(", ")
+            : (v3Res?.error || `Generation status: ${status || 'FAILED'}`)
+          throw new Error(`v3 generation blocked: ${reasons}`)
         }
-        throw new Error(v3Res?.error || `v3 generation failed with status: ${v3Res?.paper_status || 'UNKNOWN'}`)
+
+        if (status === "DEGRADED") {
+          toast.warning("QA ran in degraded mode; auditor results unverified.")
+        } else if (status === "PARTIAL") {
+          toast.warning("Generation completed with partial/unresolved questions.")
+        }
+
+        const mapped = mapPaperResultToGeneratedPaper(v3Res.paper || v3Res, config)
+        if (mapped) {
+          console.log("[AION FRONTEND] Direct v3 generation succeeded!", mapped)
+          return mapped
+        }
+        throw new Error("v3 response succeeded but paper/modules could not be mapped")
       } catch (v3Err: any) {
         console.error("[AION FRONTEND] Strict verification mode: direct /api/v3/generate failed:", v3Err)
         setPipelineError({

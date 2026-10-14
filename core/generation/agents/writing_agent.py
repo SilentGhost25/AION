@@ -23,6 +23,7 @@ import json
 import re
 import time
 import os
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
 
 # UNTESTED — run quickstart.py on server first
@@ -85,6 +86,27 @@ IMAGE_REFERENCE_PHRASES = (
 
 # Required keys in the LLM's JSON output.
 REQUIRED_OUTPUT_KEYS = ("question_text", "solution", "marking_scheme")
+
+
+@dataclass
+class GenerationBudget:
+    """Bounded budget for whole-paper LLM generation and IRT retries."""
+    max_total_llm_calls: int = 40          # hard cap for whole paper
+    max_irt_retries_per_slot: int = 2
+    max_total_irt_retries: int = 6         # global cap for whole paper
+    used_calls: int = 0
+    used_irt: int = 0
+
+    def can_retry_irt(self) -> bool:
+        return (
+            self.used_irt < self.max_total_irt_retries
+            and self.used_calls < self.max_total_llm_calls
+        )
+
+    def charge(self, irt: bool = False) -> None:
+        self.used_calls += 1
+        if irt:
+            self.used_irt += 1
 
 
 # -----------------------------------------------------------------------------
@@ -183,10 +205,11 @@ class WritingAgent(Agent):
         failures: List[SlotFailure] = []
         sources: Dict[str, int] = {"local_llm": 0, "local_vlm": 0}
         total_attempts = 0
+        budget = GenerationBudget()
 
         for plan in plans:
             try:
-                gq, attempts = self._generate_one(plan)
+                gq, attempts = self._generate_one(plan, budget=budget)
                 questions.append(gq)
                 sources[gq.generation_source] = sources.get(gq.generation_source, 0) + 1
                 total_attempts += attempts
@@ -225,7 +248,11 @@ class WritingAgent(Agent):
 
     # -------------------------------------------------------------- Internals
 
-    def _generate_one(self, plan) -> tuple:
+    def _generate_one(
+        self,
+        plan,
+        budget: Optional[GenerationBudget] = None,
+    ) -> tuple:
         """
         Generate one question with closed-loop IRT difficulty feedback.
         Returns (GeneratedQuestion, attempts).
@@ -233,12 +260,16 @@ class WritingAgent(Agent):
         if not self._enable_irt or self._irt is None:
             return self._generate_one_raw(plan)
 
+        if budget is None:
+            budget = GenerationBudget()
+
         max_difficulty_retries = 2
         target_band = self._band_for_plan(plan)
         difficulty_feedback = None
         total_inner_attempts = 0
 
         for difficulty_attempt in range(max_difficulty_retries + 1):
+            budget.charge(irt=(difficulty_attempt > 0))
             gq, attempts = self._generate_one_raw(
                 plan,
                 difficulty_feedback=difficulty_feedback,
@@ -261,6 +292,15 @@ class WritingAgent(Agent):
                 gq.telemetry["irt_converged"] = estimate.converged
                 gq.telemetry["irt_attempts"] = difficulty_attempt + 1
                 return gq, total_inner_attempts
+
+            # Out of band — check if budget allows retry
+            if not budget.can_retry_irt():
+                print(
+                    f"[IRT] {plan.slot_id}: global IRT retry budget exhausted "
+                    f"({budget.used_irt}/{budget.max_total_irt_retries}); accepting out-of-band question",
+                    flush=True,
+                )
+                break
 
             # Out of band — adjust feedback and retry
             if difficulty_attempt < max_difficulty_retries:
@@ -442,6 +482,13 @@ class WritingAgent(Agent):
             if text:
                 evidence_texts.append(text[:500])
         evidence_summary = " ".join(evidence_texts)[:2500]
+        if not evidence_summary or len(evidence_summary.strip()) < 80:
+            concepts = ", ".join(getattr(plan, "concept_neighborhood", []) or [])
+            evidence_summary = (
+                f"Module topic: {plan.topic}. "
+                f"Related curriculum concepts: {concepts if concepts else plan.topic}. "
+                f"Evidence context for question {plan.slot_id}."
+            )
 
         return GeneratedQuestion(
             slot_id=plan.slot_id,

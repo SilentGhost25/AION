@@ -115,6 +115,8 @@ export const aionAPI = {
       paper?: any;
       questions?: any[];
       modules?: any[];
+      blocked_reasons?: string[];
+      degraded?: boolean;
       meta?: any;
       error?: string;
     }>("/api/v3/generate", payload),

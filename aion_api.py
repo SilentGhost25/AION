@@ -1565,21 +1565,35 @@ def v3_direct_generate():
             qa_report=meta.get("qa_report"),
         )
 
-        return jsonify({
-            "success": meta.get("success", False),
-            "paper_status": meta.get("paper_status"),
+        from core.serialization import jsonable
+
+        raw_status = (meta.get("paper_status") or "").upper().strip()
+        FINAL_STATUSES = {"OK", "PASS", "PARTIAL", "DEGRADED", "BLOCKED", "FAILED"}
+        paper_status = raw_status if raw_status in FINAL_STATUSES else ("PASS" if meta.get("success") else "FAILED")
+        success = paper_status in {"OK", "PASS", "PARTIAL", "DEGRADED"}
+
+        blocked_reasons = meta.get("blocked_reasons") or (meta.get("qa_report") or {}).get("blocked_reasons", [])
+        is_degraded = bool(meta.get("degraded") or paper_status == "DEGRADED")
+
+        return jsonify(jsonable({
+            "success": success,
+            "paper_status": paper_status,
             "paper": formatted,
             "questions": full_paper,
             "modules": formatted.get("modules", []),
+            "blocked_reasons": blocked_reasons,
+            "degraded": is_degraded,
             "meta": meta,
-        })
+        }))
     except Exception as e:
         print(f"[AION API v3] Pipeline generation failed: {e}", flush=True)
-        return jsonify({
+        from core.serialization import jsonable
+        return jsonify(jsonable({
             "success": False,
             "error": str(e),
             "paper_status": "FAILED",
-        }), 500
+            "blocked_reasons": ["PIPELINE_EXCEPTION"],
+        })), 500
 
 
 
