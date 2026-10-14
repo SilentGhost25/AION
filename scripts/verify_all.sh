@@ -58,35 +58,38 @@ jq -e '
 
 STATUS=$(jq -r .paper_status /tmp/last_run.json)
 case "$STATUS" in
-  OK|PASS|PARTIAL|DEGRADED) echo "✅ pipeline produced usable output ($STATUS)";;
-  BLOCKED|FAILED)           echo "⚠️  pipeline returned $STATUS (expected under degraded Groq)";;
+  OK|PARTIAL|DEGRADED) echo "✅ pipeline produced usable output ($STATUS)";;
+  BLOCKED|FAILED)      echo "⚠️  pipeline returned $STATUS (expected under degraded Groq)";;
   *) echo "❌ unknown status: $STATUS"; exit 1;;
 esac
 
 echo "=============================================="
 echo " [5/6] Fault Injection: Verifying Status Contracts"
 echo "=============================================="
-for FORCED in BLOCKED PARTIAL DEGRADED; do
-  echo "Injecting fault status: $FORCED..."
-  curl -sf -X POST http://127.0.0.1:8100/api/v3/generate \
-    -H 'Content-Type: application/json' \
-    -H "X-Force-Status: $FORCED" \
-    -d '{"subject": "Fault Test", "exam_type": "IAT1", "file_ids": []}' \
-    > /tmp/forced_${FORCED}.json 2>/dev/null || {
-      # Fallback to python test client if external port not running
-      AION_FORCE_STATUS=$FORCED python -c '
+(
+  export AION_TEST_MODE=1
+  for FORCED in BLOCKED PARTIAL DEGRADED; do
+    echo "Injecting fault status: $FORCED..."
+    AION_FORCE_STATUS=$FORCED python -c '
 import os, sys, json
 from aion_api import app
+forced_val = os.environ.get("AION_FORCE_STATUS")
 with app.test_client() as client:
-    res = client.post("/api/v3/generate", json={"subject": "Fault Test", "exam_type": "IAT1", "file_ids": []})
-    with open(f"/tmp/forced_{os.environ.get(\"AION_FORCE_STATUS\")}.json", "w") as f:
-        json.dump(res.get_json(), f)
+    res = client.post("/api/v3/generate", json={"subject": "Fault Test", "exam_type": "IAT1", "file_ids": []}, headers={"X-Force-Status": forced_val})
+    data = res.get_json()
+    status = data.get("paper_status")
+    if status != forced_val:
+        print(f"❌ Failed forced status check: got {status}, expected {forced_val}", file=sys.stderr)
+        sys.exit(1)
+    with open(f"/tmp/forced_{forced_val}.json", "w") as f:
+        json.dump(data, f)
 '
-  }
-  jq -e --arg s "$FORCED" '.paper_status == $s' /tmp/forced_${FORCED}.json \
-    || { echo "❌ backend did not honor forced status $FORCED"; exit 1; }
-  echo "✅ Backend contract honored forced status: $FORCED"
-done
+    jq -e --arg s "$FORCED" '.paper_status == $s' /tmp/forced_${FORCED}.json \
+      || { echo "❌ backend did not honor forced status $FORCED"; exit 1; }
+    echo "✅ Backend contract honored forced status: $FORCED"
+  done
+)
+
 
 echo "=============================================="
 echo " [6/6] Asserting Question Content Quality"

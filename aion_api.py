@@ -1578,8 +1578,13 @@ def v3_direct_generate():
         unresolved_count = len(qa_rep.get("unresolved_slots", []) or [])
         resolved_count = qa_rep.get("resolved_slots", 0)
 
-        # Fault injection support for test harness (header or env var)
-        forced = (request.headers.get("X-Force-Status") or os.environ.get("AION_FORCE_STATUS") or "").upper().strip()
+        # Fault injection support for test harness (strictly gated to AION_TEST_MODE==1)
+        FINAL_STATUSES = {"OK", "PARTIAL", "DEGRADED", "BLOCKED", "FAILED"}
+        forced = None
+        if os.environ.get("AION_TEST_MODE") == "1":
+            candidate = (request.headers.get("X-Force-Status") or os.environ.get("AION_FORCE_STATUS") or "").upper().strip()
+            if candidate in FINAL_STATUSES:
+                forced = candidate
 
         if forced:
             paper_status = forced
@@ -1591,6 +1596,7 @@ def v3_direct_generate():
             paper_status = raw_status
         else:
             paper_status = "OK" if meta.get("success") else "FAILED"
+
 
         success = paper_status in {"OK", "PARTIAL", "DEGRADED"}
 
