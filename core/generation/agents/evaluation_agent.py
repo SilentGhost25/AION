@@ -123,9 +123,11 @@ class EvaluationAgent(Agent):
                 ))
             degraded = True
 
-        # No API configured at all → the audit is necessarily unverified,
-        # even if every question failed local heuristics. Mark degraded.
-        if self._api is None and questions:
+        # No API calls were made for a non-empty question set → the
+        # API-based audit did not run. Local heuristics are not a
+        # substitute for the auditor; mark the report degraded so
+        # downstream stages treat verdicts as unverified.
+        if questions and api_calls == 0:
             degraded = True
 
         elapsed = self._clock() - start

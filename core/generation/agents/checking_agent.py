@@ -105,7 +105,17 @@ class CheckingAgent(Agent):
         if expected > 0:
             ratio = resolved / expected
             if ratio < self._min_ratio:
-                blocked_reasons.append(BLOCK_REASON_INSUFFICIENT_QUESTIONS)
+                # If the audit was degraded (e.g. no Groq), we cannot trust
+                # that the missing slots are genuinely bad. Treat low ratio
+                # as a degradation, not a hard block — unless nothing survived.
+                is_degraded_audit = (
+                    context.audit_report is not None
+                    and getattr(context.audit_report, "degraded_mode", False)
+                )
+                if is_degraded_audit and resolved > 0:
+                    degraded_reasons.append(BLOCK_REASON_INSUFFICIENT_QUESTIONS)
+                else:
+                    blocked_reasons.append(BLOCK_REASON_INSUFFICIENT_QUESTIONS)
 
         # Check 3: writing failures recorded in context (belt-and-suspenders)
         writing_failures = self._extract_writing_failures(context)
