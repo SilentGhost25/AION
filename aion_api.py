@@ -1517,10 +1517,35 @@ def v3_direct_generate():
     from core.contracts.paper_spec import STANDARD_MARKS_SPLITS
 
     body = request.get_json(silent=True) or {}
+
+    # Fault injection support for test harness (strictly gated to AION_TEST_MODE==1)
+    if os.environ.get("AION_TEST_MODE") == "1":
+        forced = (request.headers.get("X-Force-Status") or os.environ.get("AION_FORCE_STATUS") or "").upper().strip()
+        FINAL_STATUSES = {"OK", "PARTIAL", "DEGRADED", "BLOCKED", "FAILED"}
+        if forced in FINAL_STATUSES:
+            from core.serialization import jsonable
+            return jsonify(jsonable({
+                "success": forced in {"OK", "PARTIAL", "DEGRADED"},
+                "paper_status": forced,
+                "questions": [] if forced in {"BLOCKED", "FAILED"} else [{"text": "Fault injection test question", "marks": 10}],
+                "modules": [],
+                "meta": {
+                    "paper_status": forced,
+                    "success": forced in {"OK", "PARTIAL", "DEGRADED"},
+                    "qa_report": {
+                        "status": forced,
+                        "blocked_reasons": ["FAULT_INJECTION"] if forced in {"BLOCKED", "FAILED"} else [],
+                    },
+                },
+                "blocked_reasons": ["FAULT_INJECTION"] if forced in {"BLOCKED", "FAILED"} else [],
+                "degraded": forced == "DEGRADED",
+            }))
+
     file_ids = body.get("file_ids") or ([body.get("file_id")] if body.get("file_id") else [])
     file_path = body.get("file_path")
     exam_type = body.get("exam_type") or body.get("examType") or "IAT1"
     subject = body.get("subject") or "Engineering"
+
 
     pdfs = []
     if file_ids:
@@ -1578,17 +1603,7 @@ def v3_direct_generate():
         unresolved_count = len(qa_rep.get("unresolved_slots", []) or [])
         resolved_count = qa_rep.get("resolved_slots", 0)
 
-        # Fault injection support for test harness (strictly gated to AION_TEST_MODE==1)
-        FINAL_STATUSES = {"OK", "PARTIAL", "DEGRADED", "BLOCKED", "FAILED"}
-        forced = None
-        if os.environ.get("AION_TEST_MODE") == "1":
-            candidate = (request.headers.get("X-Force-Status") or os.environ.get("AION_FORCE_STATUS") or "").upper().strip()
-            if candidate in FINAL_STATUSES:
-                forced = candidate
-
-        if forced:
-            paper_status = forced
-        elif unresolved_count > 0 and resolved_count > 0 and raw_status not in ("BLOCKED", "FAILED"):
+        if unresolved_count > 0 and resolved_count > 0 and raw_status not in ("BLOCKED", "FAILED"):
             paper_status = "PARTIAL"
         elif raw_status in ("OK", "PASS"):
             paper_status = "OK"
@@ -1596,6 +1611,7 @@ def v3_direct_generate():
             paper_status = raw_status
         else:
             paper_status = "OK" if meta.get("success") else "FAILED"
+
 
 
         success = paper_status in {"OK", "PARTIAL", "DEGRADED"}
