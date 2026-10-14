@@ -84,16 +84,19 @@ class CheckingAgent(Agent):
         unresolved = list(context.unresolved_slots or [])
         expected = self._expected_slot_count(context)
 
+        unresolved_ids = {getattr(s, "slot_id", s) for s in unresolved}
+        questions_clean = [q for q in questions if getattr(q, "slot_id", None) not in unresolved_ids]
+        resolved = len([q for q in questions_clean if self._is_resolvable(q)])
         slot_count = len(questions) + len(unresolved)
-        resolved = len([q for q in questions if self._is_resolvable(q)])
 
         blocked_reasons: List[str] = []
         degraded_reasons: List[str] = []
 
         # Check 1: unresolved slots
         if unresolved:
-            # If hard block is enabled, this is fatal.
-            if _hard_block_enabled():
+            # Hard block only when nothing usable survived.
+            # Partial resolution → PARTIAL, not BLOCKED.
+            if _hard_block_enabled() and resolved == 0:
                 blocked_reasons.append(BLOCK_REASON_UNRESOLVED_SLOTS)
             else:
                 degraded_reasons.append(BLOCK_REASON_UNRESOLVED_SLOTS)
