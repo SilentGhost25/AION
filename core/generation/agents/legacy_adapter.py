@@ -111,6 +111,7 @@ def _extract_subpart_texts(text: str, n_parts: int) -> List[str]:
     )
     matches = list(re.finditer(pattern, text))
     if not matches:
+        print(f"[LEGACY-ADAPTER] warning: no subpart markers [a-e] found in text: {text[:80]!r}", flush=True)
         return [text for _ in range(n_parts)]
 
     stem = text[:matches[0].start()].strip()
