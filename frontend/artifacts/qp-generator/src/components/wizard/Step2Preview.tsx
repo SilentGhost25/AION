@@ -249,7 +249,7 @@ export function Step2Preview({
         <div className="text-center italic font-semibold text-sm text-black mb-3">
           Note: {isSEE
             ? 'Answer any FIVE full questions, choosing at least ONE question from each MODULE.'
-            : 'Answer any TWO full questions, choosing ONE full question from each MODULE.'}
+            : 'Answer any FIVE full questions, choosing ONE full question from each MODULE.'}
         </div>
 
         {/* Questions Table — table-fixed keeps columns stable; cells auto-expand in height */}

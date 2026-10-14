@@ -95,18 +95,18 @@ def _extract_subpart_texts(text: str, n_parts: int) -> List[str]:
     if n_parts <= 1 or not text:
         return [text]
     import re
-    # Match outer subquestion markers:
-    # 1. Parenthesized: (a), (b), (i), (ii), (1), (2)
-    # 2. Letter/number with closing paren: a), b), i), ii), 1), 2)
-    # 3. Letter with dot preceded by whitespace: " a. ", " b. " (avoiding decimals like 0.1)
+    # Match outer subquestion markers (strictly letters a-e):
+    # 1. Parenthesized: (a), (b), (c)
+    # 2. Letter with closing paren: a), b), c)
+    # 3. Letter with dot preceded by whitespace: " a. ", " b. " (avoiding numbers/decimals)
     # 4. Explicit part: "Part a:", "Part A:"
     pattern = (
         r"(?:^|\n|\s+)"
         r"(?:"
-        r"\(([a-eA-E]|[1-5]|[ivxIVX]+)\)"
-        r"|([a-eA-E]|[1-5]|[ivxIVX]+)\)"
+        r"\(([a-eA-E])\)"
+        r"|([a-eA-E])\)"
         r"|(?<=\s)([a-eA-E])\."
-        r"|(?:\bPart\s+([a-eA-E]|[1-5]|[ivxIVX]+):?)"
+        r"|(?:\bPart\s+([a-eA-E]):?)"
         r")\s*"
     )
     matches = list(re.finditer(pattern, text))

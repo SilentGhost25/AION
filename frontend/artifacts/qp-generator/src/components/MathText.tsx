@@ -61,17 +61,6 @@ function scanLatex(text: string): LatexToken[] {
         continue
       }
     }
-    // Delimited: $ ... $ (inline)
-    if (text[i] === "$" && !text.startsWith("$$", i)) {
-      const end = text.indexOf("$", i + 1)
-      if (end !== -1 && !text.slice(i + 1, end).includes("\n")) {
-        flushText(i)
-        tokens.push({ type: "math", expr: text.slice(i + 1, end), raw: text.slice(i, end + 1), display: false })
-        i = end + 1
-        textStart = i
-        continue
-      }
-    }
     // Standalone LaTeX command: \frac{...}{...}, \sqrt{...}, etc. with balanced braces
     if (text[i] === "\\" && i + 1 < text.length && /[a-zA-Z]/.test(text[i + 1])) {
       let j = i + 1
@@ -111,8 +100,8 @@ export function MathText({ text, className }: { text: string; className?: string
 
   const cleaned = healLatexTokens(text)
 
-  // Quick check: if no math markers or backslashes, return plain text
-  if (!cleaned.includes("\\") && !cleaned.includes("$")) {
+  // Quick check: if no backslashes, return plain text (avoids running parser on plain prose or currency)
+  if (!cleaned.includes("\\")) {
     return <span className={className}>{cleaned}</span>
   }
 
