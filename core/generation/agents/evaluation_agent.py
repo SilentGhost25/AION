@@ -73,8 +73,15 @@ class EvaluationAgent(Agent):
 
     # ------------------------------------------------------------------ API
 
+    def reset(self) -> None:
+        """Reset internal API caller circuit breaker and session state."""
+        if self._api and hasattr(self._api, "reset") and callable(self._api.reset):
+            self._api.reset()  # resets breaker
+
     def run(self, context: AgentContext) -> AgentResult:
+        self.reset()  # resets breaker
         questions = list(getattr(context, "questions", []) or [])
+
         start = self._clock()
 
         if not questions:

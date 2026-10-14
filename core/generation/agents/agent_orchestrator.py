@@ -94,88 +94,98 @@ class AgentOrchestrator:
     def run(self, context: AgentContext) -> OrchestratorResult:
         start = self._clock()
 
-        # ---- Stage 1: Planning ----
-        plan_result = self._planning.run(context)
-        if not plan_result.success:
-            return self._failure(
-                "PLANNING_FAILED",
-                plan_result.failure_detail or "planning agent failed",
-            )
-        context.plans = plan_result.payload
-        context.telemetry["planning"] = plan_result.telemetry
+        # Reset Groq circuit breaker before run for per-run breaker isolation
+        if self._evaluation is not None and hasattr(self._evaluation, "reset"):
+            self._evaluation.reset()  # resets breaker
 
-        # ---- Stage 2: Writing ----
-        write_result = self._writing.run(context)
-        if not write_result.success:
-            return self._failure(
-                "WRITING_FAILED",
-                write_result.failure_detail or "writing agent failed",
-            )
-        writing_output = write_result.payload
-        context.questions = list(writing_output.questions)
-        context.telemetry["writing"] = write_result.telemetry
-
-        # Record writing failures as unresolved slots immediately
-        if writing_output.failures:
-            for f in writing_output.failures:
-                if f.slot_id not in context.unresolved_slots:
-                    context.unresolved_slots.append(f.slot_id)
-            context.telemetry["writing_failures"] = [
-                {"slot_id": f.slot_id, "failure_code": f.failure_code}
-                for f in writing_output.failures
-            ]
-
-        # ---- Stage 3: Evaluation (optional) ----
-        if self._evaluation is not None and context.questions:
-            eval_result = self._evaluation.run(context)
-            if not eval_result.success:
+        try:
+            # ---- Stage 1: Planning ----
+            plan_result = self._planning.run(context)
+            if not plan_result.success:
                 return self._failure(
-                    "EVALUATION_FAILED",
-                    eval_result.failure_detail or "evaluation agent failed",
+                    "PLANNING_FAILED",
+                    plan_result.failure_detail or "planning agent failed",
                 )
-            context.audit_report = eval_result.payload
-            context.telemetry["evaluation"] = eval_result.telemetry
+            context.plans = plan_result.payload
+            context.telemetry["planning"] = plan_result.telemetry
 
-        # ---- Stage 4: Refinement (optional) ----
-        if self._refinement is not None and context.audit_report is not None:
-            refine_result = self._refinement.run(context)
-            if not refine_result.success:
+            # ---- Stage 2: Writing ----
+            write_result = self._writing.run(context)
+            if not write_result.success:
                 return self._failure(
-                    "REFINEMENT_FAILED",
-                    refine_result.failure_detail or "refinement agent failed",
+                    "WRITING_FAILED",
+                    write_result.failure_detail or "writing agent failed",
                 )
-            context.telemetry["refinement"] = refine_result.telemetry
-            # The Refinement Agent updates context.questions and
-            # context.unresolved_slots in place.
+            writing_output = write_result.payload
+            context.questions = list(writing_output.questions)
+            context.telemetry["writing"] = write_result.telemetry
 
-        # ---- Stage 5: Checking (required) ----
-        check_result = self._checking.run(context)
-        if not check_result.success:
-            return self._failure(
-                "CHECKING_FAILED",
-                check_result.failure_detail or "checking agent failed",
+            # Record writing failures as unresolved slots immediately
+            if writing_output.failures:
+                for f in writing_output.failures:
+                    if f.slot_id not in context.unresolved_slots:
+                        context.unresolved_slots.append(f.slot_id)
+                context.telemetry["writing_failures"] = [
+                    {"slot_id": f.slot_id, "failure_code": f.failure_code}
+                    for f in writing_output.failures
+                ]
+
+            # ---- Stage 3: Evaluation (optional) ----
+            if self._evaluation is not None and context.questions:
+                eval_result = self._evaluation.run(context)
+                if not eval_result.success:
+                    return self._failure(
+                        "EVALUATION_FAILED",
+                        eval_result.failure_detail or "evaluation agent failed",
+                    )
+                context.audit_report = eval_result.payload
+                context.telemetry["evaluation"] = eval_result.telemetry
+
+            # ---- Stage 4: Refinement (optional) ----
+            if self._refinement is not None and context.audit_report is not None:
+                refine_result = self._refinement.run(context)
+                if not refine_result.success:
+                    return self._failure(
+                        "REFINEMENT_FAILED",
+                        refine_result.failure_detail or "refinement agent failed",
+                    )
+                context.telemetry["refinement"] = refine_result.telemetry
+                # The Refinement Agent updates context.questions and
+                # context.unresolved_slots in place.
+
+            # ---- Stage 5: Checking (required) ----
+            check_result = self._checking.run(context)
+            if not check_result.success:
+                return self._failure(
+                    "CHECKING_FAILED",
+                    check_result.failure_detail or "checking agent failed",
+                )
+            qa_report: QAReport = check_result.payload
+            context.qa_report = qa_report
+            context.telemetry["checking"] = check_result.telemetry
+
+            elapsed = self._clock() - start
+            context.telemetry["orchestrator"] = {
+                "elapsed_seconds": round(elapsed, 3),
+                "stages_completed": 5,
+            }
+
+            self._log_done(qa_report, elapsed)
+
+            return OrchestratorResult(
+                success=True,
+                qa_report=qa_report,
+                plans=context.plans,
+                questions=context.questions,
+                audit_report=context.audit_report,
+                refinement_report=context.telemetry.get("refinement"),
+                telemetry=dict(context.telemetry),
             )
-        qa_report: QAReport = check_result.payload
-        context.qa_report = qa_report
-        context.telemetry["checking"] = check_result.telemetry
+        finally:
+            # Reset Groq circuit breaker after run for breaker cleanup
+            if self._evaluation is not None and hasattr(self._evaluation, "reset"):
+                self._evaluation.reset()  # resets breaker
 
-        elapsed = self._clock() - start
-        context.telemetry["orchestrator"] = {
-            "elapsed_seconds": round(elapsed, 3),
-            "stages_completed": 5,
-        }
-
-        self._log_done(qa_report, elapsed)
-
-        return OrchestratorResult(
-            success=True,
-            qa_report=qa_report,
-            plans=context.plans,
-            questions=context.questions,
-            audit_report=context.audit_report,
-            refinement_report=context.telemetry.get("refinement"),
-            telemetry=dict(context.telemetry),
-        )
 
     def run_or_raise(self, context: AgentContext) -> OrchestratorResult:
         """

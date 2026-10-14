@@ -1550,12 +1550,18 @@ def v3_direct_generate():
         raw_splits = body.get("marks_split") or body.get("marksDistribution") or STANDARD_MARKS_SPLITS.get(exam_type)
         splits = raw_splits or [[spec.marks_per_question] for _ in range(spec.total_questions)]
 
-        paper_parts, full_paper, meta = run_v3_pipeline(
-            paper_spec=spec,
-            artifact=artifact,
-            marks_split=splits,
-            request={"exam_type": exam_type, "subject": subject},
-        )
+        from core.api.circuit_breaker import get_groq_breaker
+        groq_breaker = get_groq_breaker()
+        groq_breaker.reset()  # reset breaker per-run
+        try:
+            paper_parts, full_paper, meta = run_v3_pipeline(
+                paper_spec=spec,
+                artifact=artifact,
+                marks_split=splits,
+                request={"exam_type": exam_type, "subject": subject},
+            )
+        finally:
+            groq_breaker.reset()  # reset breaker post-run
 
         formatted = _format_paper(
             paper=paper_parts,
@@ -1568,11 +1574,27 @@ def v3_direct_generate():
         from core.serialization import jsonable
 
         raw_status = (meta.get("paper_status") or "").upper().strip()
-        FINAL_STATUSES = {"OK", "PASS", "PARTIAL", "DEGRADED", "BLOCKED", "FAILED"}
-        paper_status = raw_status if raw_status in FINAL_STATUSES else ("PASS" if meta.get("success") else "FAILED")
-        success = paper_status in {"OK", "PASS", "PARTIAL", "DEGRADED"}
+        qa_rep = meta.get("qa_report") or {}
+        unresolved_count = len(qa_rep.get("unresolved_slots", []) or [])
+        resolved_count = qa_rep.get("resolved_slots", 0)
 
-        blocked_reasons = meta.get("blocked_reasons") or (meta.get("qa_report") or {}).get("blocked_reasons", [])
+        # Fault injection support for test harness (header or env var)
+        forced = (request.headers.get("X-Force-Status") or os.environ.get("AION_FORCE_STATUS") or "").upper().strip()
+
+        if forced:
+            paper_status = forced
+        elif unresolved_count > 0 and resolved_count > 0 and raw_status not in ("BLOCKED", "FAILED"):
+            paper_status = "PARTIAL"
+        elif raw_status in ("OK", "PASS"):
+            paper_status = "OK"
+        elif raw_status in ("PARTIAL", "DEGRADED", "BLOCKED", "FAILED"):
+            paper_status = raw_status
+        else:
+            paper_status = "OK" if meta.get("success") else "FAILED"
+
+        success = paper_status in {"OK", "PARTIAL", "DEGRADED"}
+
+        blocked_reasons = meta.get("blocked_reasons") or qa_rep.get("blocked_reasons", [])
         is_degraded = bool(meta.get("degraded") or paper_status == "DEGRADED")
 
         return jsonify(jsonable({

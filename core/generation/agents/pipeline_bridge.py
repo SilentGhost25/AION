@@ -99,6 +99,9 @@ def run_v3_pipeline(
         checking_agent=factory.checking,
     )
 
+    if factory.evaluation and hasattr(factory.evaluation, "reset"):
+        factory.evaluation.reset()  # resets breaker
+
     # Build the context
     context = AgentContext(
         request=request or {},
@@ -108,10 +111,15 @@ def run_v3_pipeline(
         marks_split=list(marks_split or []),
     )
 
-    result: OrchestratorResult = orchestrator.run(context)
+    try:
+        result: OrchestratorResult = orchestrator.run(context)
+    finally:
+        if factory.evaluation and hasattr(factory.evaluation, "reset"):
+            factory.evaluation.reset()  # resets breaker
 
     # Convert to legacy shape
     paper_parts, full_paper = to_legacy_shape(result, context)
+
 
     meta = {
         "success": result.success,

@@ -236,9 +236,11 @@ def default_api_caller_factory():
     Returns None if no provider keys are present.
     """
     from core.api.http_caller import HTTPAPICaller
+    from core.api.circuit_breaker import get_groq_breaker
 
-    router = APIRouter(providers=PROVIDERS)
+    router = APIRouter(providers=PROVIDERS, circuit_breaker=get_groq_breaker())
     return HTTPAPICaller(router=router)
+
 
 
 def default_sympy_verifier_factory():

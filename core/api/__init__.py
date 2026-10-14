@@ -15,7 +15,7 @@ Public surface:
 """
 
 from .providers import APIProvider, PROVIDERS
-from .circuit_breaker import CircuitBreaker, CircuitState
+from .circuit_breaker import CircuitBreaker, CircuitState, get_groq_breaker, reset_groq_breaker
 from .router import APIRouter, AllProvidersUnavailable
 from .http_caller import HTTPAPICaller, APIUnavailable
 from .vlm_caller import VLMCaller
@@ -25,9 +25,12 @@ __all__ = [
     "PROVIDERS",
     "CircuitBreaker",
     "CircuitState",
+    "get_groq_breaker",
+    "reset_groq_breaker",
     "APIRouter",
     "AllProvidersUnavailable",
     "HTTPAPICaller",
     "APIUnavailable",
     "VLMCaller",
 ]
+

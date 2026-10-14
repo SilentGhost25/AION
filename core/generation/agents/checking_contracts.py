@@ -19,11 +19,15 @@ from typing import Any, Dict, List, Optional
 # -----------------------------------------------------------------------------
 
 
+STATUS_OK = "OK"
 STATUS_PASS = "PASS"
+STATUS_PARTIAL = "PARTIAL"
 STATUS_DEGRADED = "DEGRADED"
 STATUS_BLOCKED = "BLOCKED"
+STATUS_FAILED = "FAILED"
 
-ALL_STATUSES = frozenset({STATUS_PASS, STATUS_DEGRADED, STATUS_BLOCKED})
+ALL_STATUSES = frozenset({STATUS_OK, STATUS_PASS, STATUS_PARTIAL, STATUS_DEGRADED, STATUS_BLOCKED, STATUS_FAILED})
+
 
 
 # -----------------------------------------------------------------------------
@@ -106,7 +110,15 @@ class QAReport:
 
     @property
     def passes(self) -> bool:
-        return self.status == STATUS_PASS
+        return self.status in {STATUS_PASS, STATUS_OK}
+
+    @property
+    def is_usable(self) -> bool:
+        return self.status in {STATUS_PASS, STATUS_OK, STATUS_PARTIAL, STATUS_DEGRADED}
+
+    @property
+    def is_partial(self) -> bool:
+        return self.status == STATUS_PARTIAL
 
     @property
     def degraded(self) -> bool:
@@ -114,7 +126,8 @@ class QAReport:
 
     @property
     def blocked(self) -> bool:
-        return self.status == STATUS_BLOCKED
+        return self.status in {STATUS_BLOCKED, STATUS_FAILED}
+
 
 
 # -----------------------------------------------------------------------------

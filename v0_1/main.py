@@ -285,17 +285,24 @@ def run_pipeline(
     # Resolve marks_split: default to per-slot splits if not provided
     effective_marks_split = marks_split or _default_marks_split(paper_spec)
 
-    paper_parts, full_paper, meta = run_v3_pipeline(
-        paper_spec=paper_spec,
-        artifact=artifact,
-        marks_split=effective_marks_split,
-        request={"exam_type": exam_type, "subject": subject},
-    )
+    from core.api.circuit_breaker import get_groq_breaker
+    groq_breaker = get_groq_breaker()
+    groq_breaker.reset()  # reset circuit breaker
+    try:
+        paper_parts, full_paper, meta = run_v3_pipeline(
+            paper_spec=paper_spec,
+            artifact=artifact,
+            marks_split=effective_marks_split,
+            request={"exam_type": exam_type, "subject": subject},
+        )
+    finally:
+        groq_breaker.reset()  # reset circuit breaker
 
     if not meta["success"]:
         # v3 failed — fail-closed (return empty; caller's gate blocks)
         print(f"[V3] pipeline failed: {meta.get('failure_code')}", flush=True)
         return [], {}
+
 
     return paper_parts, meta.get("qa_report") or {}
 
