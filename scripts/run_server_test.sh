@@ -39,7 +39,7 @@ fi
 echo "Waiting for backend on :8100..."
 READY=0
 for i in {1..30}; do
-    if curl -sf http://127.0.0.1:8100/healthz >/dev/null 2>&1 || curl -sf http://127.0.0.1:8100/api/status >/dev/null 2>&1; then
+    if curl -sf http://127.0.0.1:8100/health >/dev/null 2>&1 || curl -sf http://127.0.0.1:8100/ready >/dev/null 2>&1; then
         READY=1
         break
     fi
