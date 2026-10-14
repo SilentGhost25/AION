@@ -247,9 +247,9 @@ export function Step2Preview({
 
         {/* Instruction */}
         <div className="text-center italic font-semibold text-sm text-black mb-3">
-          Instruction: {isSEE
+          Note: {isSEE
             ? 'Answer any FIVE full questions, choosing at least ONE question from each MODULE.'
-            : 'Answer the following questions'}
+            : 'Answer any TWO full questions, choosing ONE full question from each MODULE.'}
         </div>
 
         {/* Questions Table — table-fixed keeps columns stable; cells auto-expand in height */}

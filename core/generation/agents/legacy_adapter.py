@@ -95,11 +95,39 @@ def _extract_subpart_texts(text: str, n_parts: int) -> List[str]:
     if n_parts <= 1 or not text:
         return [text]
     import re
-    parts = re.split(r'(?i)(?:^|\n|\s+)(?:\([a-z0-9]\)|[a-z0-9]\.|\bPart\s+[a-z0-9]:?)\s*', text)
-    parts = [p.strip() for p in parts if p.strip()]
-    if len(parts) == n_parts:
-        return parts
-    return [text for _ in range(n_parts)]
+    # Match outer subquestion markers:
+    # 1. Parenthesized: (a), (b), (i), (ii), (1), (2)
+    # 2. Letter/number with closing paren: a), b), i), ii), 1), 2)
+    # 3. Letter with dot preceded by whitespace: " a. ", " b. " (avoiding decimals like 0.1)
+    # 4. Explicit part: "Part a:", "Part A:"
+    pattern = (
+        r"(?:^|\n|\s+)"
+        r"(?:"
+        r"\(([a-eA-E]|[1-5]|[ivxIVX]+)\)"
+        r"|([a-eA-E]|[1-5]|[ivxIVX]+)\)"
+        r"|(?<=\s)([a-eA-E])\."
+        r"|(?:\bPart\s+([a-eA-E]|[1-5]|[ivxIVX]+):?)"
+        r")\s*"
+    )
+    matches = list(re.finditer(pattern, text))
+    if not matches:
+        return [text for _ in range(n_parts)]
+
+    stem = text[:matches[0].start()].strip()
+    sub_texts = []
+    for i in range(len(matches)):
+        start = matches[i].end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        sub_text = text[start:end].strip()
+        sub_texts.append(f"{stem} {sub_text}".strip() if stem else sub_text)
+
+    if len(sub_texts) == n_parts:
+        return sub_texts
+    elif len(sub_texts) > n_parts:
+        return sub_texts[:n_parts - 1] + [" ".join(sub_texts[n_parts - 1:])]
+    else:
+        padded = [f"{stem} {text}".strip() if stem else text for _ in range(n_parts - len(sub_texts))]
+        return sub_texts + padded
 
 
 def _to_question_dict(q: GeneratedQuestion) -> dict:
