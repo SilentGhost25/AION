@@ -22,15 +22,19 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Any, Callable, Dict, List, Optional, Protocol
+import os
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
 
+# UNTESTED — run quickstart.py on server first
+from core.evaluation.irt_calibrator import IRTCalibrator, DifficultyEstimate
 from .base import Agent, AgentContext, AgentResult
 from .generated_question import (
     GeneratedQuestion,
     SlotFailure,
     WritingAgentOutput,
 )
-from .prompts import build_prompt
+from .prompts import build_difficulty_feedback, build_prompt
 
 
 # -----------------------------------------------------------------------------
@@ -84,6 +88,27 @@ IMAGE_REFERENCE_PHRASES = (
 REQUIRED_OUTPUT_KEYS = ("question_text", "solution", "marking_scheme")
 
 
+@dataclass
+class GenerationBudget:
+    """Bounded budget for whole-paper LLM generation and IRT retries."""
+    max_total_llm_calls: int = 40          # hard cap for whole paper
+    max_irt_retries_per_slot: int = 2
+    max_total_irt_retries: int = 6         # global cap for whole paper
+    used_calls: int = 0
+    used_irt: int = 0
+
+    def can_retry_irt(self) -> bool:
+        return (
+            self.used_irt < self.max_total_irt_retries
+            and self.used_calls < self.max_total_llm_calls
+        )
+
+    def charge(self, irt: bool = False) -> None:
+        self.used_calls += 1
+        if irt:
+            self.used_irt += 1
+
+
 # -----------------------------------------------------------------------------
 # Writing Agent
 # -----------------------------------------------------------------------------
@@ -99,6 +124,9 @@ class WritingAgent(Agent):
         seed: int = DEFAULT_SEED,
         max_attempts: int = MAX_ATTEMPTS,
         clock: Optional[Callable[[], float]] = None,
+        irt_calibrator: Optional[IRTCalibrator] = None,
+        difficulty_bands: Optional[Dict[str, Tuple[float, float]]] = None,
+        enable_irt: bool = True,
     ) -> None:
         if llm_caller is None:
             raise ValueError("llm_caller is required")
@@ -109,6 +137,57 @@ class WritingAgent(Agent):
         self._seed = seed
         self._max_attempts = max_attempts
         self._clock = clock or time.monotonic
+
+        # Closed-loop IRT difficulty controller
+        env_irt = os.getenv("AION_ENABLE_IRT", "true").lower().strip() not in ("0", "false", "no")
+        self._enable_irt = enable_irt and env_irt
+        self._current_bloom = "L2"
+        if self._enable_irt:
+            import random
+            self._irt = irt_calibrator or IRTCalibrator(
+                student_sim_fn=self._default_student_sim,
+                samples_per_level=3,
+                rng=random.Random(self._seed),
+            )
+        else:
+            self._irt = None
+
+        self._difficulty_bands = difficulty_bands or {
+            "easy": (-3.0, -0.5),
+            "medium": (-0.5, 0.8),
+            "hard": (0.8, 3.0),
+        }
+
+    def _default_student_sim(self, question_text: str, theta: float) -> float:
+        """
+        Simulate a student at ability theta answering the question.
+        Uses a heuristic: harder questions (longer, more clauses,
+        higher Bloom level verbs) reduce P(correct).
+        """
+        import math
+        word_count = len(question_text.split())
+        bloom_penalty = {
+            "L1": 0.0, "L2": 0.1, "L3": 0.3, "L4": 0.5, "L5": 0.7, "L6": 0.9,
+        }.get(getattr(self, "_current_bloom", "L2"), 0.2)
+        feature_difficulty = (word_count / 100.0) + bloom_penalty
+        z = theta - feature_difficulty
+        if z >= 0:
+            ez = math.exp(-z)
+            return 1.0 / (1.0 + ez)
+        else:
+            ez = math.exp(z)
+            return ez / (1.0 + ez)
+
+    def _band_for_plan(self, plan) -> str:
+        """Derive target difficulty band from plan."""
+        band = getattr(plan, "difficulty_band", None)
+        if band:
+            return band
+        if plan.bloom in ("L1", "L2") or plan.total_marks <= 4:
+            return "easy"
+        if plan.bloom in ("L3",) or plan.total_marks <= 6:
+            return "medium"
+        return "hard"
 
     # ------------------------------------------------------------------ API
 
@@ -126,10 +205,11 @@ class WritingAgent(Agent):
         failures: List[SlotFailure] = []
         sources: Dict[str, int] = {"local_llm": 0, "local_vlm": 0}
         total_attempts = 0
+        budget = GenerationBudget()
 
         for plan in plans:
             try:
-                gq, attempts = self._generate_one(plan)
+                gq, attempts = self._generate_one(plan, budget=budget)
                 questions.append(gq)
                 sources[gq.generation_source] = sources.get(gq.generation_source, 0) + 1
                 total_attempts += attempts
@@ -168,9 +248,83 @@ class WritingAgent(Agent):
 
     # -------------------------------------------------------------- Internals
 
-    def _generate_one(self, plan) -> tuple:
+    def _generate_one(
+        self,
+        plan,
+        budget: Optional[GenerationBudget] = None,
+    ) -> tuple:
         """
-        Generate one question. Returns (GeneratedQuestion, attempts).
+        Generate one question with closed-loop IRT difficulty feedback.
+        Returns (GeneratedQuestion, attempts).
+        """
+        if not self._enable_irt or self._irt is None:
+            return self._generate_one_raw(plan)
+
+        if budget is None:
+            budget = GenerationBudget()
+
+        max_difficulty_retries = 2
+        target_band = self._band_for_plan(plan)
+        difficulty_feedback = None
+        total_inner_attempts = 0
+
+        for difficulty_attempt in range(max_difficulty_retries + 1):
+            budget.charge(irt=(difficulty_attempt > 0))
+            gq, attempts = self._generate_one_raw(
+                plan,
+                difficulty_feedback=difficulty_feedback,
+            )
+            total_inner_attempts += attempts
+
+            # Calibrate difficulty using IRT
+            self._current_bloom = plan.bloom
+            try:
+                estimate = self._irt.calibrate(gq.question_text)
+            except Exception as e:
+                print(f"[IRT] calibration exception for {plan.slot_id}: {e}", flush=True)
+                gq.telemetry["irt_calibration_error"] = str(e)
+                return gq, total_inner_attempts
+
+            lo, hi = self._difficulty_bands.get(target_band, (-3.0, 3.0))
+            if lo <= estimate.difficulty <= hi:
+                gq.telemetry["irt_difficulty"] = estimate.difficulty
+                gq.telemetry["irt_band"] = target_band
+                gq.telemetry["irt_converged"] = estimate.converged
+                gq.telemetry["irt_attempts"] = difficulty_attempt + 1
+                return gq, total_inner_attempts
+
+            # Out of band — check if budget allows retry
+            if not budget.can_retry_irt():
+                print(
+                    f"[IRT] {plan.slot_id}: global IRT retry budget exhausted "
+                    f"({budget.used_irt}/{budget.max_total_irt_retries}); accepting out-of-band question",
+                    flush=True,
+                )
+                break
+
+            # Out of band — adjust feedback and retry
+            if difficulty_attempt < max_difficulty_retries:
+                difficulty_feedback = build_difficulty_feedback(estimate, target_band)
+                print(
+                    f"[IRT] {plan.slot_id}: measured b={estimate.difficulty:.2f} "
+                    f"target={target_band} [{lo}, {hi}] — regenerating with feedback",
+                    flush=True,
+                )
+
+        # Exhausted difficulty retries — accept with warning telemetry
+        gq.telemetry["irt_difficulty"] = estimate.difficulty
+        gq.telemetry["irt_band_miss"] = target_band
+        gq.telemetry["irt_converged"] = estimate.converged
+        gq.telemetry["irt_attempts"] = max_difficulty_retries + 1
+        return gq, total_inner_attempts
+
+    def _generate_one_raw(
+        self,
+        plan,
+        difficulty_feedback: Optional[str] = None,
+    ) -> tuple:
+        """
+        Raw question generation attempt loop. Returns (GeneratedQuestion, attempts).
         Raises GenerationFailed on final failure.
         """
         # Route to VLM if visual required and VLM available
@@ -184,7 +338,11 @@ class WritingAgent(Agent):
         last_error = ""
         for attempt in range(1, self._max_attempts + 1):
             strict_json = attempt > 1
-            prompt = build_prompt(plan, strict_json=strict_json)
+            prompt = build_prompt(
+                plan,
+                strict_json=strict_json,
+                difficulty_feedback=difficulty_feedback,
+            )
 
             try:
                 if use_vlm:
@@ -324,6 +482,13 @@ class WritingAgent(Agent):
             if text:
                 evidence_texts.append(text[:500])
         evidence_summary = " ".join(evidence_texts)[:2500]
+        if not evidence_summary or len(evidence_summary.strip()) < 80:
+            concepts = ", ".join(getattr(plan, "concept_neighborhood", []) or [])
+            evidence_summary = (
+                f"Module topic: {plan.topic}. "
+                f"Related curriculum concepts: {concepts if concepts else plan.topic}. "
+                f"Evidence context for question {plan.slot_id}."
+            )
 
         return GeneratedQuestion(
             slot_id=plan.slot_id,

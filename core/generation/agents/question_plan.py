@@ -6,6 +6,7 @@ and produces a GeneratedQuestion. The plan carries everything the
 Writing Agent needs and nothing it doesn't.
 """
 
+# UNTESTED — run quickstart.py on server first
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -49,6 +50,15 @@ class QuestionPlan:
     @property
     def is_multi_part(self) -> bool:
         return len(self.partition) > 1
+
+    @property
+    def difficulty_band(self) -> str:
+        """Derive target difficulty band from marks and Bloom level."""
+        if self.bloom in ("L1", "L2") or self.total_marks <= 4:
+            return "easy"
+        if self.bloom in ("L3",) or self.total_marks <= 6:
+            return "medium"
+        return "hard"  # L4, L5, L6 or marks >= 8
 
     def __repr__(self) -> str:
         vis = "V" if self.visual_required else "-"

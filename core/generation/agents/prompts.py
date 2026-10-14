@@ -13,6 +13,7 @@ Design notes:
       the total prompt stays bounded.
 """
 
+# UNTESTED — run quickstart.py on server first
 from __future__ import annotations
 
 from typing import Any, List, Optional
@@ -152,7 +153,27 @@ def build_visual_section(plan) -> str:
     )
 
 
-def build_task_section(plan) -> str:
+def build_difficulty_feedback(estimate: Any, target_band: str) -> str:
+    """
+    Construct prompt guidance when IRT difficulty falls outside target band.
+    """
+    diff = getattr(estimate, "difficulty", 0.0)
+    if diff < -0.5 and target_band in ("medium", "hard"):
+        return (
+            "The previous question was measured as TOO EASY for the target difficulty level. "
+            "Increase analytical depth: require multi-step reasoning, use higher-order cognitive operations, "
+            "and ask for detailed derivation, comparative evaluation, or system design rather than simple recall."
+        )
+    if diff > 0.8 and target_band in ("easy", "medium"):
+        return (
+            "The previous question was measured as TOO HARD for the target difficulty level. "
+            "Reduce to direct, single-step application. State necessary formulas or assumptions "
+            "explicitly, and ask for a well-defined outcome rather than an open-ended derivation."
+        )
+    return ""
+
+
+def build_task_section(plan, difficulty_feedback: Optional[str] = None) -> str:
     verbs = BLOOM_VERBS.get(plan.bloom, BLOOM_VERBS["L2"])
     verb_list = ", ".join(verbs)
     minutes = max(2, int(plan.total_marks * 1.5))
@@ -168,6 +189,11 @@ def build_task_section(plan) -> str:
     if plan.is_multi_part:
         parts = ", ".join(f"part {i+1}: {m} marks" for i, m in enumerate(plan.partition))
         lines.append(f"Structure the question as sub-parts with these marks: {parts}.")
+
+    if difficulty_feedback:
+        lines.append("")
+        lines.append("[DIFFICULTY ADJUSTMENT]")
+        lines.append(difficulty_feedback)
 
     return "\n".join(lines)
 
@@ -194,12 +220,19 @@ def build_constraints_section(total_marks: int = 10) -> str:
 # -----------------------------------------------------------------------------
 
 
-def build_prompt(plan, *, strict_json: bool = False) -> str:
+def build_prompt(
+    plan,
+    *,
+    strict_json: bool = False,
+    difficulty_feedback: Optional[str] = None,
+) -> str:
     """
     Compose the full Writing Agent prompt.
 
     strict_json: if True, adds a shorter, more directive framing used on
     retry after a JSON parse failure.
+    difficulty_feedback: guidance from IRT calibrator if previous attempt
+    missed the difficulty target band.
     """
     sections = [
         build_slot_contract(plan),
@@ -218,7 +251,7 @@ def build_prompt(plan, *, strict_json: bool = False) -> str:
     if vis:
         sections.append(vis)
 
-    sections.append(build_task_section(plan))
+    sections.append(build_task_section(plan, difficulty_feedback=difficulty_feedback))
     sections.append(build_constraints_section(total_marks=plan.total_marks))
     sections.append(f"[OUTPUT JSON SCHEMA]\n{OUTPUT_SCHEMA_DESCRIPTION}")
 

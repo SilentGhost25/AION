@@ -30,7 +30,10 @@ from .checking_contracts import (
     STATUS_BLOCKED,
     STATUS_DEGRADED,
     STATUS_PASS,
+    STATUS_OK,
+    STATUS_PARTIAL,
 )
+
 
 
 # -----------------------------------------------------------------------------
@@ -120,10 +123,13 @@ class CheckingAgent(Agent):
         # Compute final status
         if blocked_reasons:
             status = STATUS_BLOCKED
+        elif unresolved and resolved > 0:
+            status = STATUS_PARTIAL
         elif degraded_reasons:
             status = STATUS_DEGRADED
         else:
-            status = STATUS_PASS
+            status = STATUS_OK
+
 
         # Aggregate telemetry
         telemetry = self._aggregate_telemetry(context)

@@ -36,12 +36,45 @@ class LLMResponse:
     timed_out   : bool = False
 
 
+def _parse_json_response(raw_text: str) -> dict:
+    """
+    Extract and parse JSON object from raw LLM output.
+    Recovers valid JSON even if model wraps in markdown code fences,
+    prepends conversational intro text, or appends commentary.
+    """
+    text = (raw_text or "").strip()
+    if not text:
+        raise ValueError("empty response from LLM")
+
+    # If wrapped in markdown code fence (``` or ```json)
+    if "```" in text:
+        blocks = re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", text, re.IGNORECASE)
+        for block in blocks:
+            b_clean = block.strip()
+            s = b_clean.find("{")
+            e = b_clean.rfind("}")
+            if s != -1 and e != -1 and e >= s:
+                try:
+                    return json.loads(b_clean[s : e + 1])
+                except Exception:
+                    pass
+
+    # Extract JSON object between outer-most curly braces
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        raise ValueError(f"no JSON object in response: {text[:200]!r}")
+
+    return json.loads(text[start : end + 1])
+
+
 class RobustLLMCaller:
     """
     ONE inference request per call.
     Does NOT own retry logic — SlotOrchestrator owns all retries.
     Supports both Ollama and vLLM backends.
     """
+
 
     def __init__(self, backend: Optional[str] = None, host: Optional[str] = None):
         env_b = backend or os.environ.get("AION_BACKEND") or os.environ.get("LLM_BACKEND") or os.environ.get("BACKEND")
@@ -83,6 +116,17 @@ class RobustLLMCaller:
                     if not res.ok:
                         raise RuntimeError(f"vLLM server at {self.host} returned HTTP {res.status_code}")
                     available = [m.get("id") for m in res.json().get("data", [])]
+                    if model not in available:
+                        for cand in available:
+                            if "qwen" in str(cand).lower() and ("14b" in str(cand).lower() or "instruct" in str(cand).lower()):
+                                LOG.warning(f"[LLM AUTO-ALIGN] Remapping model '{model}' -> '{cand}' from active vLLM engine")
+                                os.environ["AION_MODEL"] = str(cand)
+                                model = str(cand)
+                                break
+                        if model not in available and available:
+                            LOG.warning(f"[LLM AUTO-ALIGN] Remapping model '{model}' -> '{available[0]}' from active vLLM engine")
+                            os.environ["AION_MODEL"] = str(available[0])
+                            model = str(available[0])
                     if model not in available:
                         raise RuntimeError(
                             f"[LLM STARTUP GATE] vLLM is running but does not serve model '{model}'.\n"
@@ -201,23 +245,31 @@ class RobustLLMCaller:
 
         # Extract JSON from response
         try:
-            match = re.search(r"\{.*\}", raw_text, re.DOTALL)
-            parsed = json.loads(match.group()) if match else json.loads(raw_text)
+            parsed = _parse_json_response(raw_text)
             return LLMResponse(
                 success=True, text=raw_text, parsed=parsed, elapsed_sec=elapsed
             )
-        except json.JSONDecodeError as e:
+        except Exception as e:
             return LLMResponse(
                 success=False, text=raw_text, parsed=None,
                 elapsed_sec=elapsed, error=f"JSON_PARSE_ERROR: {e}"
             )
 
+
     def _call_vllm(self, request: LLMRequest, start: float) -> LLMResponse:
         import requests as req
         max_tok = getattr(request, "max_tokens", 4096)
         model_name = request.model
-        if (":" in model_name or not model_name.startswith("Qwen/")) and os.environ.get("AION_MODEL"):
-            model_name = os.environ.get("AION_MODEL")
+        env_model = os.environ.get("AION_MODEL") or ""
+        # If model_name or AION_MODEL is an Ollama-style tag (e.g. "qwen2.5:14b"), remap to HF vLLM repo ID
+        if ":" in model_name or model_name.startswith("qwen2.5") or ":" in env_model:
+            model_name = (
+                (env_model if env_model and ":" not in env_model and not env_model.startswith("qwen2.5") else None)
+                or os.environ.get("AION_VLLM_MODEL")
+                or "Qwen/Qwen2.5-14B-Instruct-AWQ"
+            )
+        elif not model_name.startswith("Qwen/") and env_model and ":" not in env_model:
+            model_name = env_model
         payload: Dict[str, Any] = {
             "model": model_name,
             "messages": [{"role": "user", "content": request.prompt}],
@@ -293,13 +345,13 @@ class RobustLLMCaller:
 
         # Extract JSON from response
         try:
-            match = re.search(r"\{.*\}", raw_text, re.DOTALL)
-            parsed = json.loads(match.group()) if match else json.loads(raw_text)
+            parsed = _parse_json_response(raw_text)
             return LLMResponse(
                 success=True, text=raw_text, parsed=parsed, elapsed_sec=elapsed
             )
-        except json.JSONDecodeError as e:
+        except Exception as e:
             return LLMResponse(
                 success=False, text=raw_text, parsed=None,
                 elapsed_sec=elapsed, error=f"JSON_PARSE_ERROR: {e}"
             )
+

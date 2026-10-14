@@ -145,6 +145,13 @@ class HTTPAPICaller:
     def last_usage(self) -> Optional[Dict[str, Any]]:
         return self._last_usage
 
+    def reset(self) -> None:
+        """Reset internal breaker and session state for fresh pipeline runs."""
+        if hasattr(self._router, "breaker") and hasattr(self._router.breaker, "reset"):
+            self._router.breaker.reset()
+        self._last_provider_name = None
+        self._last_usage = None
+
     def call(
         self,
         prompt: str,

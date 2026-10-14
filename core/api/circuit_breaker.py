@@ -134,3 +134,20 @@ class CircuitBreaker:
                 self._state.pop(provider, None)
                 self._failures.pop(provider, None)
                 self._opened_at.pop(provider, None)
+
+
+_SHARED_BREAKER: Optional[CircuitBreaker] = None
+
+
+def get_groq_breaker() -> CircuitBreaker:
+    """Return the shared circuit breaker used across pipeline runs."""
+    global _SHARED_BREAKER
+    if _SHARED_BREAKER is None:
+        _SHARED_BREAKER = CircuitBreaker()
+    return _SHARED_BREAKER
+
+
+def reset_groq_breaker() -> None:
+    """Convenience helper to reset circuit breaker per-run."""
+    get_groq_breaker().reset()
+

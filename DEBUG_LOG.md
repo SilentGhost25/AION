@@ -92,6 +92,7 @@ Each session entry has:
 3. If `paper_status: PASS`, move to Phase 3 (VLM wiring, sibling context, test cleanup)
 4. If still BLOCKED, inspect the new `[EVAL]` verdicts
 
+<<<<<<< HEAD
 ---
 
 ## Session: 2026-10-13 (Part 2) - First PASS
@@ -154,4 +155,21 @@ Each session entry has:
 4. Open browser, upload 3 IoT PDFs, generate
 5. Capture: [AGENT:*], [CONTRACT GATE], [QUALITY GATE] from backend terminal
 6. If PASS through UI, pipeline is production-ready
+=======
+### Post-fix smoke test result (2026-10-13)
+- Commits: `f9b24b791..0434fc0df`
+  - evaluation_prompts.py — MAX_EVIDENCE_SUMMARY_CHARS 300→600→2500
+  - refinement_agent.py — max_llm_repairs_per_paper 5→8
+  - writing_agent.py — evidence sample 3×400→5×500, cap 1000→2500
+- `paper_status: PASS`
+- `questions: 10`
+- `unresolved: 0`
+- `[EVAL]` — all 6 API-audited slots passed Groq
+- `[DET-REPAIR]` — 4 `MULTI_PART_STRUCTURE_MISMATCH` slots, all resolved by LLM tier
+- `degraded_reasons: []`
+
+**First PASS in the pipeline's history.** All prior runs BLOCKED on unresolved slots.
+The compound effect of the four fixes (evidence plumbing, repair budget, evidence sample,
+preamble regex) resolved every false-positive failure class.
+>>>>>>> 0a3eb2254c51ecbd14066d0033726d202609005f
 

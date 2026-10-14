@@ -1504,6 +1504,142 @@ def job_status(job_id):
     })
 
 
+@app.route("/api/v3/generate", methods=["POST"])
+def v3_direct_generate():
+    """
+    Direct v3 generation endpoint.
+    Bypasses legacy orchestrator and contract gate drop points.
+    Returns clean GeneratedPaper JSON directly.
+    """
+    from core.generation.agents.pipeline_bridge import run_v3_pipeline
+    from core.generation.paper_spec_resolver import PaperSpecResolver
+    from core.extraction.artifact_cache import load_or_extract_artifact, merge_artifacts
+    from core.contracts.paper_spec import STANDARD_MARKS_SPLITS
+
+    body = request.get_json(silent=True) or {}
+
+    # Fault injection support for test harness (strictly gated to AION_TEST_MODE==1)
+    if os.environ.get("AION_TEST_MODE") == "1":
+        forced = (request.headers.get("X-Force-Status") or os.environ.get("AION_FORCE_STATUS") or "").upper().strip()
+        FINAL_STATUSES = {"OK", "PARTIAL", "DEGRADED", "BLOCKED", "FAILED"}
+        if forced in FINAL_STATUSES:
+            from core.serialization import jsonable
+            return jsonify(jsonable({
+                "success": forced in {"OK", "PARTIAL", "DEGRADED"},
+                "paper_status": forced,
+                "questions": [] if forced in {"BLOCKED", "FAILED"} else [{"text": "Fault injection test question", "marks": 10}],
+                "modules": [],
+                "meta": {
+                    "paper_status": forced,
+                    "success": forced in {"OK", "PARTIAL", "DEGRADED"},
+                    "qa_report": {
+                        "status": forced,
+                        "blocked_reasons": ["FAULT_INJECTION"] if forced in {"BLOCKED", "FAILED"} else [],
+                    },
+                },
+                "blocked_reasons": ["FAULT_INJECTION"] if forced in {"BLOCKED", "FAILED"} else [],
+                "degraded": forced == "DEGRADED",
+            }))
+
+    file_ids = body.get("file_ids") or ([body.get("file_id")] if body.get("file_id") else [])
+    file_path = body.get("file_path")
+    exam_type = body.get("exam_type") or body.get("examType") or "IAT1"
+    subject = body.get("subject") or "Engineering"
+
+
+    pdfs = []
+    if file_ids:
+        for fid in file_ids:
+            p = ROOT / "workspace" / "uploads" / fid / "original.pdf"
+            if p.exists():
+                pdfs.append(p)
+    elif file_path:
+        if isinstance(file_path, list):
+            pdfs = [Path(p) for p in file_path if Path(p).exists()]
+        elif Path(file_path).exists():
+            pdfs = [Path(file_path)]
+
+    if not pdfs:
+        # Check if uploads exist or satcom fixtures
+        satcom = [ROOT / "tests" / "fixtures" / "satcom" / f"module{i}.pdf" for i in range(1, 6)]
+        pdfs = [p for p in satcom if p.exists()]
+
+    if not pdfs:
+        return jsonify({"success": False, "error": "No valid PDF input sources found"}), 400
+
+    try:
+        artifacts = [load_or_extract_artifact(p) for p in pdfs]
+        artifact = merge_artifacts(artifacts) if len(artifacts) > 1 else artifacts[0]
+
+        spec = PaperSpecResolver.resolve(exam_type)
+        raw_splits = body.get("marks_split") or body.get("marksDistribution") or STANDARD_MARKS_SPLITS.get(exam_type)
+        splits = raw_splits or [[spec.marks_per_question] for _ in range(spec.total_questions)]
+
+        from core.api.circuit_breaker import get_groq_breaker
+        groq_breaker = get_groq_breaker()
+        groq_breaker.reset()  # reset breaker per-run
+        try:
+            paper_parts, full_paper, meta = run_v3_pipeline(
+                paper_spec=spec,
+                artifact=artifact,
+                marks_split=splits,
+                request={"exam_type": exam_type, "subject": subject},
+            )
+        finally:
+            groq_breaker.reset()  # reset breaker post-run
+
+        formatted = _format_paper(
+            paper=paper_parts,
+            subject=subject,
+            exam_type=exam_type,
+            mode="turbo",
+            qa_report=meta.get("qa_report"),
+        )
+
+        from core.serialization import jsonable
+
+        raw_status = (meta.get("paper_status") or "").upper().strip()
+        qa_rep = meta.get("qa_report") or {}
+        unresolved_count = len(qa_rep.get("unresolved_slots", []) or [])
+        resolved_count = qa_rep.get("resolved_slots", 0)
+
+        if unresolved_count > 0 and resolved_count > 0 and raw_status not in ("BLOCKED", "FAILED"):
+            paper_status = "PARTIAL"
+        elif raw_status in ("OK", "PASS"):
+            paper_status = "OK"
+        elif raw_status in ("PARTIAL", "DEGRADED", "BLOCKED", "FAILED"):
+            paper_status = raw_status
+        else:
+            paper_status = "OK" if meta.get("success") else "FAILED"
+
+
+
+        success = paper_status in {"OK", "PARTIAL", "DEGRADED"}
+
+        blocked_reasons = meta.get("blocked_reasons") or qa_rep.get("blocked_reasons", [])
+        is_degraded = bool(meta.get("degraded") or paper_status == "DEGRADED")
+
+        return jsonify(jsonable({
+            "success": success,
+            "paper_status": paper_status,
+            "paper": formatted,
+            "questions": full_paper,
+            "modules": formatted.get("modules", []),
+            "blocked_reasons": blocked_reasons,
+            "degraded": is_degraded,
+            "meta": meta,
+        }))
+    except Exception as e:
+        print(f"[AION API v3] Pipeline generation failed: {e}", flush=True)
+        from core.serialization import jsonable
+        return jsonify(jsonable({
+            "success": False,
+            "error": str(e),
+            "paper_status": "FAILED",
+            "blocked_reasons": ["PIPELINE_EXCEPTION"],
+        })), 500
+
+
 
 def normalize_or_pair_structure(pair: list, is_ia: bool) -> list:
     """

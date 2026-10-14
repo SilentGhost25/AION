@@ -56,6 +56,72 @@ const formatRbt = (v: any): string => {
   return `L${s || "2"}`
 }
 
+function mapPaperResultToGeneratedPaper(formattedResult: any, config: any): GeneratedPaper | null {
+  if (!formattedResult) return null
+  const paper = formattedResult.paper || formattedResult
+  const modules = paper.modules || formattedResult.modules || []
+  if (!modules || modules.length === 0) return null
+
+  const markPerQuestion = Math.floor((config?.maxMarks || 50) / 5)
+  const questions: any[] = []
+  let globalQNo = 1
+  for (let mIdx = 0; mIdx < modules.length; mIdx++) {
+    const mod = modules[mIdx]
+    const modQuestions = mod.questions || []
+    for (let qIdx = 0; qIdx < modQuestions.length; qIdx++) {
+      const q = modQuestions[qIdx]
+      const isOr = q.isOr ?? q.is_or ?? (qIdx % 2 === 1)
+      const qText = q.text || q.question_text || q.question || ""
+      const qMarks = Number(q.marks ?? q.totalMarks ?? q.total_marks ?? markPerQuestion) || markPerQuestion
+      const co = q.co || `CO${mIdx + 1}`
+      const rawSubs = q.subQuestions || q.sub_questions || []
+      
+      let subs = rawSubs.map((sq: any) => ({
+        label: sq.letter || sq.label || "a",
+        text: sq.text || sq.question_text || "",
+        marks: Number(sq.marks ?? 0) || Math.round(qMarks / Math.max(1, rawSubs.length)),
+        co: sq.co || co,
+        rbt: formatRbt(sq.bloom || sq.bloom_level || q.bloom_level || q.bloomLevel || 2),
+      }))
+
+      if (subs.length === 0 && qText) {
+        subs = [{
+          label: "a",
+          text: qText,
+          marks: qMarks,
+          co,
+          rbt: formatRbt(q.bloom_level || q.bloomLevel || 2),
+        }]
+      }
+
+      questions.push({
+        qNo: globalQNo,
+        text: qText,
+        marks: qMarks,
+        co,
+        rbt: formatRbt(q.bloom_level || q.bloomLevel || 2),
+        sectionNumber: globalQNo,
+        isOrQuestion: isOr,
+        subQuestions: subs,
+      })
+      globalQNo++
+    }
+  }
+  return {
+    config,
+    questions,
+    courseOutcomes: [
+      "Understand fundamental concepts and theoretical foundations",
+      "Apply analytical methods and problem-solving techniques",
+      "Implement algorithms and system architectures",
+      "Analyze performance tradeoffs and design alternatives",
+      "Evaluate solution quality and system specifications",
+    ],
+    coCoverage: paper.coCoverage || { co1: 40, co2: 40, co3: 20, co4: 0, co5: 0 },
+    syllabusCoverage: paper.syllabusCoverage || { s1: 20, s2: 20, s3: 20, s4: 20, s5: 20 },
+  } as GeneratedPaper
+}
+
 const ERROR_MESSAGES_CONTINUED: Record<string, { title: string; hint: string }> = {
   GENERATION_FAILED: {
     title: "Question generation failed",
@@ -211,6 +277,54 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
         if (primaryFileId) fileIds.push(primaryFileId)
       }
 
+      // Direct v3 generation attempt
+      setCurrentStage("generation")
+      setStageMessage("AIQ v3 Multi-Agent Pipeline executing...")
+
+      const v3Payload = {
+        file_id: primaryFileId,
+        fileId: primaryFileId,
+        file_ids: fileIds.length > 0 ? fileIds : (primaryFileId ? [primaryFileId] : undefined),
+        subject: config.subjectName || "Subject",
+        exam_type: config.examType || "IAT1",
+        marks_split: markSplits,
+      }
+
+      try {
+        console.log("[AION FRONTEND] Invoking direct /api/v3/generate:", v3Payload)
+        const v3Res = await aionAPI.generateV3(v3Payload)
+        const status = String(v3Res?.paper_status || "").toUpperCase()
+
+        if (status === "BLOCKED" || status === "FAILED" || !v3Res?.success) {
+          const reasons = (v3Res?.blocked_reasons && v3Res.blocked_reasons.length > 0)
+            ? v3Res.blocked_reasons.join(", ")
+            : (v3Res?.error || `Generation status: ${status || 'FAILED'}`)
+          throw new Error(`v3 generation blocked: ${reasons}`)
+        }
+
+        if (status === "DEGRADED") {
+          toast.warning("QA ran in degraded mode; auditor results unverified.")
+        } else if (status === "PARTIAL") {
+          toast.warning("Generation completed with partial/unresolved questions.")
+        }
+
+        const mapped = mapPaperResultToGeneratedPaper(v3Res.paper || v3Res, config)
+        if (mapped) {
+          console.log("[AION FRONTEND] Direct v3 generation succeeded!", mapped)
+          return mapped
+        }
+        throw new Error("v3 response succeeded but paper/modules could not be mapped")
+      } catch (v3Err: any) {
+        console.error("[AION FRONTEND] Strict verification mode: direct /api/v3/generate failed:", v3Err)
+        setPipelineError({
+          code: "GENERATION_ERROR",
+          stage: "generation",
+          message: v3Err?.message || "Direct /api/v3/generate call failed",
+          recoverable: true,
+        })
+        throw v3Err
+      }
+
       const response = await aionAPI.generateStream({
         file_id: primaryFileId,
         fileId: primaryFileId,
@@ -225,7 +339,7 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
         examType: config.examType || "IA",
         difficulty: "mixed",
         notes_text: combinedNotes,
-        model: "qwen2.5:14b",
+        model: (import.meta as any).env?.VITE_AION_MODEL || "Qwen/Qwen2.5-14B-Instruct-AWQ",
         sub_question_counts: sections.map(s => s?.subQuestionsPerQ ?? 2),
         subQuestionCounts: sections.map(s => s?.subQuestionsPerQ ?? 2),
         mark_splits: markSplits,
@@ -269,51 +383,9 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
         }
       }
 
-      if (formattedResult && formattedResult.modules && formattedResult.modules.length > 0) {
-        const markPerQuestion = Math.floor(config.maxMarks / 5)
-        const questions: any[] = []
-        let globalQNo = 1
-        for (let mIdx = 0; mIdx < formattedResult.modules.length; mIdx++) {
-          const mod = formattedResult.modules[mIdx]
-          const modQuestions = mod.questions || []
-          for (let qIdx = 0; qIdx < modQuestions.length; qIdx++) {
-            const q = modQuestions[qIdx]
-            const isOr = q.isOr ?? q.is_or ?? (qIdx % 2 === 1)
-            const co = `CO${mIdx + 1}`
-            const rawSubs = q.subQuestions || q.sub_questions || []
-            const subs = rawSubs.map((sq: any) => ({
-              label: sq.letter || sq.label || "a",
-              text: sq.text || "",
-              marks: sq.marks,
-              co: sq.co || co,
-              rbt: formatRbt(sq.bloom || q.bloom_level || q.bloomLevel || 2),
-            }))
-            questions.push({
-              qNo: globalQNo,
-              text: "",
-              marks: q.totalMarks || q.total_marks || markPerQuestion,
-              co,
-              rbt: formatRbt(q.bloom_level || q.bloomLevel || 2),
-              sectionNumber: globalQNo,
-              isOrQuestion: isOr,
-              subQuestions: subs,
-            })
-            globalQNo++
-          }
-        }
-        return {
-          config,
-          questions,
-          courseOutcomes: [
-            "Understand fundamental concepts and theoretical foundations",
-            "Apply analytical methods and problem-solving techniques",
-            "Implement algorithms and system architectures",
-            "Analyze performance tradeoffs and design alternatives",
-            "Evaluate solution quality and system specifications",
-          ],
-          coCoverage: formattedResult.coCoverage || { co1: 40, co2: 40, co3: 20, co4: 0, co5: 0 },
-          syllabusCoverage: formattedResult.syllabusCoverage || { s1: 20, s2: 20, s3: 20, s4: 20, s5: 20 },
-        } as GeneratedPaper
+      if (formattedResult) {
+        const mapped = mapPaperResultToGeneratedPaper(formattedResult, config)
+        if (mapped) return mapped
       }
     } catch (e: any) {
       console.error("[AION] Generation error:", e)
@@ -379,218 +451,27 @@ export function Step1ConfigAndUpload({ config, setConfig, sections, setSections,
   }
 
   const handleGenerate = async () => {
-    const paper = await generateSinglePaper(1)
-    if (paper) {
-      toast.success("Question paper generated successfully!")
-      onSuccess(paper)
-      return
-    }
-    setPipelineError(null)
-    setShowDebug(false)
-    setCurrentStage("connecting")
-    setStageMessage("Establishing connection to AION...")
-    toast.info("Sending reference material to AION AI...", { description: "Generating questions with Qwen LLM..." })
-
     try {
-      const combinedNotes = sections
-        .map((s, i) => `=== Module ${Math.floor(i / 2) + 1} Question ${i + 1} ===\n${s.notesText}`)
-        .join("\n\n")
-
-      const uploadedFile = rawFiles.find(f => f !== null)
-      let uploadRes: any
-
-      if (uploadedFile) {
-        toast.info(`Uploading ${uploadedFile.name}...`)
-        uploadRes = await aionAPI.upload(uploadedFile, config.subjectName || "Subject", "notes")
-      } else {
-        const blob = new Blob([combinedNotes], { type: "text/plain" })
-        const file = new File([blob], `${config.subjectCode || 'syllabus'}_notes.txt`, { type: "text/plain" })
-        uploadRes = await aionAPI.upload(file, config.subjectName || "Subject", "notes")
-      }
-      const fileId = uploadRes.id || uploadRes.document_id
-
-      const response = await aionAPI.generateStream({
-        file_id: fileId,
-        fileId: fileId,
-        subject: config.subjectName || "Subject",
-        department: (config as any).department || "Computer Science & Engineering",
-        semester: (config as any).semester || 5,
-        exam_type: config.examType || "IA",
-        examType: config.examType || "IA",
-        difficulty: "mixed",
-        notes_text: combinedNotes,
-        model: "qwen2.5:14b",
-        sub_question_count: sections[0]?.subQuestionsPerQ ?? 2,
-        subQuestionCount: sections[0]?.subQuestionsPerQ ?? 2,
-      })
-
-      if (!response.ok) {
-        const err: PipelineError = {
-          code: "HTTP_ERROR",
-          stage: "connection",
-          message: `Server returned ${response.status}: ${response.statusText}`,
-          recoverable: response.status >= 500,
-        }
-        setPipelineError(err)
-        toast.error("Connection failed", { description: err.message })
-        return
-      }
-
-      const reader = response.body!.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ""
-      let formattedResult: any = null
-      let terminalReceived = false
-      let currentEvent = ""
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split("\n")
-        buffer = lines.pop() ?? ""
-
-        for (const line of lines) {
-          const trimmed = line.trim()
-          if (trimmed.startsWith("event:")) {
-            currentEvent = trimmed.slice(6).trim()
-            continue
-          }
-          if (!trimmed.startsWith("data:")) continue
-
-          let data: any
-          try {
-            data = JSON.parse(trimmed.slice(5).trim())
-          } catch {
-            console.warn("[AION] Malformed SSE data:", trimmed)
-            continue
-          }
-
-          if (currentEvent === "stage_update") {
-            setCurrentStage(data.stage)
-            setStageMessage(data.message || STAGE_LABELS[data.stage] || data.stage)
-
-          } else if (currentEvent === "pipeline_error") {
-            terminalReceived = true
-            const errData = data.error || data
-            const err: PipelineError = {
-              code: errData.code || "UNKNOWN_ERROR",
-              stage: errData.stage || "unknown",
-              message: errData.message || "An error occurred during generation.",
-              recoverable: errData.recoverable !== undefined ? errData.recoverable : true,
-              debug: errData.debug,
-            }
-            console.error("[AION] pipeline_error:", err)
-            setPipelineError(err)
-            const errInfo = ERROR_MESSAGES[err.code] ?? { title: `Error: ${err.code}`, hint: err.message }
-            toast.error(errInfo.title, { description: errInfo.hint })
-            return
-
-          } else if (currentEvent === "paper_ready") {
-            const paper = data.paper || data
-            formattedResult = paper
-
-          } else if (currentEvent === "result") {
-            // Legacy compat — accept both wrapped and flat
-            formattedResult = data.paper || data
-
-          } else if (currentEvent === "done") {
-            terminalReceived = true
-            if (data.status !== "SUCCESS") {
-              // If done arrived without paper_ready, pipeline_error should have already fired
-              return
-            }
-          }
-        }
-      }
-
-      if (!terminalReceived) {
-        const err: PipelineError = {
-          code: "STREAM_ENDED_WITHOUT_TERMINAL",
-          stage: currentStage || "unknown",
-          message: "Server closed connection without sending a completion event.",
-          recoverable: true,
-        }
-        setPipelineError(err)
-        toast.error("Generation incomplete", { description: err.message })
-        return
-      }
-
-      if (formattedResult && formattedResult.modules && formattedResult.modules.length > 0) {
-        const markPerQuestion = Math.floor(config.maxMarks / 5)
-        const questions: QuestionWithSubs[] = []
-
-        let globalQNo = 1
-        for (let mIdx = 0; mIdx < formattedResult.modules.length; mIdx++) {
-          const mod = formattedResult.modules[mIdx]
-          const modQuestions = mod.questions || []
-
-          for (let qIdx = 0; qIdx < modQuestions.length; qIdx++) {
-            const q = modQuestions[qIdx]
-            const isOr = q.isOr ?? q.is_or ?? (qIdx % 2 === 1)
-            const co = `CO${mIdx + 1}`
-            const rawSubs = q.subQuestions || q.sub_questions || []
-            const subs = rawSubs.map((sq: any) => ({
-              label: sq.letter || sq.label || "a",
-              text: sq.text || "",
-              marks: sq.marks,
-              co: sq.co || co,
-              rbt: formatRbt(sq.bloom || q.bloom_level || q.bloomLevel || 2),
-            }))
-
-            questions.push({
-              qNo: globalQNo,
-              text: "",   // Pure renderer — text is in subQuestions
-              marks: q.totalMarks || q.total_marks || markPerQuestion,
-              co,
-              rbt: formatRbt(q.bloom_level || q.bloomLevel || 2),
-              sectionNumber: globalQNo,
-              isOrQuestion: isOr,
-              subQuestions: subs,
-            })
-            globalQNo++
-          }
-        }
-
-        const paper: GeneratedPaper = {
-          config,
-          questions,
-          courseOutcomes: [
-            "Understand fundamental concepts and theoretical foundations",
-            "Apply analytical methods and problem-solving techniques",
-            "Implement algorithms and system architectures",
-            "Analyze performance tradeoffs and design alternatives",
-            "Evaluate solution quality and system specifications",
-          ],
-          coCoverage: { co1: 0, co2: 0, co3: 0, co4: 0, co5: 0 },
-          syllabusCoverage: { s1: 0, s2: 0, s3: 0, s4: 0, s5: 0 },
-        }
-
-        setCurrentStage(null)
-        setStageMessage(null)
+      const paper = await generateSinglePaper(1)
+      if (paper) {
         toast.success("Question paper generated successfully!")
         onSuccess(paper)
-      } else {
-        const err: PipelineError = {
-          code: "INCOMPLETE_PAPER",
-          stage: "qa",
-          message: "Backend returned no modules. Generation may have failed silently.",
-          recoverable: true,
-        }
-        setPipelineError(err)
-        toast.error("Generation Failed", { description: err.message })
+        return
       }
+      // In strict v3 mode, generateSinglePaper already populated pipelineError and stopped generation
+      toast.error("Generation Failed", {
+        description: "Direct /api/v3/generate failed. Check the error details panel below.",
+      })
     } catch (err: any) {
-      console.error("[AION] Generation error:", err)
-      const netErr: PipelineError = {
-        code: "NETWORK_ERROR",
-        stage: "connection",
-        message: err?.message || "A network error occurred during generation.",
+      console.error("[AION FRONTEND] handleGenerate error:", err)
+      const errObj: PipelineError = {
+        code: "GENERATION_ERROR",
+        stage: "generation",
+        message: err?.message || "Direct /api/v3/generate failed",
         recoverable: true,
       }
-      setPipelineError(netErr)
-      toast.error("AION Generation Failed", { description: netErr.message })
+      setPipelineError(errObj)
+      toast.error("Generation Failed", { description: errObj.message })
     } finally {
       setIsGenerating(false)
     }
