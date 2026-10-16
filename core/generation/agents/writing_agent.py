@@ -169,7 +169,7 @@ class WritingAgent(Agent):
         bloom_penalty = {
             "L1": 0.0, "L2": 0.1, "L3": 0.3, "L4": 0.5, "L5": 0.7, "L6": 0.9,
         }.get(getattr(self, "_current_bloom", "L2"), 0.2)
-        feature_difficulty = (word_count / 100.0) + bloom_penalty
+        feature_difficulty = (min(word_count, 40) / 100.0) + bloom_penalty
         z = theta - feature_difficulty
         if z >= 0:
             ez = math.exp(-z)
