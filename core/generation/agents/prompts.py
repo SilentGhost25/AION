@@ -181,6 +181,7 @@ def build_task_section(plan, difficulty_feedback: Optional[str] = None) -> str:
     lines = [
         "[TASK]",
         f"Generate ONE {plan.bloom}-level question worth {plan.total_marks} marks.",
+        f"Split into {len(plan.partition)} parts with marks {plan.partition}. Mark each part with (i)/(ii) or (a)/(b). Do not merge.",
         f"Start with an approved {plan.bloom} verb: {verb_list}.",
         f"Target completion time: ~{minutes} minutes.",
         "Provide a complete solution and a marking scheme.",
