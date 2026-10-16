@@ -101,13 +101,14 @@ def _extract_subpart_texts(text: str, n_parts: int) -> List[str]:
     # 3. Letter with dot preceded by whitespace: " a. ", " b. " (avoiding numbers/decimals)
     # 4. Explicit part: "Part a:", "Part A:"
     pattern = (
-        r"(?:^|\n|\s+)"
+        r"(?:^|\n|(?<=[.:;?!]\s)|(?<=\s))"
         r"(?:"
         r"\(([a-eA-E])\)"
+        r"|\(([ivxIVX]{1,4})\)"
+        r"|\(([1-9])\)"
         r"|([a-eA-E])\)"
-        r"|(?<=\s)([a-eA-E])\."
-        r"|(?:\bPart\s+([a-eA-E]):?)"
-        r")\s*"
+        r"|(?<=\s)([a-eA-E])\.)"
+        r"\s+"
     )
     matches = list(re.finditer(pattern, text))
     if not matches:
@@ -152,6 +153,7 @@ def _to_question_dict(q: GeneratedQuestion) -> dict:
         "slot_id": q.slot_id,
         "module_id": q.module_id,
         "global_q_idx": q.global_q_idx,
+        "text": q.question_text,
         "question_text": q.question_text,
         "sub_questions": sub_questions,
         "subQuestions": sub_questions,
