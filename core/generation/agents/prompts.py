@@ -206,6 +206,7 @@ def build_constraints_section(total_marks: int = 10) -> str:
         "  - FORBIDDEN PHRASES: Do NOT include preamble phrases such as 'Based on the provided evidence',\n"
         "    'Based on the evidence provided', 'Apply the following', or 'Refer to the text'.\n"
         "  - Open directly with the target Bloom action verb or scenario context.\n"
+        "  - If this question has a multi-part partition, emit each part with an explicit marker: (i)/(ii) or (a)/(b). Never merge them into one instruction.\n"
         "  - Do not reveal the answer in the question text.\n"
         "  - Do not use the words 'and' or 'or' to combine unrelated tasks.\n"
         "  - If the topic is mathematical or numerical, provide concrete givens.\n"
