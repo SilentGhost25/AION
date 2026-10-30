@@ -181,7 +181,6 @@ def build_task_section(plan, difficulty_feedback: Optional[str] = None) -> str:
     lines = [
         "[TASK]",
         f"Generate ONE {plan.bloom}-level question worth {plan.total_marks} marks.",
-        f"Split into {len(plan.partition)} parts with marks {plan.partition}. Write each part as a COMPLETE self-contained question with its own context (dimensions, initial values, given data). Do NOT write a shared preamble. Do NOT restate the problem statement. Mark each part with (i)/(ii) or (a)/(b).",
         f"Start with an approved {plan.bloom} verb: {verb_list}.",
         f"Target completion time: ~{minutes} minutes.",
         "Provide a complete solution and a marking scheme.",
@@ -190,6 +189,11 @@ def build_task_section(plan, difficulty_feedback: Optional[str] = None) -> str:
     if plan.is_multi_part:
         parts = ", ".join(f"part {i+1}: {m} marks" for i, m in enumerate(plan.partition))
         lines.append(f"Structure the question as sub-parts with these marks: {parts}.")
+        lines.append(
+            f"Write each part as a COMPLETE self-contained question with its own context. "
+            f"Do NOT write a shared preamble. Do NOT restate the problem statement. "
+            f"Mark each part with (i)/(ii) or (a)/(b)."
+        )
 
     if difficulty_feedback:
         lines.append("")
