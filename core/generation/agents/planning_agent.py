@@ -37,6 +37,14 @@ from .question_plan import QuestionPlan
 
 # Marks-to-Bloom mapping per VTU IAT convention.
 # Keys are the max mark in the partition (e.g. [6, 4] uses 6).
+CO_BLOOM_BANDS: Dict[str, tuple] = {
+    "CO1": ("L1", "L2"),   # Understand
+    "CO2": ("L2", "L3"),   # Apply
+    "CO3": ("L3", "L4"),   # Implement
+    "CO4": ("L4", "L5"),   # Analyze
+    "CO5": ("L5", "L6"),   # Evaluate
+}
+
 BLOOM_BY_MARKS: Dict[int, str] = {
     2: "L1",
     3: "L2",
@@ -161,7 +169,7 @@ class PlanningAgent(Agent):
                     continue
 
                 total_marks = sum(partition)
-                bloom = self._assign_bloom(partition)
+                bloom = self._assign_bloom(partition, co=co, position=within_idx)
 
                 topic = self._pick_topic(
                     kg=kg,
@@ -238,12 +246,14 @@ class PlanningAgent(Agent):
                 for m in range(1, spec.module_count + 1)
             }
 
-    def _assign_bloom(self, partition: List[int]) -> str:
-        """Bloom level from the max mark in the partition."""
+    def _assign_bloom(self, partition: List[int], co: str = '', position: int = 0) -> str:
+        """Bloom level from CO cognitive band, alternating by position."""
+        if co in CO_BLOOM_BANDS:
+            band = CO_BLOOM_BANDS[co]
+            return band[position % len(band)]
         if not partition:
             return "L2"
         max_mark = max(partition)
-        # Nearest lower key if not exact
         keys = sorted(BLOOM_BY_MARKS.keys())
         for k in reversed(keys):
             if max_mark >= k:
