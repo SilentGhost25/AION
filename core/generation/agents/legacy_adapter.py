@@ -132,11 +132,53 @@ def _extract_subpart_texts(text: str, n_parts: int) -> List[str]:
         return sub_texts + padded
 
 
+def _strip_shared_prefix(sub_texts: list, min_words: int = 6) -> list:
+    """Remove duplicated opening phrases from sub-parts 2+ when they share
+    a long prefix with sub-part 1."""
+    if len(sub_texts) < 2:
+        return sub_texts
+    words_a = sub_texts[0].split()
+    result = [sub_texts[0]]
+    task_verbs = {
+        "what", "why", "how", "when", "where", "which",
+        "explain", "describe", "list", "state", "define",
+        "calculate", "compute", "determine", "derive", "find",
+        "propose", "identify", "analyze", "analyse", "evaluate",
+        "compare", "differentiate", "design", "discuss", "write",
+        "mention", "show", "prove", "illustrate", "demonstrate",
+        "assess", "justify", "critique", "construct", "develop",
+        "suggest", "recommend", "outline", "summarize",
+        "consider", "examine", "investigate", "explore",
+    }
+    for sub in sub_texts[1:]:
+        words_sub = sub.split()
+        shared = 0
+        for w1, w2 in zip(words_a, words_sub):
+            if w1.lower().rstrip(".,;:!?") == w2.lower().rstrip(".,;:!?"):
+                shared += 1
+            else:
+                break
+        if shared < min_words:
+            result.append(sub)
+            continue
+        tail = " ".join(words_sub[shared:]).strip()
+        if not tail or len(tail.split()) < 4:
+            result.append(sub)
+            continue
+        first_word = tail.split()[0].lower().rstrip(".,;:!?")
+        if first_word in task_verbs:
+            result.append(tail)
+        else:
+            result.append(f"With reference to part (a), {tail}")
+    return result
+
+
 def _to_question_dict(q: GeneratedQuestion) -> dict:
     """Convert one GeneratedQuestion to the legacy question dict with synthesized subquestions."""
     partition = [int(m) for m in (q.partition or ([q.marks] if q.marks else [10]))]
     letters = ["a", "b", "c", "d", "e"]
     sub_texts = _extract_subpart_texts(q.question_text, len(partition))
+    sub_texts = _strip_shared_prefix(sub_texts)
 
     sub_questions = [
         {
