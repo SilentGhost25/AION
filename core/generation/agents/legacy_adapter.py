@@ -17,6 +17,7 @@ If the shape changes, this file changes. Agents do not.
 from __future__ import annotations
 
 from collections import defaultdict
+import re
 from typing import Any, Dict, List, Tuple
 
 from .generated_question import GeneratedQuestion
@@ -113,6 +114,18 @@ def _extract_subpart_texts(text: str, n_parts: int) -> List[str]:
     matches = list(re.finditer(pattern, text))
     if not matches:
         print(f"[LEGACY-ADAPTER] warning: no subpart markers [a-e] found in text: {text[:80]!r}", flush=True)
+        if n_parts > 1:
+            sentences = [s.strip() for s in re.split(r'(?<=[.?!;])\s+', text) if s.strip()]
+            if len(sentences) >= n_parts:
+                k, m = divmod(len(sentences), n_parts)
+                sub_texts = []
+                idx = 0
+                for i in range(n_parts):
+                    take = k + (1 if i < m else 0)
+                    chunk = " ".join(sentences[idx:idx + take]).strip()
+                    sub_texts.append(chunk)
+                    idx += take
+                return sub_texts
         return [text for _ in range(n_parts)]
 
     stem = text[:matches[0].start()].strip()
@@ -179,6 +192,33 @@ def _to_question_dict(q: GeneratedQuestion) -> dict:
     letters = ["a", "b", "c", "d", "e"]
     sub_texts = _extract_subpart_texts(q.question_text, len(partition))
     sub_texts = _strip_shared_prefix(sub_texts)
+
+    # Ensure subquestions within the same module are distinct and not near-duplicate paraphrases
+    if len(partition) > 1:
+        aspects = [
+            "the architectural structure and primary operating principles",
+            "the operational characteristics, critical trade-offs, and boundary constraints",
+            "the practical implementation mechanisms and real-world deployment challenges",
+            "the comparative performance analysis and design criteria",
+        ]
+        topic = getattr(q, "topic", "") or getattr(q, "module_id", "the core module concept")
+        bloom_val = getattr(q, "bloom", "L2")
+        from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
+        pool = BLOOM_VERB_LEVEL_MAP.get(bloom_val, {"explain"})
+        verb = sorted(list(pool))[0].capitalize()
+
+        for i in range(len(sub_texts)):
+            is_dup = False
+            for j in range(i):
+                w_i = set(re.findall(r"\w+", sub_texts[i].lower()))
+                w_j = set(re.findall(r"\w+", sub_texts[j].lower()))
+                jaccard = len(w_i & w_j) / max(1, len(w_i | w_j))
+                if sub_texts[i].strip().lower() == sub_texts[j].strip().lower() or jaccard >= 0.45:
+                    is_dup = True
+                    break
+            if is_dup:
+                sub_aspect = aspects[i % len(aspects)]
+                sub_texts[i] = f"{verb} {sub_aspect} of {topic} in detail."
 
     sub_questions = [
         {

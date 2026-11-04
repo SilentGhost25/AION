@@ -192,7 +192,9 @@ def build_task_section(plan, difficulty_feedback: Optional[str] = None) -> str:
         lines.append(
             f"Write each part as a COMPLETE self-contained question with its own context. "
             f"Do NOT write a shared preamble. Do NOT restate the problem statement. "
-            f"Mark each part with (i)/(ii) or (a)/(b)."
+            f"Mark each part with (i)/(ii) or (a)/(b). "
+            f"CRITICAL: Each sub-part MUST address a distinct topic, mechanism, or analytical angle from the same module. "
+            f"Sub-parts must NEVER be identical or near-duplicate paraphrases of each other."
         )
 
     if difficulty_feedback:
