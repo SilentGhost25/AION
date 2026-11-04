@@ -42,9 +42,27 @@ from core.generation.agents.legacy_adapter import (
     _extract_subpart_texts,
     _strip_shared_prefix,
     _to_question_dict,
+    _clean_topic as legacy_clean_topic,
+    _specific_overlap,
 )
 from core.generation.agents.generated_question import GeneratedQuestion as AgentGeneratedQuestion
 from core.generation.agents.prompts import build_task_section
+from core.generation.agents.local_evaluators import (
+    topic_fragment_evaluator,
+    bloom_content_evaluator,
+    scenario_consistency_evaluator,
+)
+from core.generation.agents.deterministic_repairs import (
+    repair_topic_fragment_and_artifacts,
+    repair_bloom_depth_mismatch,
+    repair_scenario_contradiction,
+)
+from core.generation.agents.evaluation_contracts import (
+    TOPIC_FRAGMENT,
+    BLOOM_DEPTH_MISMATCH,
+    SCENARIO_CONTRADICTION,
+)
+from core.generation.agents.planning_agent import PlanningAgent
 from v0_1.slot_filler import fill_slot
 from v0_1.docx_export import generate_docx_from_paper
 from aion_api import _format_paper
@@ -454,6 +472,193 @@ def test_fail_closed_quality_gate():
 
 
 # =============================================================================
+# Test 9: Topic Fragment Rejection & Deterministic Repair
+# =============================================================================
+
+def test_topic_fragment_evaluator_and_repair():
+    """Verify topic_fragment_evaluator flags ungrammatical fragments and repairs them."""
+    # Defect from audit: Q4(b)
+    q_garbled_1 = AgentGeneratedQuestion(
+        slot_id="slot_q4b",
+        module_id="module_2",
+        global_q_idx=4,
+        question_text="Apply the operational characteristics, critical trade-offs, and boundary constraints of executed by multiple processors parallel in detail.",
+        solution="Model solution.",
+        marking_scheme=[{"criterion": "Trade-offs", "marks": 4}],
+        marks=4,
+        bloom="L3",
+        topic="executed by multiple processors parallel",
+    )
+    verdict_1 = topic_fragment_evaluator(q_garbled_1)
+    assert verdict_1 is not None, "Failed to flag participle topic fragment 'executed by...'"
+    assert verdict_1.reason_code == TOPIC_FRAGMENT
+
+    # Defect from audit: Q9(b) with stray bullet and clause fragment
+    q_garbled_2 = AgentGeneratedQuestion(
+        slot_id="slot_q9b",
+        module_id="module_5",
+        global_q_idx=9,
+        question_text="Appraise the operational characteristics, critical trade-offs, and boundary constraints of ▪ Indefinite blocking, where low-priority processes in detail.",
+        solution="Model solution.",
+        marking_scheme=[{"criterion": "Critique", "marks": 4}],
+        marks=4,
+        bloom="L5",
+        topic="▪ Indefinite blocking, where low-priority processes",
+    )
+    verdict_2 = topic_fragment_evaluator(q_garbled_2)
+    assert verdict_2 is not None, "Failed to flag stray bullet and clause fragment"
+    assert verdict_2.reason_code == TOPIC_FRAGMENT
+
+    # Deterministic repair of garbled question 2
+    repaired_2 = repair_topic_fragment_and_artifacts(q_garbled_2, verdict_2.reason_code, verdict_2.detail)
+    assert repaired_2 is not None
+    assert "▪" not in repaired_2.question_text
+    assert ", where" not in repaired_2.question_text
+    assert "Indefinite blocking" in repaired_2.question_text
+    assert topic_fragment_evaluator(repaired_2) is None, f"Repaired question should pass: {repaired_2.question_text}"
+
+    # Valid question should pass cleanly
+    q_valid = AgentGeneratedQuestion(
+        slot_id="slot_q1",
+        module_id="module_1",
+        global_q_idx=1,
+        question_text="Explain the architectural structure and primary operating principles of virtual memory management in detail.",
+        solution="Model solution.",
+        marking_scheme=[{"criterion": "Principles", "marks": 6}],
+        marks=6,
+        bloom="L2",
+        topic="Virtual Memory Management",
+    )
+    assert topic_fragment_evaluator(q_valid) is None
+
+
+# =============================================================================
+# Test 10: Bloom Content & Cognitive Depth Verification
+# =============================================================================
+
+def test_bloom_content_evaluator_and_depth():
+    """Verify bloom_content_evaluator detects descriptive veneer and subpart depth mismatches."""
+    # Defect from audit: Q8(a) marked L5 but is descriptive recall
+    q_veneer = AgentGeneratedQuestion(
+        slot_id="slot_q8",
+        module_id="module_4",
+        global_q_idx=8,
+        question_text="(a) Evaluate the role of the system call table. (b) Provide a step-by-step example of handling a user interrupt.",
+        solution="Model solution.",
+        marking_scheme=[{"criterion": "Part a", "marks": 6}, {"criterion": "Part b", "marks": 4}],
+        marks=10,
+        bloom="L5",
+        topic="System Calls",
+    )
+    verdict = bloom_content_evaluator(q_veneer)
+    assert verdict is not None, "Failed to detect L5 descriptive veneer 'Evaluate the role of'"
+    assert verdict.reason_code == BLOOM_DEPTH_MISMATCH
+
+    # Repair should elevate the cognitive demand
+    repaired = repair_bloom_depth_mismatch(q_veneer, verdict.reason_code, verdict.detail)
+    assert repaired is not None
+    assert "Critically evaluate" in repaired.question_text
+    assert bloom_content_evaluator(repaired) is None, f"Elevated question should pass: {repaired.question_text}"
+
+    # Defect: L4 slot with subpart (b) starting with L2 'Describe'
+    q_l4_mismatch = AgentGeneratedQuestion(
+        slot_id="slot_q6",
+        module_id="module_3",
+        global_q_idx=6,
+        question_text="(a) Analyze the cache coherence protocols. (b) Describe the bus snooping mechanism in SMP systems.",
+        solution="Model solution.",
+        marking_scheme=[{"criterion": "Part a", "marks": 6}, {"criterion": "Part b", "marks": 4}],
+        marks=10,
+        bloom="L4",
+        topic="Multiprocessors",
+    )
+    verdict_l4 = bloom_content_evaluator(q_l4_mismatch)
+    assert verdict_l4 is not None
+    assert verdict_l4.reason_code == BLOOM_DEPTH_MISMATCH
+
+    repaired_l4 = repair_bloom_depth_mismatch(q_l4_mismatch, verdict_l4.reason_code, verdict_l4.detail)
+    assert repaired_l4 is not None
+    assert "(b) Analyze the operational mechanisms of" in repaired_l4.question_text
+    assert bloom_content_evaluator(repaired_l4) is None
+
+
+# =============================================================================
+# Test 11: Scenario Consistency Evaluator
+# =============================================================================
+
+def test_scenario_consistency_evaluator():
+    """Verify scenario_consistency_evaluator detects contradictory premises."""
+    # Defect from audit: Q9(a) Round-robin + monopolize CPU
+    q_rr_conflict = AgentGeneratedQuestion(
+        slot_id="slot_q9a",
+        module_id="module_5",
+        global_q_idx=9,
+        question_text="Consider a scenario where a high-priority process monopolizes the CPU for 10 seconds, leaving a low-priority process waiting. Calculate the wait time if the system uses a round-robin scheduling algorithm with a time quantum of 2 seconds.",
+        solution="Model calculation.",
+        marking_scheme=[{"criterion": "Calculation", "marks": 6}],
+        marks=6,
+        bloom="L3",
+        topic="CPU Scheduling",
+    )
+    verdict_rr = scenario_consistency_evaluator(q_rr_conflict)
+    assert verdict_rr is not None, "Failed to detect round-robin quantum vs monopolization contradiction"
+    assert verdict_rr.reason_code == SCENARIO_CONTRADICTION
+
+    repaired_rr = repair_scenario_contradiction(q_rr_conflict, verdict_rr.reason_code, verdict_rr.detail)
+    assert repaired_rr is not None
+    assert "priority scheduling algorithm without preemption" in repaired_rr.question_text
+    assert scenario_consistency_evaluator(repaired_rr) is None
+
+    # Defect from audit: Q5(a) 30 fps vs 1 sec per frame
+    q_rate_conflict = AgentGeneratedQuestion(
+        slot_id="slot_q5a",
+        module_id="module_3",
+        global_q_idx=5,
+        question_text="Consider real-time video streaming at 30 frames per second, where each frame is 1 MB in size. Assume no compression and a transmission rate of 1 second per frame.",
+        solution="Model solution.",
+        marking_scheme=[{"criterion": "Bandwidth", "marks": 6}],
+        marks=6,
+        bloom="L3",
+        topic="Multimedia Transmission",
+    )
+    verdict_rate = scenario_consistency_evaluator(q_rate_conflict)
+    assert verdict_rate is not None, "Failed to detect 30 fps vs 1 second per frame rate contradiction"
+    assert verdict_rate.reason_code == SCENARIO_CONTRADICTION
+
+    repaired_rate = repair_scenario_contradiction(q_rate_conflict, verdict_rate.reason_code, verdict_rate.detail)
+    assert repaired_rate is not None
+    assert scenario_consistency_evaluator(repaired_rate) is None
+
+
+# =============================================================================
+# Test 12: Topic Source Sanitization & Sibling Overlap Containment
+# =============================================================================
+
+def test_stray_artifacts_and_topic_sanitization():
+    """Verify topic sanitization, bullet stripping, and sibling overlap containment."""
+    # Test planning agent topic cleaning
+    raw_topic = "▪ Indefinite blocking, where low-priority processes"
+    cleaned = PlanningAgent._clean_topic(raw_topic)
+    assert cleaned == "Indefinite blocking"
+    assert PlanningAgent._is_valid_topic(cleaned) is True
+
+    # Test participle fragment rejection
+    assert PlanningAgent._is_valid_topic("executed by multiple processors parallel") is False
+
+    # Test sibling overlap containment (Q2a vs Q2b audit defect)
+    s1 = "Describe the role of the OS in managing hardware resources efficiently."
+    s2 = "Outline the methods by which the OS ensures efficient use of computer hardware."
+    common, containment = _specific_overlap(s1, s2)
+    assert containment >= 0.6, f"Containment should be >= 0.6 for duplicate asks: {containment}"
+    assert len(common) >= 2, f"Common specific terms should be >= 2: {common}"
+
+    # Test distinct questions have low containment
+    s3 = "Explain the dual-mode operation and privileged instruction set in modern CPUs."
+    _, containment_s3 = _specific_overlap(s1, s3)
+    assert containment_s3 < 0.3
+
+
+# =============================================================================
 # Standalone Runner
 # =============================================================================
 
@@ -467,6 +672,10 @@ def run_all_tests() -> int:
         ("Full VTU Paper Assembly (Q1..Q10)", test_full_vtu_paper_assembly),
         ("DOCX Exporter File Integrity", test_docx_export_generation),
         ("Fail-Closed Quality Gate", test_fail_closed_quality_gate),
+        ("Topic Fragment Rejection & Repair", test_topic_fragment_evaluator_and_repair),
+        ("Bloom Content Depth & Veneer Check", test_bloom_content_evaluator_and_depth),
+        ("Scenario Premise Consistency Check", test_scenario_consistency_evaluator),
+        ("Topic Sanitization & Overlap Containment", test_stray_artifacts_and_topic_sanitization),
     ]
 
     print("\n" + "=" * 78)

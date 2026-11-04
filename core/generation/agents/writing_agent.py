@@ -461,6 +461,13 @@ class WritingAgent(Agent):
             if stripped:
                 q_text = stripped[0].upper() + stripped[1:]
 
+        # Strip bullet markers and template artifacts
+        q_text = re.sub(r"[▪•→◆■]+", " ", q_text)
+        # Strip trailing/inline stray subpart markers like "...their functions (i)." or "...processes. (ii)"
+        q_text = re.sub(r"\s*\([ivxIVX\d]+\)\s*(?=[.?!]|$)", "", q_text)
+        q_text = re.sub(r"\.\s*\([ivxIVX\d]+\)\s*$", ".", q_text)
+        q_text = re.sub(r"\s+", " ", q_text).strip()
+
         scheme = list(parsed.get("marking_scheme", []) or [])
         if scheme and all(isinstance(e, dict) for e in scheme):
             current_sum = sum(e.get("marks", 0) for e in scheme if isinstance(e.get("marks"), (int, float)))

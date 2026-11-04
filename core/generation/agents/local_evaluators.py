@@ -25,6 +25,10 @@ from .evaluation_contracts import (
     QUESTION_TOO_SHORT,
     SOLUTION_MISSING,
     SOLUTION_TOO_SHORT,
+    TOPIC_FRAGMENT,
+    BLOOM_DEPTH_MISMATCH,
+    SCENARIO_CONTRADICTION,
+    SIBLING_DUPLICATE,
     SlotVerdict,
 )
 from .prompts import BLOOM_VERBS
@@ -253,8 +257,187 @@ def multi_part_structure_evaluator(question) -> Optional[SlotVerdict]:
 # -----------------------------------------------------------------------------
 
 
+def _extract_subparts(text: str) -> List[tuple]:
+    """Extract (label, subpart_text) from text."""
+    pattern = (
+        r"(?:^|\n|(?<=[.:;?!]\s)|(?<=\s))"
+        r"(?:"
+        r"\(([a-eA-E])\)"
+        r"|\(([ivxIVX]{1,4})\)"
+        r"|\(([1-9])\)"
+        r"|([a-eA-E])\)"
+        r"|(?<=\s)([a-eA-E])\.)"
+        r"\s+"
+    )
+    matches = list(re.finditer(pattern, text))
+    if not matches:
+        return []
+    parts = []
+    for i in range(len(matches)):
+        label = matches[i].group(0).strip()
+        start = matches[i].end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        part_text = text[start:end].strip()
+        parts.append((label, part_text))
+    return parts
+
+
+def topic_fragment_evaluator(question) -> Optional[SlotVerdict]:
+    """Reject questions with garbled topic insertion or template artifacts."""
+    text = (getattr(question, "question_text", None) or getattr(question, "text", "") or "").strip()
+    if not text:
+        return None
+
+    # Check for raw bullet or template markers anywhere in question text
+    if any(marker in text for marker in ["▪", "•", "→", "◆", "■"]):
+        return _fail(
+            question, TOPIC_FRAGMENT,
+            f"Question contains template or bullet artifacts: {text[:60]!r}",
+            fix="Remove bullet markers and unparsed artifact symbols",
+        )
+
+    # Pattern: "... of {TOPIC} in detail" or "... of {TOPIC}."
+    match = re.search(r"\bof\s+(.+?)(?:\s+in\s+detail|\s*[.?!]|\s*$)", text, re.IGNORECASE)
+    if match:
+        topic = match.group(1).strip()
+        topic_words = topic.split()
+        if topic_words and topic_words[0].lower() in {"the", "a", "an"}:
+            topic_sub = " ".join(topic_words[1:])
+        else:
+            topic_sub = topic
+
+        if topic.endswith(",") or topic.endswith(";"):
+            return _fail(
+                question, TOPIC_FRAGMENT,
+                f"Topic ends mid-clause: {topic!r}",
+                fix="Use a complete noun phrase as topic",
+            )
+
+        if re.search(r"\b(where|which|that|who|when)\b", topic, re.IGNORECASE):
+            return _fail(
+                question, TOPIC_FRAGMENT,
+                f"Topic contains incomplete relative clause: {topic!r}",
+                fix="Use a concise concept noun phrase without relative clauses",
+            )
+
+        fragment_starters = {
+            "executed", "executing", "where", "which", "that", "by", "when",
+            "and", "or", "if", "because", "while", "during", "given", "using",
+        }
+        sub_words = topic_sub.split()
+        first_word = sub_words[0].lower().rstrip(".,;:!?") if sub_words else ""
+        if first_word in fragment_starters:
+            return _fail(
+                question, TOPIC_FRAGMENT,
+                f"Topic starts with fragment word: {first_word!r}",
+                fix="Use a noun phrase rather than a participle or conjunction clause",
+            )
+
+        if len(sub_words) < 2 and not (len(sub_words) == 1 and sub_words[0].isupper() and len(sub_words[0]) >= 2):
+            if len(topic.strip()) < 3:
+                return _fail(
+                    question, TOPIC_FRAGMENT,
+                    f"Topic phrase is too short or empty: {topic!r}",
+                    fix="Provide a substantive concept name",
+                )
+
+    return None
+
+
+L1_L2_VERBS = frozenset({
+    "describe", "explain", "state", "list", "define", "outline",
+    "identify", "summarize", "mention", "what", "name",
+})
+
+L3_VERBS = frozenset({
+    "calculate", "compute", "apply", "solve", "determine", "derive",
+    "illustrate", "demonstrate", "provide", "show", "construct",
+})
+
+
+def bloom_content_evaluator(question) -> Optional[SlotVerdict]:
+    """Ensure cognitive demand matches the assigned Bloom level."""
+    bloom = getattr(question, "bloom", "L2")
+    text = (getattr(question, "question_text", None) or getattr(question, "text", "") or "").strip()
+    if not text:
+        return None
+
+    veneer_patterns = [
+        (r"\bevaluate\s+the\s+role\s+of\b", "Evaluate the role of is descriptive (L2) rather than an evaluation with criteria (L5)."),
+        (r"\banalyze\s+what\s+is\b", "Analyze what is is definitional (L1/L2) rather than analytical (L4)."),
+        (r"\bevaluate\s+the\s+definition\b", "Evaluate the definition is definitional (L1) rather than evaluative (L5)."),
+    ]
+    if bloom in ("L4", "L5", "L6"):
+        for pattern, msg in veneer_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                return _fail(
+                    question, BLOOM_DEPTH_MISMATCH,
+                    f"Cognitive depth mismatch for {bloom}: {msg}",
+                    fix="Frame the question to require comparative analysis, trade-off assessment, or critical judgment against explicit criteria.",
+                )
+
+    sub_parts = _extract_subparts(text)
+    if len(sub_parts) > 1 and bloom in ("L4", "L5", "L6"):
+        for label, sub_text in sub_parts:
+            first = _first_meaningful_word(sub_text)
+            if first in L1_L2_VERBS:
+                return _fail(
+                    question, BLOOM_DEPTH_MISMATCH,
+                    f"Subpart {label} uses lower-order verb {first!r} (L1/L2) in a slot marked {bloom}.",
+                    fix=f"Align subpart {label} to {bloom} cognitive level (e.g., analyze, compare, evaluate, critique).",
+                )
+            if bloom in ("L5", "L6") and first in L3_VERBS:
+                return _fail(
+                    question, BLOOM_DEPTH_MISMATCH,
+                    f"Subpart {label} uses procedural verb {first!r} (L3) in a slot marked {bloom}.",
+                    fix=f"Elevate subpart {label} to require evaluation, critique, or synthesis.",
+                )
+
+    return None
+
+
+def scenario_consistency_evaluator(question) -> Optional[SlotVerdict]:
+    """Detect factual and numerical premise contradictions in question scenarios."""
+    text = (getattr(question, "question_text", None) or getattr(question, "text", "") or "").lower()
+    if not text:
+        return None
+
+    # Contradiction 1: Round-robin quantum vs CPU monopolization
+    if ("round-robin" in text or "round robin" in text or "time quantum" in text) and (
+        "monopoliz" in text or "monopolises" in text
+    ):
+        return _fail(
+            question, SCENARIO_CONTRADICTION,
+            "Contradictory premises: Round-robin scheduling with time quantum precludes CPU monopolization.",
+            fix="Align scheduling algorithm with the scenario (e.g., priority scheduling without preemption).",
+        )
+
+    # Contradiction 2: Conflicting frame rates / transmission rates
+    fps_match = re.search(r"(\d+)\s*(?:fps|frames?\s+per\s+second)", text)
+    spf_match = re.search(r"(\d+)\s*(?:seconds?|secs?)\s+per\s+frame", text)
+    if fps_match and spf_match:
+        fps_val = float(fps_match.group(1))
+        spf_val = float(spf_match.group(1))
+        if fps_val > 1.0 and spf_val >= 1.0:
+            return _fail(
+                question, SCENARIO_CONTRADICTION,
+                f"Contradictory rates: Scenario specifies both {fps_val} frames per second and {spf_val} second(s) per frame.",
+                fix="Specify consistent frame rate and transmission parameters.",
+            )
+
+    return None
+
+
+# -----------------------------------------------------------------------------
+# Aggregated list
+# -----------------------------------------------------------------------------
+
+
 LOCAL_EVALUATORS: List[LocalEvaluator] = [
     bloom_verb_evaluator,
+    topic_fragment_evaluator,
+    scenario_consistency_evaluator,
+    bloom_content_evaluator,
     marking_scheme_evaluator,
     figure_consistency_evaluator,
     question_length_evaluator,

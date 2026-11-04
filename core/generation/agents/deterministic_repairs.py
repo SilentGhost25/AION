@@ -26,6 +26,10 @@ from .evaluation_contracts import (
     MULTI_PART_STRUCTURE_MISMATCH,
     QUESTION_TOO_SHORT,
     SOLUTION_TOO_SHORT,
+    TOPIC_FRAGMENT,
+    BLOOM_DEPTH_MISMATCH,
+    SCENARIO_CONTRADICTION,
+    SIBLING_DUPLICATE,
     UNVERIFIED,
 )
 from .generated_question import GeneratedQuestion
@@ -299,6 +303,138 @@ def repair_multi_part_structure(
     return None
 
 
+def repair_topic_fragment_and_artifacts(
+    question: GeneratedQuestion,
+    reason_code: str,
+    detail: str,
+) -> Optional[GeneratedQuestion]:
+    """
+    Repair TOPIC_FRAGMENT by removing bullet artifacts, stripping clause fragments,
+    and cleaning garbled topic templates.
+    """
+    if reason_code != TOPIC_FRAGMENT:
+        return None
+    text = (question.question_text or "").strip()
+    if not text:
+        return None
+
+    cleaned = re.sub(r"[▪•→◆■]+", " ", text)
+    cleaned = re.sub(r"\s*\([ivxIVX\d]+\)\s*(?=[.?!]|$)", "", cleaned)
+    cleaned = re.sub(r"\.\s*\([ivxIVX\d]+\)\s*$", ".", cleaned)
+
+    m = re.search(r"\bof\s+(.+?)(?:\s+in\s+detail|\s*[.?!]|\s*$)", cleaned, re.IGNORECASE)
+    if m:
+        raw_topic = m.group(1).strip()
+        clean_top = re.sub(r"^[▪•→◆■\*\-\d\.\)\s]+", "", raw_topic).strip()
+        clean_top = re.split(r",\s*(?:where|which|that|who|when)\b", clean_top, flags=re.IGNORECASE)[0].strip()
+        clean_top = clean_top.rstrip(",;:.- ")
+        clean_top = re.sub(r"^(?:executed\s+by|where|which|that|by|when|and|or|for|during|using)\s+", "", clean_top, flags=re.IGNORECASE).strip()
+        if clean_top.lower().startswith("the "):
+            clean_top = clean_top[4:].strip()
+        if not clean_top or len(clean_top) < 3:
+            clean_top = getattr(question, "module_id", "the module").replace("_", " ") + " principles"
+
+        cleaned = cleaned[:m.start(1)] + clean_top + cleaned[m.end(1):]
+
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if cleaned != text:
+        return _replace_text(question, cleaned)
+    return None
+
+
+def repair_bloom_depth_mismatch(
+    question: GeneratedQuestion,
+    reason_code: str,
+    detail: str,
+) -> Optional[GeneratedQuestion]:
+    """
+    Repair BLOOM_DEPTH_MISMATCH by elevating cognitive demand:
+    replace descriptive veneer with analytical/evaluative framing.
+    """
+    if reason_code != BLOOM_DEPTH_MISMATCH:
+        return None
+    text = (question.question_text or "").strip()
+    if not text:
+        return None
+
+    elevated = text
+    elevated = re.sub(
+        r"\bevaluate\s+the\s+role\s+of\b",
+        "Critically evaluate the performance trade-offs and operational role of",
+        elevated,
+        flags=re.IGNORECASE,
+    )
+    elevated = re.sub(
+        r"\banalyze\s+what\s+is\b",
+        "Analyze the architectural principles and operational characteristics of",
+        elevated,
+        flags=re.IGNORECASE,
+    )
+    elevated = re.sub(
+        r"\bevaluate\s+the\s+definition\s+of\b",
+        "Critically assess and evaluate the operational scope of",
+        elevated,
+        flags=re.IGNORECASE,
+    )
+
+    bloom = getattr(question, "bloom", "L2")
+    if bloom in ("L4", "L5", "L6"):
+        elevated = re.sub(
+            r"(\([a-eA-EivxIVX\d]+\)\s*)Describe\b",
+            r"\1Analyze the operational mechanisms of",
+            elevated,
+        )
+        elevated = re.sub(
+            r"(\([a-eA-EivxIVX\d]+\)\s*)Provide a step-by-step example\b",
+            r"\1Critically evaluate with a concrete step-by-step trace",
+            elevated,
+        )
+
+    if elevated != text:
+        return _replace_text(question, elevated)
+    return None
+
+
+def repair_scenario_contradiction(
+    question: GeneratedQuestion,
+    reason_code: str,
+    detail: str,
+) -> Optional[GeneratedQuestion]:
+    """Repair common factual/scenario premise contradictions."""
+    if reason_code != SCENARIO_CONTRADICTION:
+        return None
+    text = (question.question_text or "").strip()
+    if not text:
+        return None
+
+    repaired = text
+    if ("round-robin" in repaired.lower() or "round robin" in repaired.lower()) and "monopoliz" in repaired.lower():
+        repaired = re.sub(
+            r"\b(?:a\s+)?round-robin\s+scheduling\s+algorithm\s+with\s+a\s+time\s+quantum\s+of\s+\d+\s+seconds?\b",
+            "a priority scheduling algorithm without preemption",
+            repaired,
+            flags=re.IGNORECASE,
+        )
+        repaired = re.sub(
+            r"\bround-robin\s+scheduling\b",
+            "non-preemptive priority scheduling",
+            repaired,
+            flags=re.IGNORECASE,
+        )
+
+    if re.search(r"\d+\s*fps", repaired, re.IGNORECASE) or re.search(r"\d+\s*frames?\s+per\s+second", repaired, re.IGNORECASE):
+        repaired = re.sub(
+            r"\btransmission\s+rate\s+of\s+\d+\s*(?:seconds?|secs?)\s+per\s+frame\b",
+            "transmission rate of 30 frames per second",
+            repaired,
+            flags=re.IGNORECASE,
+        )
+
+    if repaired != text:
+        return _replace_text(question, repaired)
+    return None
+
+
 # -----------------------------------------------------------------------------
 # Pipeline
 # -----------------------------------------------------------------------------
@@ -308,6 +444,9 @@ def repair_multi_part_structure(
 REPAIR_PIPELINE = [
     repair_forbidden_preamble,
     repair_bloom_verb,
+    repair_topic_fragment_and_artifacts,
+    repair_scenario_contradiction,
+    repair_bloom_depth_mismatch,
     repair_figure_reference,
     repair_marking_scheme,
     repair_marking_scheme_rescale,

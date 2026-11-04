@@ -444,7 +444,9 @@ def generate_docx_from_paper(paper_data: Dict[str, Any], output_path: Optional[s
     # --- 3. Instructions Line ---
     inst_p = doc.add_paragraph()
     inst_p.paragraph_format.space_after = Pt(8)
-    inst_run = inst_p.add_run("Note: Answer any FIVE full questions, choosing ONE full question from each module.")
+    is_ia = (paper_data.get("exam_type", "").upper() == "IA") or (paper_data.get("max_marks", 50) <= 50)
+    marks_str = "10 marks (6+4)" if is_ia else "20 marks"
+    inst_run = inst_p.add_run(f"Note: Answer ONE full question from each module. Each full question carries {marks_str}.")
     inst_run.bold = True
     inst_run.font.size = Pt(9.5)
     inst_run.font.name = "Calibri"

@@ -41,7 +41,19 @@ def fill_slot(spec: Any, context: str, subject: str) -> str:
 
     # Extract distinct topic/concept within the same module
     evidence_query = getattr(getattr(spec, "evidence", None), "query", "")
-    topic = evidence_query or subject or "the system"
+    raw_topic = evidence_query or subject or "the system"
+
+    import re
+    t = str(raw_topic).strip()
+    t = re.sub(r"^[▪•→◆■\*\-\d\.\)\s]+", "", t).strip()
+    t = re.sub(r"[▪•→◆■]+", " ", t).strip()
+    t = re.split(r",\s*(?:where|which|that|who|when)\b", t, flags=re.IGNORECASE)[0].strip()
+    t = t.rstrip(",;:.- ")
+    t = re.sub(r"^(?:executed\s+by|where|which|that|by|when|and|or|for|during|using)\s+", "", t, flags=re.IGNORECASE).strip()
+    t = re.sub(r"\s+in\s+detail$", "", t, flags=re.IGNORECASE).strip()
+    if t.lower().startswith("the "):
+        t = t[4:].strip()
+    topic = t if t and len(t) >= 3 else "the fundamental concepts"
 
     # Distinct pedagogical angle per subpart to prevent duplicate/near-identical subquestions
     aspects = {

@@ -23,6 +23,7 @@ Module isolation:
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
@@ -309,6 +310,39 @@ class PlanningAgent(Agent):
         idx = (page - 1) // pages_per_module + 1
         return min(idx, module_count)
 
+    @staticmethod
+    def _clean_topic(concept: str) -> str:
+        """Sanitize a topic string: strip bullets, relative clauses, leading participles, etc."""
+        if not concept:
+            return ""
+        t = str(concept).strip()
+        t = re.sub(r"^[▪•→◆■\*\-\d\.\)\s]+", "", t).strip()
+        t = re.sub(r"[▪•→◆■]+", " ", t).strip()
+        t = re.split(r",\s*(?:where|which|that|who|when)\b", t, flags=re.IGNORECASE)[0].strip()
+        t = t.rstrip(",;:.- ")
+        t = re.sub(r"^(?:executed\s+by|where|which|that|by|when|and|or|for|during|using)\s+", "", t, flags=re.IGNORECASE).strip()
+        t = re.sub(r"\s+in\s+detail$", "", t, flags=re.IGNORECASE).strip()
+        if t.lower().startswith("the "):
+            t = t[4:].strip()
+        return t
+
+    @classmethod
+    def _is_valid_topic(cls, concept: str) -> bool:
+        if not concept or len(concept.strip()) < 3:
+            return False
+        words = concept.strip().split()
+        first = words[0].lower().rstrip(".,;:!?")
+        disallowed = {
+            "executed", "executing", "where", "which", "that", "by", "when",
+            "and", "or", "if", "because", "while", "during", "given", "using",
+            "run", "running", "runs", "consists", "includes", "contains",
+        }
+        if first in disallowed:
+            return False
+        if any(marker in concept for marker in ["▪", "•", "→", "◆", "■"]):
+            return False
+        return True
+
     def _pick_topic(
         self,
         kg,
@@ -325,8 +359,9 @@ class PlanningAgent(Agent):
             graph = kg.get_module(module_id)
             top = graph.top_concepts(100)
             for concept, _weight in top:
-                if concept.lower() not in exclude:
-                    return concept
+                cleaned = self._clean_topic(concept)
+                if self._is_valid_topic(cleaned) and cleaned.lower() not in exclude:
+                    return cleaned
         except Exception:
             return ""
         return ""

@@ -186,6 +186,50 @@ def _strip_shared_prefix(sub_texts: list, min_words: int = 6) -> list:
     return result
 
 
+def _clean_topic(concept: str) -> str:
+    """Sanitize a topic string: strip bullets, relative clauses, leading participles, etc."""
+    if not concept:
+        return "the core module concept"
+    t = str(concept).strip()
+    t = re.sub(r"^[▪•→◆■\*\-\d\.\)\s]+", "", t).strip()
+    t = re.sub(r"[▪•→◆■]+", " ", t).strip()
+    t = re.split(r",\s*(?:where|which|that|who|when)\b", t, flags=re.IGNORECASE)[0].strip()
+    t = t.rstrip(",;:.- ")
+    t = re.sub(r"^(?:executed\s+by|where|which|that|by|when|and|or|for|during|using)\s+", "", t, flags=re.IGNORECASE).strip()
+    t = re.sub(r"\s+in\s+detail$", "", t, flags=re.IGNORECASE).strip()
+    if t.lower().startswith("the "):
+        t = t[4:].strip()
+    if not t or len(t) < 3:
+        return "the core principles"
+    return t
+
+
+def _specific_overlap(s1: str, s2: str) -> tuple:
+    generic = {
+        'the', 'of', 'in', 'by', 'which', 'a', 'an', 'and', 'for', 'to', 'is', 'are', 'with',
+        'describe', 'explain', 'outline', 'role', 'method', 'methods', 'way', 'ways', 'how', 
+        'ensure', 'ensures', 'use', 'using', 'detail', 'system', 'systems', 'computer', 'computers', 
+        'following', 'state', 'list', 'define', 'respect', 'provide', 'briefly'
+    }
+    def get_terms(s):
+        w = [t for t in re.findall(r'[a-zA-Z]+', s.lower()) if t not in generic]
+        res = set()
+        for x in w:
+            for suf in ['ingly', 'ously', 'fully', 'ment', 'tion', 'sion', 'ness', 'able', 'ible', 'ing', 'ied', 'ies', 'est', 'ers', 'ely', 'ity', 'ive', 'ous', 'ful', 'ed', 'er', 'ly', 'es', 's']:
+                if len(x) > len(suf) + 2 and x.endswith(suf):
+                    x = x[:-len(suf)]
+                    break
+            if x not in generic:
+                res.add(x)
+        return res
+    t1 = get_terms(s1)
+    t2 = get_terms(s2)
+    common = t1 & t2
+    min_len = min(len(t1), len(t2))
+    containment = len(common) / min_len if min_len > 0 else 0.0
+    return common, containment
+
+
 def _to_question_dict(q: GeneratedQuestion) -> dict:
     """Convert one GeneratedQuestion to the legacy question dict with synthesized subquestions."""
     partition = [int(m) for m in (q.partition or ([q.marks] if q.marks else [10]))]
@@ -201,7 +245,7 @@ def _to_question_dict(q: GeneratedQuestion) -> dict:
             "the practical implementation mechanisms and real-world deployment challenges",
             "the comparative performance analysis and design criteria",
         ]
-        topic = getattr(q, "topic", "") or getattr(q, "module_id", "the core module concept")
+        topic = _clean_topic(getattr(q, "topic", "") or getattr(q, "module_id", "the core module concept"))
         bloom_val = getattr(q, "bloom", "L2")
         from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
         pool = BLOOM_VERB_LEVEL_MAP.get(bloom_val, {"explain"})
@@ -213,7 +257,8 @@ def _to_question_dict(q: GeneratedQuestion) -> dict:
                 w_i = set(re.findall(r"\w+", sub_texts[i].lower()))
                 w_j = set(re.findall(r"\w+", sub_texts[j].lower()))
                 jaccard = len(w_i & w_j) / max(1, len(w_i | w_j))
-                if sub_texts[i].strip().lower() == sub_texts[j].strip().lower() or jaccard >= 0.45:
+                common, containment = _specific_overlap(sub_texts[i], sub_texts[j])
+                if sub_texts[i].strip().lower() == sub_texts[j].strip().lower() or jaccard >= 0.40 or (containment >= 0.6 and len(common) >= 2):
                     is_dup = True
                     break
             if is_dup:
