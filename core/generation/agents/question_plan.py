@@ -31,8 +31,22 @@ class QuestionPlan:
     bloom: str = "L2"
 
     # Topic grounding (from KG)
-    topic: str = ""
+    topic: str = ""                         # Primary/legacy topic
+    topic_a: str = ""                       # Dedicated topic for sub-part (a)
+    topic_b: str = ""                       # Dedicated topic for sub-part (b)
     concept_neighborhood: List = field(default_factory=list)
+    concept_neighborhood_a: List = field(default_factory=list)
+    concept_neighborhood_b: List = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.topic_a:
+            self.topic_a = self.topic
+        if not self.topic_b:
+            self.topic_b = self.topic
+        if not self.concept_neighborhood_a and self.concept_neighborhood:
+            self.concept_neighborhood_a = list(self.concept_neighborhood)
+        if not self.concept_neighborhood_b and self.concept_neighborhood:
+            self.concept_neighborhood_b = list(self.concept_neighborhood)
 
     # Evidence
     evidence_blocks: List = field(default_factory=list)

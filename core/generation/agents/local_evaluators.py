@@ -29,6 +29,7 @@ from .evaluation_contracts import (
     BLOOM_DEPTH_MISMATCH,
     SCENARIO_CONTRADICTION,
     SIBLING_DUPLICATE,
+    SIBLING_INTERCONNECTED,
     SlotVerdict,
 )
 from .prompts import BLOOM_VERBS
@@ -428,6 +429,49 @@ def scenario_consistency_evaluator(question) -> Optional[SlotVerdict]:
     return None
 
 
+def sibling_independence_evaluator(question) -> Optional[SlotVerdict]:
+    """
+    Reject multi-part questions where subpart (b) references (a) explicitly,
+    extends (a), compares against (a)'s answer, or starts with pronouns referring to (a).
+    """
+    text = (getattr(question, "question_text", None) or getattr(question, "text", "") or "").strip()
+    if not text:
+        return None
+
+    chain_patterns = [
+        (r"\bwith\s+reference\s+to\s+(?:part\s*)?\(?[ab]\)?", "explicit chaining to previous part"),
+        (r"\bin\s+(?:the\s+)?context\s+of\s+(?:part\s*)?\(?[ab]\)?", "contextual dependency on previous part"),
+        (r"\busing\s+(?:your|the)\s+answer\s+(?:from|to)\s+(?:part\s*)?\(?[ab]\)?", "dependency on previous part's answer"),
+        (r"\bextend(?:ing)?\s+(?:the\s+)?(?:above|part\s*\(?[ab]\)?)", "extends previous part instead of testing distinct topic"),
+        (r"\bcontinuing\s+from\s+(?:part\s*)?\(?[ab]\)?", "continuity chaining from previous part"),
+        (r"\bcompare\s+(?:this\s+)?to\s+(?:your|the)\s+answer\b", "references previous answer"),
+        (r"\bhow\s+does\s+(?:this|that)\s+compare\b", "relies on comparison with previous part"),
+        (r"\bsubsequent\s+to\s+(?:the\s+)?above\b", "sequential dependency on previous part"),
+        (r"\bbased\s+on\s+the\s+result\s+of\b", "result dependency on previous part"),
+    ]
+
+    for pattern, desc in chain_patterns:
+        if re.search(pattern, text, re.IGNORECASE):
+            return _fail(
+                question, SIBLING_INTERCONNECTED,
+                f"Sub-question chaining detected: {desc}",
+                fix="Rewrite sub-part (b) as an independent question testing a distinct topic without referencing part (a).",
+            )
+
+    subparts = _extract_subparts(text)
+    if len(subparts) > 1:
+        for label, sub_text in subparts[1:]:
+            first_w = _first_meaningful_word(sub_text)
+            if first_w in {"it", "this", "that", "these", "those", "they", "them", "such"}:
+                return _fail(
+                    question, SIBLING_INTERCONNECTED,
+                    f"Sub-part {label} starts with referring pronoun {first_w!r} rather than an independent concept/verb.",
+                    fix=f"Make sub-part {label} self-contained with its own noun subject or Bloom verb.",
+                )
+
+    return None
+
+
 # -----------------------------------------------------------------------------
 # Aggregated list
 # -----------------------------------------------------------------------------
@@ -438,6 +482,7 @@ LOCAL_EVALUATORS: List[LocalEvaluator] = [
     topic_fragment_evaluator,
     scenario_consistency_evaluator,
     bloom_content_evaluator,
+    sibling_independence_evaluator,
     marking_scheme_evaluator,
     figure_consistency_evaluator,
     question_length_evaluator,

@@ -182,7 +182,8 @@ def _strip_shared_prefix(sub_texts: list, min_words: int = 6) -> list:
         if first_word in task_verbs:
             result.append(tail)
         else:
-            result.append(f"With reference to part (a), {tail}")
+            clean_tail = tail[0].lower() + tail[1:] if tail else tail
+            result.append(f"Explain the principles and mechanisms of {clean_tail}")
     return result
 
 
@@ -245,7 +246,8 @@ def _to_question_dict(q: GeneratedQuestion) -> dict:
             "the practical implementation mechanisms and real-world deployment challenges",
             "the comparative performance analysis and design criteria",
         ]
-        topic = _clean_topic(getattr(q, "topic", "") or getattr(q, "module_id", "the core module concept"))
+        topic_a = _clean_topic(getattr(q, "topic_a", "") or getattr(q, "topic", "") or getattr(q, "module_id", "the core module concept"))
+        topic_b = _clean_topic(getattr(q, "topic_b", "") or getattr(q, "topic", "") or getattr(q, "module_id", "the core module concept"))
         bloom_val = getattr(q, "bloom", "L2")
         from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
         pool = BLOOM_VERB_LEVEL_MAP.get(bloom_val, {"explain"})
@@ -263,7 +265,8 @@ def _to_question_dict(q: GeneratedQuestion) -> dict:
                     break
             if is_dup:
                 sub_aspect = aspects[i % len(aspects)]
-                sub_texts[i] = f"{verb} {sub_aspect} of {topic} in detail."
+                active_topic = topic_b if (i > 0 and topic_b != topic_a) else topic_a
+                sub_texts[i] = f"{verb} {sub_aspect} of {active_topic} in detail."
 
     sub_questions = [
         {

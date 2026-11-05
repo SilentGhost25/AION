@@ -172,19 +172,53 @@ class PlanningAgent(Agent):
                 total_marks = sum(partition)
                 bloom = self._assign_bloom(partition, co=co, position=within_idx)
 
-                topic = self._pick_topic(
-                    kg=kg,
-                    module_id=module_id,
-                    module_idx=module_idx,
-                    exclude=used_topics[module_id],
-                )
-                if topic:
-                    used_topics[module_id].add(topic.lower())
-                else:
-                    topic = f"Module {module_idx} — Topic {within_idx + 1}"
-                    used_topics[module_id].add(topic.lower())
+                if len(partition) > 1:
+                    topic_a = self._pick_topic(
+                        kg=kg,
+                        module_id=module_id,
+                        module_idx=module_idx,
+                        exclude=used_topics[module_id],
+                    )
+                    if topic_a:
+                        used_topics[module_id].add(topic_a.lower())
+                    else:
+                        topic_a = f"Module {module_idx} — Concept A{within_idx + 1}"
+                        used_topics[module_id].add(topic_a.lower())
 
-                neighborhood = self._get_neighborhood(kg, module_id, topic)
+                    topic_b = self._pick_topic(
+                        kg=kg,
+                        module_id=module_id,
+                        module_idx=module_idx,
+                        exclude=used_topics[module_id],
+                    )
+                    if topic_b:
+                        used_topics[module_id].add(topic_b.lower())
+                    else:
+                        topic_b = f"Module {module_idx} — Concept B{within_idx + 1}"
+                        used_topics[module_id].add(topic_b.lower())
+
+                    topic = topic_a
+                    neighborhood_a = self._get_neighborhood(kg, module_id, topic_a)
+                    neighborhood_b = self._get_neighborhood(kg, module_id, topic_b)
+                    neighborhood = neighborhood_a
+                else:
+                    topic = self._pick_topic(
+                        kg=kg,
+                        module_id=module_id,
+                        module_idx=module_idx,
+                        exclude=used_topics[module_id],
+                    )
+                    if topic:
+                        used_topics[module_id].add(topic.lower())
+                    else:
+                        topic = f"Module {module_idx} — Topic {within_idx + 1}"
+                        used_topics[module_id].add(topic.lower())
+                    topic_a = topic
+                    topic_b = topic
+                    neighborhood = self._get_neighborhood(kg, module_id, topic)
+                    neighborhood_a = neighborhood
+                    neighborhood_b = neighborhood
+
                 evidence_blocks = self._pick_evidence_blocks(
                     artifact=artifact,
                     module_idx=module_idx,
@@ -216,7 +250,11 @@ class PlanningAgent(Agent):
                         co=co,
                         bloom=bloom,
                         topic=topic or f"Module {module_idx}",
+                        topic_a=topic_a or f"Module {module_idx}",
+                        topic_b=topic_b or f"Module {module_idx}",
                         concept_neighborhood=neighborhood,
+                        concept_neighborhood_a=neighborhood_a,
+                        concept_neighborhood_b=neighborhood_b,
                         evidence_blocks=evidence_blocks,
                         visual_required=visual_required,
                         figure=figure,

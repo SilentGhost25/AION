@@ -30,6 +30,7 @@ from .evaluation_contracts import (
     BLOOM_DEPTH_MISMATCH,
     SCENARIO_CONTRADICTION,
     SIBLING_DUPLICATE,
+    SIBLING_INTERCONNECTED,
     UNVERIFIED,
 )
 from .generated_question import GeneratedQuestion
@@ -435,6 +436,68 @@ def repair_scenario_contradiction(
     return None
 
 
+def repair_sibling_independence(
+    question: GeneratedQuestion,
+    reason_code: str,
+    detail: str,
+) -> Optional[GeneratedQuestion]:
+    """
+    Repair SIBLING_INTERCONNECTED by stripping chaining phrases like
+    'With reference to part (a)', 'In the context of part (a)', etc.,
+    or replacing dependent pronouns at the start of subpart (b).
+    """
+    if reason_code != SIBLING_INTERCONNECTED:
+        return None
+    text = (question.question_text or "").strip()
+    if not text:
+        return None
+
+    repaired = text
+    chain_strip_patterns = [
+        r"\bwith\s+reference\s+to\s+(?:part\s*)?\(?[ab]\)?\s*[,.:;]?\s*",
+        r"\bin\s+(?:the\s+)?context\s+of\s+(?:part\s*)?\(?[ab]\)?\s*[,.:;]?\s*",
+        r"\busing\s+(?:your|the)\s+answer\s+(?:from|to)\s+(?:part\s*)?\(?[ab]\)?\s*[,.:;]?\s*",
+        r"\bcontinuing\s+from\s+(?:part\s*)?\(?[ab]\)?\s*[,.:;]?\s*",
+        r"\bsubsequent\s+to\s+(?:the\s+)?above\s*[,.:;]?\s*",
+    ]
+    for p in chain_strip_patterns:
+        m = re.search(p, repaired, flags=re.IGNORECASE)
+        if m:
+            start, end = m.span()
+            head = repaired[:start]
+            tail = repaired[end:].lstrip()
+            if tail:
+                tail = tail[0].upper() + tail[1:]
+            repaired = head + tail
+
+    repaired = re.sub(
+        r"\bhow\s+does\s+(?:this|that)\s+compare\s+to\b",
+        "Evaluate and compare the operational characteristics with",
+        repaired,
+        flags=re.IGNORECASE,
+    )
+
+    topic_b = getattr(question, "topic_b", "") or getattr(question, "topic", "")
+    topic_clean = topic_b.strip() if topic_b else "the corresponding architectural mechanism"
+    repaired = re.sub(
+        r"(\([a-eA-EivxIVX\d]+\)\s*)(?:It|This|That|These|Those|They)\s+is\s+used\s+to\b",
+        r"\1Explain how " + topic_clean + " is used to",
+        repaired,
+        flags=re.IGNORECASE,
+    )
+    repaired = re.sub(
+        r"(\([a-eA-EivxIVX\d]+\)\s*)(?:This|These)\s+(?:mechanism|task|technique|method)s?\b",
+        r"\1" + topic_clean.capitalize(),
+        repaired,
+        flags=re.IGNORECASE,
+    )
+
+    repaired = re.sub(r"\s+", " ", repaired).strip()
+    if repaired != text:
+        return _replace_text(question, repaired)
+    return None
+
+
 # -----------------------------------------------------------------------------
 # Pipeline
 # -----------------------------------------------------------------------------
@@ -447,6 +510,7 @@ REPAIR_PIPELINE = [
     repair_topic_fragment_and_artifacts,
     repair_scenario_contradiction,
     repair_bloom_depth_mismatch,
+    repair_sibling_independence,
     repair_figure_reference,
     repair_marking_scheme,
     repair_marking_scheme_rescale,

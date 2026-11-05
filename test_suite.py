@@ -46,21 +46,25 @@ from core.generation.agents.legacy_adapter import (
     _specific_overlap,
 )
 from core.generation.agents.generated_question import GeneratedQuestion as AgentGeneratedQuestion
-from core.generation.agents.prompts import build_task_section
+from core.generation.agents.prompts import build_task_section, build_topic_section
+from core.generation.agents.question_plan import QuestionPlan
 from core.generation.agents.local_evaluators import (
     topic_fragment_evaluator,
     bloom_content_evaluator,
     scenario_consistency_evaluator,
+    sibling_independence_evaluator,
 )
 from core.generation.agents.deterministic_repairs import (
     repair_topic_fragment_and_artifacts,
     repair_bloom_depth_mismatch,
     repair_scenario_contradiction,
+    repair_sibling_independence,
 )
 from core.generation.agents.evaluation_contracts import (
     TOPIC_FRAGMENT,
     BLOOM_DEPTH_MISMATCH,
     SCENARIO_CONTRADICTION,
+    SIBLING_INTERCONNECTED,
 )
 from core.generation.agents.planning_agent import PlanningAgent
 from v0_1.slot_filler import fill_slot
@@ -213,22 +217,40 @@ def test_subquestion_diversity_within_same_module():
 
 
 # =============================================================================
-# Test 4: Multi-Part Prompt Instructions
+# Test 4: Multi-Part Prompt Instructions & Sibling Independence Directive
 # =============================================================================
 
 def test_multipart_prompt_instructions():
-    """Verify that multi-part question prompts enforce subquestion diversity and explicit markers."""
-    class MockPlan:
-        bloom = "L3"
-        total_marks = 10
-        is_multi_part = True
-        partition = [6, 4]
+    """Verify that multi-part question prompts enforce subquestion diversity, distinct topics, and independence."""
+    plan = QuestionPlan(
+        slot_id="mod_1_Q1",
+        module_id="module_1",
+        module_idx=1,
+        slot_idx=0,
+        global_q_idx=1,
+        partition=[6, 4],
+        total_marks=10,
+        bloom="L3",
+        topic="Machine Learning Deployment",
+        topic_a="Challenges of deploying ML in production",
+        topic_b="Find-S algorithm trace and hypothesis representation",
+    )
 
-    prompt_section = build_task_section(MockPlan())
+    prompt_section = build_task_section(plan)
     assert "Structure the question as sub-parts with these marks: part 1: 6 marks, part 2: 4 marks." in prompt_section
-    assert "Each sub-part MUST address a distinct topic, mechanism, or analytical angle" in prompt_section
-    assert "Sub-parts must NEVER be identical or near-duplicate paraphrases" in prompt_section
-    assert "(i)/(ii) or (a)/(b)" in prompt_section
+    assert "MULTI-PART SIBLING INDEPENDENCE" in prompt_section
+    assert "(a) and (b) MUST be independently answerable" in prompt_section
+    assert "MUST test DIFFERENT concepts from the module" in prompt_section
+    assert "must NOT say 'with reference to (a)'" in prompt_section
+    assert "GOOD EXAMPLE" in prompt_section
+
+    # Test topic section splits into two distinct topics
+    topic_section = build_topic_section(plan)
+    assert "[TOPIC FOR (a) — 6 MARKS]" in topic_section
+    assert "[TOPIC FOR (b) — 4 MARKS]" in topic_section
+    assert "Challenges of deploying ML in production" in topic_section
+    assert "Find-S algorithm trace and hypothesis representation" in topic_section
+    assert "CRITICAL SIBLING INDEPENDENCE RULE" in topic_section
 
 
 # =============================================================================
@@ -659,6 +681,80 @@ def test_stray_artifacts_and_topic_sanitization():
 
 
 # =============================================================================
+# Test 13: Sibling Independence Evaluator & Chaining Repair
+# =============================================================================
+
+def test_sibling_independence_evaluator_and_repair():
+    """Verify sibling_independence_evaluator flags chained subquestions and repairs them."""
+    # Defect from audit: Q8(b) explicitly chained via 'With reference to part (a)'
+    q_chained_1 = AgentGeneratedQuestion(
+        slot_id="slot_q8",
+        module_id="module_4",
+        global_q_idx=8,
+        question_text="(a) Explain the role of the system call table. (b) With reference to part (a), explain how a user program invokes an interrupt.",
+        solution="Model solution.",
+        marking_scheme=[{"criterion": "Part a", "marks": 6}, {"criterion": "Part b", "marks": 4}],
+        marks=10,
+        bloom="L2",
+        topic="System Calls",
+    )
+    verdict_1 = sibling_independence_evaluator(q_chained_1)
+    assert verdict_1 is not None, "Failed to flag 'With reference to part (a)' chaining"
+    assert verdict_1.reason_code == SIBLING_INTERCONNECTED
+
+    repaired_1 = repair_sibling_independence(q_chained_1, verdict_1.reason_code, verdict_1.detail)
+    assert repaired_1 is not None
+    assert "With reference to part (a)" not in repaired_1.question_text
+    assert sibling_independence_evaluator(repaired_1) is None
+
+    # Defect from audit: Q5(b) 'How does this compare...'
+    q_chained_2 = AgentGeneratedQuestion(
+        slot_id="slot_q5",
+        module_id="module_3",
+        global_q_idx=5,
+        question_text="(a) Calculate the WAN transmission bandwidth required for uncompressed video. (b) How does this compare to typical consumer broadband speeds?",
+        solution="Model solution.",
+        marking_scheme=[{"criterion": "Part a", "marks": 6}, {"criterion": "Part b", "marks": 4}],
+        marks=10,
+        bloom="L3",
+        topic="Network Transmission",
+    )
+    verdict_2 = sibling_independence_evaluator(q_chained_2)
+    assert verdict_2 is not None, "Failed to flag 'How does this compare...' dependent comparison"
+    assert verdict_2.reason_code == SIBLING_INTERCONNECTED
+
+    # Defect: Subpart (b) starting with pronoun referring to (a)
+    q_pronoun = AgentGeneratedQuestion(
+        slot_id="slot_q3",
+        module_id="module_2",
+        global_q_idx=3,
+        question_text="(a) Explain master-slave task assignment in asymmetric multiprocessing. (b) It is used to allocate CPU affinity dynamically.",
+        solution="Model solution.",
+        marking_scheme=[{"criterion": "Part a", "marks": 6}, {"criterion": "Part b", "marks": 4}],
+        marks=10,
+        bloom="L2",
+        topic="Multiprocessing",
+    )
+    verdict_3 = sibling_independence_evaluator(q_pronoun)
+    assert verdict_3 is not None, "Failed to flag pronoun 'It' referring to previous part"
+    assert verdict_3.reason_code == SIBLING_INTERCONNECTED
+
+    # Valid independent multi-part question should pass cleanly
+    q_independent = AgentGeneratedQuestion(
+        slot_id="slot_q_ml",
+        module_id="module_1",
+        global_q_idx=1,
+        question_text="(a) Explain the challenges of deploying machine learning models in production environments. (b) Apply the Find-S algorithm to determine the most specific hypothesis for the given training samples.",
+        solution="Model solution.",
+        marking_scheme=[{"criterion": "Part a", "marks": 6}, {"criterion": "Part b", "marks": 4}],
+        marks=10,
+        bloom="L3",
+        topic="Machine Learning",
+    )
+    assert sibling_independence_evaluator(q_independent) is None
+
+
+# =============================================================================
 # Standalone Runner
 # =============================================================================
 
@@ -676,6 +772,7 @@ def run_all_tests() -> int:
         ("Bloom Content Depth & Veneer Check", test_bloom_content_evaluator_and_depth),
         ("Scenario Premise Consistency Check", test_scenario_consistency_evaluator),
         ("Topic Sanitization & Overlap Containment", test_stray_artifacts_and_topic_sanitization),
+        ("Sibling Independence & Unchaining Check", test_sibling_independence_evaluator_and_repair),
     ]
 
     print("\n" + "=" * 78)

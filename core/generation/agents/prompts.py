@@ -95,6 +95,20 @@ def build_slot_contract(plan) -> str:
 
 
 def build_topic_section(plan) -> str:
+    if getattr(plan, "is_multi_part", False) and getattr(plan, "topic_a", None) and getattr(plan, "topic_b", None):
+        if plan.topic_a != plan.topic_b:
+            part_a_marks = plan.partition[0] if plan.partition else 6
+            part_b_marks = plan.partition[1] if len(plan.partition) > 1 else 4
+            top_a = plan.topic_a.strip()[:MAX_TOPIC_CHARS]
+            top_b = plan.topic_b.strip()[:MAX_TOPIC_CHARS]
+            return (
+                f"[TOPIC FOR (a) — {part_a_marks} MARKS]\n{top_a}\n\n"
+                f"[TOPIC FOR (b) — {part_b_marks} MARKS]\n{top_b}\n\n"
+                f"[CRITICAL SIBLING INDEPENDENCE RULE]\n"
+                f"These are TWO COMPLETELY INDEPENDENT TOPICS from the same module. "
+                f"Generate sub-question (a) strictly about '{top_a}' and sub-question (b) strictly about '{top_b}'. "
+                f"They MUST be independently answerable. Sub-question (b) must NOT chain, extend, or refer to (a)."
+            )
     topic = (plan.topic or "").strip()[:MAX_TOPIC_CHARS] or "(unspecified)"
     return f"[TOPIC]\n{topic}"
 
@@ -190,11 +204,22 @@ def build_task_section(plan, difficulty_feedback: Optional[str] = None) -> str:
         parts = ", ".join(f"part {i+1}: {m} marks" for i, m in enumerate(plan.partition))
         lines.append(f"Structure the question as sub-parts with these marks: {parts}.")
         lines.append(
-            f"Write each part as a COMPLETE self-contained question with its own context. "
-            f"Do NOT write a shared preamble. Do NOT restate the problem statement. "
-            f"Mark each part with (i)/(ii) or (a)/(b). "
-            f"CRITICAL: Each sub-part MUST address a distinct topic, mechanism, or analytical angle from the same module. "
-            f"Sub-parts must NEVER be identical or near-duplicate paraphrases of each other."
+            "[MULTI-PART SIBLING INDEPENDENCE — MANDATORY VTU CONTRACT]\n"
+            "This question consists of TWO INDEPENDENT sub-parts:\n"
+            f"  (a) {plan.partition[0]} marks\n"
+            f"  (b) {plan.partition[1]} marks\n"
+            "RULES:\n"
+            "1. (a) and (b) MUST be independently answerable. A student can answer (b) without having answered (a).\n"
+            "2. (a) and (b) MUST test DIFFERENT concepts from the module.\n"
+            "3. (b) must NOT say 'with reference to (a)', 'extend the above', 'continuing from (a)', or similar chains.\n"
+            "4. (b) must NOT ask to 'compare to your answer in (a)' or use pronouns (it, this, that) referring to (a).\n"
+            "5. Think of them as two separate questions that happen to be grouped under one main question.\n"
+            "GOOD EXAMPLE:\n"
+            "  (a) [6 marks] Explain the challenges of deploying ML in production.\n"
+            "  (b) [4 marks] Apply the Find-S algorithm to the given training data.\n"
+            "BAD EXAMPLE (FORBIDDEN):\n"
+            "  (a) [6 marks] Explain the challenges of deploying ML.\n"
+            "  (b) [4 marks] With reference to (a), how do those challenges affect model accuracy?"
         )
 
     if difficulty_feedback:
