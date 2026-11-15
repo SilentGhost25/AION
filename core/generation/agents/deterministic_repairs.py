@@ -34,7 +34,7 @@ from .evaluation_contracts import (
     UNVERIFIED,
 )
 from .generated_question import GeneratedQuestion
-from .prompts import BLOOM_VERBS
+from .prompts import BLOOM_VERBS, IMAGE_REFERENCE_PHRASES
 from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
 
 
@@ -269,27 +269,45 @@ def repair_figure_reference(
     detail: str,
 ) -> Optional[GeneratedQuestion]:
     """
-    Fix MISSING_FIGURE_REFERENCE by prepending a natural figure-reference
-    phrase when an image is attached but not referenced.
+    Fix MISSING_FIGURE_REFERENCE idempotently and safely.
+    Distinguishes three separate conditions:
+      1. A figure exists in the extracted document.
+      2. A figure is actually attached and available (question.image_path).
+      3. The question text correctly refers to that figure.
+
+    Idempotent behavior:
+      - If no figure asset is attached (has_image=False), returns None (cannot invent an image).
+      - If text already contains any valid figure reference phrase, do NOT prepend another reference!
+        Simply ensure question.references_image = True.
+      - If already correctly referenced and flagged, returns None (no-op).
+      - Only prepends 'With the aid of the given figure, ' when an asset is attached AND the text
+        completely lacks any figure reference phrase.
     """
     if reason_code != MISSING_FIGURE_REFERENCE:
         return None
 
     has_image = bool(question.image_path)
-    references = bool(question.references_image)
-
     if not has_image:
-        # Question references a figure we don't have — can't fix.
+        # Question references a figure that is not attached/available — cannot synthesize an asset.
         return None
-
-    if references:
-        return None  # already references; nothing to do
 
     text = (question.question_text or "").strip()
     if not text:
         return None
 
-    # Prepend the reference phrase and lowercase the original first letter.
+    # Idempotency check: if text already contains any valid figure reference phrase,
+    # DO NOT prepend another reference! Ensure references_image=True and return.
+    lower_text = text.lower()
+    already_has_reference_phrase = any(phrase in lower_text for phrase in IMAGE_REFERENCE_PHRASES)
+
+    if already_has_reference_phrase or question.references_image:
+        if not question.references_image:
+            repaired = copy.deepcopy(question)
+            repaired.references_image = True
+            return repaired
+        return None  # already correctly references attached figure; idempotent no-op
+
+    # Text does not reference the attached figure. Prepend standard reference phrase.
     prefix = "With the aid of the given figure, "
     new_text = prefix + text[0].lower() + text[1:]
 

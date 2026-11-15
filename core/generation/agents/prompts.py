@@ -39,6 +39,26 @@ BLOOM_VERBS = {
 
 
 # -----------------------------------------------------------------------------
+# Figure reference phrases
+# -----------------------------------------------------------------------------
+
+IMAGE_REFERENCE_PHRASES = (
+    "given figure", "given diagram", "given schematic",
+    "provided figure", "provided diagram", "provided schematic",
+    "shown in the figure", "shown in the diagram",
+    "shown in figure", "shown in diagram",
+    "refer to the figure", "refer to the diagram",
+    "refer to figure", "refer to diagram",
+    "with the aid of the given", "with the aid of the provided",
+    "using the provided", "using the given",
+    "figure below", "diagram below",
+    "accompanying figure", "accompanying diagram",
+    "illustrated in the figure", "illustrated in the diagram",
+    "with reference to the figure", "with reference to the diagram",
+)
+
+
+# -----------------------------------------------------------------------------
 # Truncation caps (chars)
 # -----------------------------------------------------------------------------
 

@@ -32,7 +32,7 @@ from .evaluation_contracts import (
     SIBLING_INTERCONNECTED,
     SlotVerdict,
 )
-from .prompts import BLOOM_VERBS
+from .prompts import BLOOM_VERBS, IMAGE_REFERENCE_PHRASES
 
 
 # -----------------------------------------------------------------------------
@@ -174,20 +174,27 @@ def marking_scheme_evaluator(question) -> Optional[SlotVerdict]:
 
 
 def figure_consistency_evaluator(question) -> Optional[SlotVerdict]:
-    """If an image is attached, the question must reference it."""
+    """
+    Distinguish three separate conditions:
+      1. A figure exists in the extracted document.
+      2. A figure is actually attached and available (question.image_path).
+      3. The question text correctly refers to that figure.
+    """
     has_image = bool(question.image_path)
-    references = bool(question.references_image)
-    if has_image and not references:
+    text = (getattr(question, "question_text", "") or "").lower()
+    text_references = any(phrase in text for phrase in IMAGE_REFERENCE_PHRASES)
+    is_referenced = bool(text_references or getattr(question, "references_image", False))
+
+    if has_image and not is_referenced:
         return _fail(
             question, MISSING_FIGURE_REFERENCE,
             "figure attached but question text does not reference it",
             fix="Add 'With the aid of the given figure...' or similar phrasing",
         )
-    if references and not has_image:
-        # Question claims a figure exists but none is attached. Also a failure.
+    if is_referenced and not has_image:
         return _fail(
             question, MISSING_FIGURE_REFERENCE,
-            "question references a figure but no image is attached",
+            "question references a figure but no image asset is attached or available",
             fix="Either remove the figure reference or attach the figure",
         )
     return None

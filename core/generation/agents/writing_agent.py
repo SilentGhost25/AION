@@ -34,7 +34,11 @@ from .generated_question import (
     SlotFailure,
     WritingAgentOutput,
 )
-from .prompts import build_difficulty_feedback, build_prompt
+from .prompts import (
+    build_difficulty_feedback,
+    build_prompt,
+    IMAGE_REFERENCE_PHRASES,
+)
 
 
 # -----------------------------------------------------------------------------
@@ -74,15 +78,8 @@ class VLMCaller(Protocol):
 MAX_ATTEMPTS = 3
 DEFAULT_SEED = 42
 
-# Phrases that signal a question references a figure.
-IMAGE_REFERENCE_PHRASES = (
-    "given figure", "given diagram", "given schematic",
-    "shown in the figure", "shown in the diagram",
-    "refer to the figure", "refer to the diagram",
-    "with the aid of the given",
-    "using the provided",
-    "using the given",
-)
+# Phrases that signal a question references a figure are imported from .prompts
+# (IMAGE_REFERENCE_PHRASES is re-exported here for backward compatibility)
 
 # Required keys in the LLM's JSON output.
 REQUIRED_OUTPUT_KEYS = ("question_text", "solution", "marking_scheme")
@@ -375,12 +372,15 @@ class WritingAgent(Agent):
                 continue
 
             # Check figure reference if visual required
-            references_image = self._references_figure(parsed["question_text"])
-            if plan.visual_required and not references_image:
+            # Distinguish asset availability from reference wording:
+            # references_image is True ONLY when question references an actually available figure asset.
+            has_figure = bool(getattr(plan.figure, "image_path", None)) if plan.figure else False
+            text_references = self._references_figure(parsed["question_text"])
+            references_image = bool(text_references and has_figure)
+            if plan.visual_required and not text_references:
                 last_error = "visual-required slot produced a question with no figure reference"
                 # We accept it anyway — the Evaluation Agent will flag it.
                 # (Design choice: don't waste a retry on phrasing.)
-                references_image = False
 
             return self._build_question(
                 plan=plan,
