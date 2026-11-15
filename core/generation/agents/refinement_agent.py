@@ -90,8 +90,11 @@ def _aggregate_unresolved_metadata(
       final scope is "question" and unresolved_subparts is ().
     - Otherwise, scope is "subquestion" and unresolved_subparts is the sorted union
       of all affected subparts.
-    - failure_code is a sorted semicolon-joined list of unique reason_codes.
-    - failure_detail is a semicolon-joined list of finding details.
+    - failure_code is a single deterministic primary canonical code:
+      * Question-level finding takes precedence if present.
+      * Otherwise, the first unresolved finding in report order defines the primary code.
+    - failure_detail is a semicolon-joined summary of all active finding details.
+    - Full details of all findings remain intact in diagnostic telemetry["diagnostic_unresolved"].
     """
     if not unresolved_verdicts:
         return ("question", (), "UNKNOWN", "Unresolved failure")
@@ -100,15 +103,16 @@ def _aggregate_unresolved_metadata(
     if is_question_level:
         scope = "question"
         subparts: Tuple[str, ...] = ()
+        question_level_verdicts = [v for v in unresolved_verdicts if not getattr(v, "affected_subparts", ())]
+        code = question_level_verdicts[0].reason_code or "UNKNOWN"
     else:
         scope = "subquestion"
         all_parts = set()
         for v in unresolved_verdicts:
             all_parts.update(getattr(v, "affected_subparts", ()))
         subparts = tuple(sorted(all_parts))
+        code = unresolved_verdicts[0].reason_code or "UNKNOWN"
 
-    unique_codes = sorted(set(v.reason_code for v in unresolved_verdicts if v.reason_code))
-    code = ";".join(unique_codes) if unique_codes else "UNKNOWN"
     details = [v.detail for v in unresolved_verdicts if v.detail]
     detail = "; ".join(details) if details else "Repair unsuccessful"
 

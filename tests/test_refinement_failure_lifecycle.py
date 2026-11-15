@@ -234,7 +234,8 @@ def test_aggregate_metadata_conservative_whole_question_precedence():
     scope, subparts, code, detail = _aggregate_unresolved_metadata([v_sub, v_whole])
     assert scope == "question"
     assert subparts == ()
-    assert code == f"{BLOOM_DEPTH_MISMATCH};{UNGROUNDED}"
+    # Primary canonical failure code takes whole-question finding precedence
+    assert code == UNGROUNDED
     assert "Part b verb mismatch; Whole slot ungrounded" == detail
 
 
@@ -423,7 +424,10 @@ def test_multi_finding_accumulation_in_telemetry_and_aggregation():
     assert active_q.is_unresolved is True
     assert active_q.unresolved_scope == "subquestion"
     assert active_q.unresolved_subparts == ("a", "b")
-    assert active_q.failure_code == f"{BLOOM_DEPTH_MISMATCH};{SIBLING_INTERCONNECTED}"
+    # Primary canonical failure code (first in report order)
+    assert active_q.failure_code == BLOOM_DEPTH_MISMATCH
+    assert "Subpart (b) uses L1 verb 'define' for L4" in active_q.failure_detail
+    assert "Subpart (b) references part (a)" in active_q.failure_detail
 
 
 def test_successful_repair_clears_active_unresolved_metadata():
@@ -474,6 +478,149 @@ def test_successful_repair_clears_active_unresolved_metadata():
     assert repaired_q.unresolved_subparts == ()
     assert repaired_q.failure_code is None
     assert repaired_q.failure_detail is None
+
+
+# =============================================================================
+# 5. Full End-to-End Refinement Agent Integration Test
+# =============================================================================
+
+def test_full_refinement_lifecycle_integration():
+    """
+    Integration verification of the complete real refinement agent lifecycle:
+    1. Receives multiple evaluator findings for a question.
+    2. Preserves all findings in telemetry under an unaliased snapshot.
+    3. Attempts available repair tiers and logs every attempt.
+    4. Leaves original question text unchanged when repair fails (zero placeholders).
+    5. Sets aggregated unresolved metadata with a single primary canonical failure_code.
+    6. Clears all unresolved metadata after a subsequent successful, verified repair.
+    """
+    raw_question_text = (
+        "(a) Analyze the CPU scheduling criteria in distributed systems. "
+        "(b) Derive the throughput equations for this system."
+    )
+    raw_solution = "Comprehensive model solution for distributed CPU scheduling."
+    raw_marking_scheme = [
+        {"criterion": "Part a: Criteria analysis", "marks": 6},
+        {"criterion": "Part b: Throughput derivation", "marks": 4},
+    ]
+
+    original_q = GeneratedQuestion(
+        slot_id="slot_lifecycle_e2e",
+        module_id="module_2",
+        global_q_idx=4,
+        question_text=raw_question_text,
+        solution=raw_solution,
+        marking_scheme=copy.deepcopy(raw_marking_scheme),
+        marks=10,
+        partition=[6, 4],
+        bloom="L4",
+        co="CO2",
+    )
+
+    # 1. Multiple evaluator findings for this slot
+    finding_1 = SlotVerdict(
+        slot_id="slot_lifecycle_e2e",
+        verdict="fail",
+        source="local",
+        reason_code=BLOOM_DEPTH_MISMATCH,
+        detail="Subpart (b) uses procedural verb 'derive' (L3) for L4 slot",
+        affected_subparts=("b",),
+    )
+    finding_2 = SlotVerdict(
+        slot_id="slot_lifecycle_e2e",
+        verdict="fail",
+        source="local",
+        reason_code=SIBLING_INTERCONNECTED,
+        detail="Subpart (b) has implicit reference to part (a)",
+        affected_subparts=("a", "b"),
+    )
+
+    context = AgentContext(
+        questions=[original_q],
+        audit_report=AuditReport(verdicts=[finding_1, finding_2]),
+    )
+
+    # Mock LLM Caller that exhausts attempts / fails repair
+    class FailingLLMCaller:
+        def call(self, prompt, schema=None, image_path=None, seed=None):
+            return None
+
+    agent = RefinementAgent(llm_caller=FailingLLMCaller(), max_llm_repairs_per_paper=2)
+    result = agent.run(context)
+
+    assert result.success is True
+
+    # 2. Telemetry preservation under an unaliased snapshot
+    assert "slot_lifecycle_e2e" in context.telemetry["diagnostic_unresolved"]
+    diag = context.telemetry["diagnostic_unresolved"]["slot_lifecycle_e2e"]
+    assert diag["slot_id"] == "slot_lifecycle_e2e"
+    assert diag["original_question"]["question_text"] == raw_question_text
+    assert diag["original_question"]["solution"] == raw_solution
+    assert diag["original_question"]["marking_scheme"] == raw_marking_scheme
+
+    # Ensure snapshot deep-copy independence
+    original_q.marking_scheme.append({"criterion": "Mutated", "marks": 100})
+    assert len(diag["original_question"]["marking_scheme"]) == 2
+
+    # Multiple findings retained in telemetry
+    assert len(diag["findings"]) == 2
+    assert diag["findings"][0]["reason_code"] == BLOOM_DEPTH_MISMATCH
+    assert diag["findings"][0]["affected_subparts"] == ["b"]
+    assert diag["findings"][1]["reason_code"] == SIBLING_INTERCONNECTED
+    assert diag["findings"][1]["affected_subparts"] == ["a", "b"]
+
+    # 3. Available repair tiers attempted (deterministic + LLM)
+    assert len(diag["repair_attempts"]) == 2
+    for attempt in diag["repair_attempts"]:
+        assert attempt["resolved"] is False
+
+    # 4. Original question text unchanged (zero placeholders)
+    active_q = context.questions[0]
+    assert active_q.question_text == raw_question_text
+    assert "[UNRESOLVED" not in active_q.question_text
+    assert active_q.solution == raw_solution
+
+    # 5. Aggregated unresolved metadata on active question
+    assert active_q.is_unresolved is True
+    assert active_q.unresolved_scope == "subquestion"
+    assert active_q.unresolved_subparts == ("a", "b")
+    # Single primary canonical failure_code
+    assert active_q.failure_code == BLOOM_DEPTH_MISMATCH
+    assert ";" not in active_q.failure_code
+    assert "Subpart (b) uses procedural verb" in active_q.failure_detail
+    assert "Subpart (b) has implicit reference" in active_q.failure_detail
+    assert "slot_lifecycle_e2e" in context.unresolved_slots
+
+    # 6. Clears metadata after a successful, verified repair in a subsequent pass
+    # Provide a repairable finding (e.g. forbidden preamble) to test clearing
+    active_q.question_text = f"Based on the provided evidence, {raw_question_text}"
+    repairable_verdict = SlotVerdict(
+        slot_id="slot_lifecycle_e2e",
+        verdict="fail",
+        source="local",
+        reason_code="FORBIDDEN_PREAMBLE",
+        detail="Leading forbidden evidence phrase",
+        affected_subparts=(),
+    )
+    repair_context = AgentContext(
+        questions=[active_q],
+        audit_report=AuditReport(verdicts=[repairable_verdict]),
+    )
+
+    repair_agent = RefinementAgent(llm_caller=None)
+    repair_result = repair_agent.run(repair_context)
+
+    assert repair_result.success is True
+    repaired_q = repair_context.questions[0]
+    # Preamble stripped
+    assert not repaired_q.question_text.startswith("Based on the provided evidence")
+    # All 5 unresolved fields reset to clean defaults
+    assert repaired_q.is_unresolved is False
+    assert repaired_q.unresolved_scope is None
+    assert repaired_q.unresolved_subparts == ()
+    assert repaired_q.failure_code is None
+    assert repaired_q.failure_detail is None
+    assert "slot_lifecycle_e2e" not in repair_context.unresolved_slots
 
 
 if __name__ == "__main__":
