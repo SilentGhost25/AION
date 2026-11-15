@@ -17,12 +17,190 @@ If the shape changes, this file changes. Agents do not.
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
+import logging
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .generated_question import GeneratedQuestion
 from .orchestrator_contracts import OrchestratorResult
 from .overlap_detector import _specific_overlap, detect_subquestion_overlap
+
+logger = logging.getLogger(__name__)
+
+# Standard Roman numeral pattern covering 1 to 39 (i to xxxix)
+_ROMAN_NUMERAL_RE = re.compile(r"^(x{0,3})(ix|iv|v?i{0,3})$", re.IGNORECASE)
+
+# Outer marker regex using a consuming boundary group (no variable-width lookbehinds)
+# Matches:
+#   (a), (b), (aa)  -> group 'p1'
+#   a), b), aa)     -> group 'p2'
+#   a., b., aa.     -> group 'p3' (constrained to single letter [a-zA-Z] to avoid matching general words ending with a period)
+_OUTER_MARKER_RE = re.compile(
+    r"(?P<prefix>^|[\s\n]+)"
+    r"(?P<marker>"
+    r"\((?P<p1>[a-zA-Z0-9]+)\)"
+    r"|(?P<p2>[a-zA-Z0-9]+)\)"
+    r"|(?P<p3>[a-zA-Z])\."
+    r")\s+",
+    re.MULTILINE
+)
+
+
+@dataclass(frozen=True)
+class SubpartExtractionResult:
+    stem: str
+    clauses: Tuple[str, ...]
+    success: bool
+    raw_text: str
+
+
+def get_subpart_label(idx: int) -> str:
+    """
+    Bijective base-26 alphabetic label generator (general utility).
+    0 -> 'a', 25 -> 'z', 26 -> 'aa', 27 -> 'ab', 51 -> 'az', 52 -> 'ba', 701 -> 'zz', 702 -> 'aaa'...
+    Guaranteed valid and unique for any non-negative integer.
+    """
+    if idx < 0:
+        raise ValueError(f"Index must be non-negative, got {idx}")
+    chars = []
+    n = idx + 1
+    while n > 0:
+        n, rem = divmod(n - 1, 26)
+        chars.append(chr(ord('a') + rem))
+    return "".join(reversed(chars))
+
+
+def _is_nested_marker(label: str) -> bool:
+    """
+    Classify whether a label is a nested child marker (Roman numeral or Arabic digit)
+    rather than an outer subquestion alphabetic marker.
+    Examples of nested markers: 'i', 'ii', 'iii', 'iv', 'v', 'vi', '1', '2', '3'.
+    Examples of outer markers for N<=5: 'a', 'b', 'c', 'd', 'e'.
+    """
+    if not label:
+        return False
+    lower = label.lower()
+    if lower.isdigit():
+        return True
+    return bool(_ROMAN_NUMERAL_RE.match(lower)) and lower != ""
+
+
+def _extract_subpart_structure(text: str, n_parts: int) -> SubpartExtractionResult:
+    """
+    Extract shared context stem and distinct subpart clauses using strict outer markers.
+
+    Outer subquestions in VTU format are strictly sequential alphabetic labels
+    matching n_parts: get_subpart_label(0), ..., get_subpart_label(n_parts - 1).
+
+    VTU Bound Policy:
+    - Standard university question papers strictly permit at most 5 subparts (a-e).
+    - If n_parts > 5, extraction fails closed immediately, eliminating any overlap
+      between outer labels and Roman numerals (e.g. outer 'i' at n_parts=9).
+
+    Strict 3-way classification state machine:
+    1. Next expected outer marker: advances curr_expected_idx.
+    2. Valid nested child marker: accepted ONLY if an outer clause is open (curr_expected_idx >= 1).
+    3. Any other marker (unexpected, out-of-order, duplicate, or excess): fails closed immediately.
+
+    Fail-closed policy:
+    - If n_parts <= 1, returns the full text as a single clause.
+    - If n_parts > 5, returns success=False (exceeds VTU partition maximum).
+    - If explicit outer markers matching the exact sequence are absent, returns success=False.
+      (Sentence splitting alone is explicitly rejected as evidence of subquestion boundaries).
+    - If a nested marker appears before the first outer marker (curr_expected_idx == 0), returns success=False.
+    - Nested markers (e.g. (i), (ii)) inside an open outer clause (first, middle, or final) are preserved.
+    - If markers are out of order, missing, ambiguous, or in excess of n_parts, returns success=False.
+    - NEVER silently slices or concatenates excess clauses.
+    - NEVER duplicates question text across partition slots.
+    """
+    if not text:
+        return SubpartExtractionResult(stem="", clauses=(), success=False, raw_text="")
+
+    if n_parts <= 1:
+        return SubpartExtractionResult(stem="", clauses=(text.strip(),), success=True, raw_text=text)
+
+    # Enforce VTU partition bound: maximum 5 subparts (a through e)
+    if n_parts > 5:
+        return SubpartExtractionResult(stem="", clauses=(), success=False, raw_text=text)
+
+    expected_labels = [get_subpart_label(i) for i in range(n_parts)]
+    matches = list(_OUTER_MARKER_RE.finditer(text))
+
+    if not matches:
+        # FAIL-CLOSED: Sentence splitting alone is NOT sufficient structural evidence.
+        return SubpartExtractionResult(stem="", clauses=(), success=False, raw_text=text)
+
+    matched_markers: List[Tuple[int, re.Match]] = []
+    curr_expected_idx = 0
+
+    for match in matches:
+        raw_label = match.group("p1") or match.group("p2") or match.group("p3")
+        label_lower = raw_label.lower()
+
+        # Branch 1: Next expected outer marker
+        if curr_expected_idx < len(expected_labels) and label_lower == expected_labels[curr_expected_idx]:
+            matched_markers.append((curr_expected_idx, match))
+            curr_expected_idx += 1
+
+        # Branch 2: Nested child marker (must belong to an already open outer clause)
+        elif _is_nested_marker(label_lower):
+            if curr_expected_idx >= 1:
+                # Valid nested item inside open outer clause -> remains part of that clause
+                continue
+            else:
+                # Nested marker appeared before any outer marker was opened -> fail closed!
+                return SubpartExtractionResult(stem="", clauses=(), success=False, raw_text=text)
+
+        # Branch 3: Invalid, unexpected, out-of-order, duplicate, or excess marker -> fail closed!
+        else:
+            return SubpartExtractionResult(stem="", clauses=(), success=False, raw_text=text)
+
+    # Verify that ALL expected outer markers were found
+    if len(matched_markers) != n_parts:
+        return SubpartExtractionResult(stem="", clauses=(), success=False, raw_text=text)
+
+    # Check trailing text after the last matched outer marker for unclassified excess markers
+    last_match = matched_markers[-1][1]
+    trailing_text = text[last_match.end():]
+    for trailing_m in _OUTER_MARKER_RE.finditer(trailing_text):
+        t_label = (trailing_m.group("p1") or trailing_m.group("p2") or trailing_m.group("p3")).lower()
+        if not _is_nested_marker(t_label):
+            # Excess non-nested marker found after the last expected outer subpart -> fail closed
+            return SubpartExtractionResult(stem="", clauses=(), success=False, raw_text=text)
+
+    # Extract stem and clauses using match.start('marker') to accurately exclude the boundary prefix
+    first_marker_match = matched_markers[0][1]
+    stem = text[:first_marker_match.start("marker")].strip()
+    clauses = []
+
+    for i in range(len(matched_markers)):
+        start_pos = matched_markers[i][1].end()
+        end_pos = matched_markers[i + 1][1].start("marker") if i + 1 < len(matched_markers) else len(text)
+        clause = text[start_pos:end_pos].strip()
+        if not clause:
+            # Empty clause indicates malformed subquestion
+            return SubpartExtractionResult(stem="", clauses=(), success=False, raw_text=text)
+        clauses.append(clause)
+
+    return SubpartExtractionResult(stem=stem, clauses=tuple(clauses), success=True, raw_text=text)
+
+
+def _extract_subpart_texts(text: str, n_parts: int) -> List[str]:
+    """Backward compatibility wrapper around _extract_subpart_structure."""
+    res = _extract_subpart_structure(text, n_parts)
+    if res.success and res.clauses:
+        stem = res.stem
+        clauses = list(res.clauses)
+        if stem:
+            clauses[0] = f"{stem} {clauses[0]}".strip()
+        return clauses
+    return [text]
+
+
+def _strip_shared_prefix(sub_texts: list, min_words: int = 6) -> list:
+    """Backward compatibility wrapper."""
+    return list(sub_texts)
 
 
 # -----------------------------------------------------------------------------
@@ -93,101 +271,6 @@ def to_legacy_shape(
 # -----------------------------------------------------------------------------
 
 
-def _extract_subpart_texts(text: str, n_parts: int) -> List[str]:
-    if n_parts <= 1 or not text:
-        return [text]
-    import re
-    # Match outer subquestion markers (strictly letters a-e):
-    # 1. Parenthesized: (a), (b), (c)
-    # 2. Letter with closing paren: a), b), c)
-    # 3. Letter with dot preceded by whitespace: " a. ", " b. " (avoiding numbers/decimals)
-    # 4. Explicit part: "Part a:", "Part A:"
-    pattern = (
-        r"(?:^|\n|(?<=[.:;?!]\s)|(?<=\s))"
-        r"(?:"
-        r"\(([a-eA-E])\)"
-        r"|\(([ivxIVX]{1,4})\)"
-        r"|\(([1-9])\)"
-        r"|([a-eA-E])\)"
-        r"|(?<=\s)([a-eA-E])\.)"
-        r"\s+"
-    )
-    matches = list(re.finditer(pattern, text))
-    if not matches:
-        print(f"[LEGACY-ADAPTER] warning: no subpart markers [a-e] found in text: {text[:80]!r}", flush=True)
-        if n_parts > 1:
-            sentences = [s.strip() for s in re.split(r'(?<=[.?!;])\s+', text) if s.strip()]
-            if len(sentences) >= n_parts:
-                k, m = divmod(len(sentences), n_parts)
-                sub_texts = []
-                idx = 0
-                for i in range(n_parts):
-                    take = k + (1 if i < m else 0)
-                    chunk = " ".join(sentences[idx:idx + take]).strip()
-                    sub_texts.append(chunk)
-                    idx += take
-                return sub_texts
-        return [text for _ in range(n_parts)]
-
-    stem = text[:matches[0].start()].strip()
-    sub_texts = []
-    for i in range(len(matches)):
-        start = matches[i].end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        sub_text = text[start:end].strip()
-        sub_texts.append(f"{stem} {sub_text}".strip() if stem else sub_text)
-
-    if len(sub_texts) == n_parts:
-        return sub_texts
-    elif len(sub_texts) > n_parts:
-        return sub_texts[:n_parts - 1] + [" ".join(sub_texts[n_parts - 1:])]
-    else:
-        padded = [f"{stem} {text}".strip() if stem else text for _ in range(n_parts - len(sub_texts))]
-        return sub_texts + padded
-
-
-def _strip_shared_prefix(sub_texts: list, min_words: int = 6) -> list:
-    """Remove duplicated opening phrases from sub-parts 2+ when they share
-    a long prefix with sub-part 1."""
-    if len(sub_texts) < 2:
-        return sub_texts
-    words_a = sub_texts[0].split()
-    result = [sub_texts[0]]
-    task_verbs = {
-        "what", "why", "how", "when", "where", "which",
-        "explain", "describe", "list", "state", "define",
-        "calculate", "compute", "determine", "derive", "find",
-        "propose", "identify", "analyze", "analyse", "evaluate",
-        "compare", "differentiate", "design", "discuss", "write",
-        "mention", "show", "prove", "illustrate", "demonstrate",
-        "assess", "justify", "critique", "construct", "develop",
-        "suggest", "recommend", "outline", "summarize",
-        "consider", "examine", "investigate", "explore",
-    }
-    for sub in sub_texts[1:]:
-        words_sub = sub.split()
-        shared = 0
-        for w1, w2 in zip(words_a, words_sub):
-            if w1.lower().rstrip(".,;:!?") == w2.lower().rstrip(".,;:!?"):
-                shared += 1
-            else:
-                break
-        if shared < min_words:
-            result.append(sub)
-            continue
-        tail = " ".join(words_sub[shared:]).strip()
-        if not tail or len(tail.split()) < 4:
-            result.append(sub)
-            continue
-        first_word = tail.split()[0].lower().rstrip(".,;:!?")
-        if first_word in task_verbs:
-            result.append(tail)
-        else:
-            clean_tail = tail[0].lower() + tail[1:] if tail else tail
-            result.append(f"Explain the principles and mechanisms of {clean_tail}")
-    return result
-
-
 def _clean_topic(concept: str) -> str:
     """Sanitize a topic string: strip bullets, relative clauses, leading participles, etc."""
     if not concept:
@@ -209,31 +292,175 @@ def _clean_topic(concept: str) -> str:
 def _to_question_dict(q: GeneratedQuestion) -> dict:
     """Convert one GeneratedQuestion to the legacy question dict with synthesized subquestions."""
     partition = [int(m) for m in (q.partition or ([q.marks] if q.marks else [10]))]
-    letters = ["a", "b", "c", "d", "e"]
-    sub_texts = _extract_subpart_texts(q.question_text, len(partition))
-    sub_texts = _strip_shared_prefix(sub_texts)
 
-    # Detect subquestion overlap/duplicates and record structured validation telemetry.
-    # Reliability first: Never fabricate or overwrite pedagogical subquestion text with synthetic templates.
-    overlap_detected, overlap_details = (
-        detect_subquestion_overlap(sub_texts) if len(partition) > 1 else (False, [])
-    )
+    # Telemetry initialization with deep isolation for mutable lists to prevent shared reference mutation
+    telemetry = dict(q.telemetry or {})
+    if "warnings" in telemetry and isinstance(telemetry["warnings"], list):
+        telemetry["warnings"] = list(telemetry["warnings"])
 
-    sub_questions = [
-        {
-            "letter": letters[i] if i < len(letters) else f"sub_{i+1}",
-            "text": sub_texts[i] if i < len(sub_texts) else q.question_text,
-            "marks": partition[i],
+    is_high_partition = len(partition) > 5
+    if is_high_partition:
+        logger.warning("Slot %s partition length %d exceeds standard VTU subpart maximum (5)", q.slot_id, len(partition))
+        warnings_list = list(telemetry.get("warnings") or [])
+        warnings_list.append(f"partition_exceeds_vtu_max:{len(partition)}")
+        telemetry["warnings"] = warnings_list
+
+    extraction = _extract_subpart_structure(q.question_text, len(partition))
+
+    # Determine if subpart label mapping is possible
+    extracted_labels = {get_subpart_label(i) for i in range(len(partition))}
+    label_mapping_failed = False
+    if extraction.success and q.is_unresolved and q.unresolved_scope == "subquestion":
+        unmapped = [sp for sp in q.unresolved_subparts if sp not in extracted_labels]
+        if unmapped:
+            label_mapping_failed = True
+
+    sub_questions = []
+
+    if not extraction.success or label_mapping_failed:
+        # Safe fallback: single aggregate entry representing full text (NO text duplication)
+        if is_high_partition:
+            adaptation_code = "PARTITION_EXCEEDS_VTU_MAX"
+            adaptation_detail = f"Slot partition length {len(partition)} exceeds standard VTU subpart maximum (5)."
+            if q.is_unresolved:
+                sq_unresolved = True
+                sq_code = q.failure_code
+                sq_detail = q.failure_detail
+                adaptation_detail += f" Preserving pre-existing Stage 2A failure ({q.failure_code})."
+                q_scope = q.unresolved_scope
+                q_subparts = list(q.unresolved_subparts)
+            else:
+                sq_unresolved = True
+                sq_code = "PARTITION_EXCEEDS_VTU_MAX"
+                sq_detail = adaptation_detail
+                q_scope = "question"
+                q_subparts = []
+        elif label_mapping_failed:
+            sq_unresolved = True
+            sq_code = q.failure_code
+            sq_detail = q.failure_detail
+            adaptation_code = "UNRESOLVED_SUBPART_LABEL_MISMATCH"
+            adaptation_detail = (
+                f"Stage 2A marked subparts {q.unresolved_subparts} unresolved, "
+                f"but extracted labels are {sorted(extracted_labels)}. "
+                f"Preserving pre-existing failure ({q.failure_code}) on aggregate entry."
+            )
+            q_scope = q.unresolved_scope
+            q_subparts = list(q.unresolved_subparts)
+        elif q.is_unresolved:
+            sq_unresolved = True
+            sq_code = q.failure_code
+            sq_detail = q.failure_detail
+            adaptation_code = "MULTI_PART_STRUCTURE_MISMATCH"
+            adaptation_detail = (
+                f"Question has partition {partition} but lacks parseable subpart structure. "
+                f"Preserving pre-existing Stage 2A failure ({q.failure_code})."
+            )
+            q_scope = q.unresolved_scope
+            q_subparts = list(q.unresolved_subparts)
+        else:
+            sq_unresolved = True
+            sq_code = "MULTI_PART_STRUCTURE_MISMATCH"
+            sq_detail = f"Slot has partition {partition} but question text lacks valid structural subpart markers."
+            adaptation_code = "MULTI_PART_STRUCTURE_MISMATCH"
+            adaptation_detail = sq_detail
+            q_scope = "question"
+            q_subparts = []
+
+        sub_questions.append({
+            "letter": "a",
+            "label": "a",
+            "sub_label": "a",
+            "text": q.question_text,
+            "marks": sum(partition),
             "co": q.co,
             "bloom": q.bloom,
-        }
-        for i in range(len(partition))
-    ]
+            "is_unresolved": sq_unresolved,
+            "failure_code": sq_code,
+            "failure_detail": sq_detail,
+            "adaptation_failure_code": adaptation_code,
+            "adaptation_failure_detail": adaptation_detail,
+        })
 
-    telemetry = dict(q.telemetry or {})
+        q_is_unresolved = True
+        q_unresolved_scope = q_scope
+        q_unresolved_subparts = q_subparts
+        q_failure_code = sq_code
+        q_failure_detail = sq_detail
+        q_adaptation_failure_code = adaptation_code
+        q_adaptation_failure_detail = adaptation_detail
+        overlap_detected, overlap_details = (False, [])
+
+    else:
+        # Clean extraction with verified label mapping (N <= 5)
+        stem = extraction.stem
+        clauses = extraction.clauses
+
+        if q.is_unresolved:
+            q_is_unresolved = True
+            q_unresolved_scope = q.unresolved_scope
+            q_unresolved_subparts = list(q.unresolved_subparts)
+            q_failure_code = q.failure_code
+            q_failure_detail = q.failure_detail
+        else:
+            q_is_unresolved = False
+            q_unresolved_scope = None
+            q_unresolved_subparts = []
+            q_failure_code = None
+            q_failure_detail = None
+
+        q_adaptation_failure_code = None
+        q_adaptation_failure_detail = None
+
+        for i in range(len(partition)):
+            letter = get_subpart_label(i)
+
+            # Presentation contract: stem attached to part (a) once; clauses clean for subsequent parts
+            if i == 0 and stem:
+                sq_text = f"{stem} {clauses[0]}".strip()
+            else:
+                sq_text = clauses[i]
+
+            # Granular resolution state determination
+            if not q_is_unresolved:
+                sq_unresolved = False
+                sq_code = None
+                sq_detail = None
+            elif q_unresolved_scope == "subquestion":
+                sq_unresolved = (letter in q_unresolved_subparts)
+                sq_code = q_failure_code if sq_unresolved else None
+                sq_detail = q_failure_detail if sq_unresolved else None
+            else:  # question-level failure
+                sq_unresolved = True
+                sq_code = q_failure_code
+                sq_detail = q_failure_detail
+
+            sub_questions.append({
+                "letter": letter,
+                "label": letter,
+                "sub_label": letter,
+                "text": sq_text,
+                "marks": partition[i],
+                "co": q.co,
+                "bloom": q.bloom,
+                "is_unresolved": sq_unresolved,
+                "failure_code": sq_code,
+                "failure_detail": sq_detail,
+                "adaptation_failure_code": None,
+                "adaptation_failure_detail": None,
+            })
+
+        # Run overlap detection strictly on clauses if multi-part
+        if len(partition) > 1:
+            overlap_detected, overlap_details = detect_subquestion_overlap(list(clauses))
+        else:
+            overlap_detected, overlap_details = (False, [])
+
     if overlap_detected:
         telemetry["subquestion_overlap"] = True
         telemetry["overlap_details"] = overlap_details
+    if q_adaptation_failure_code:
+        telemetry["adaptation_failure_code"] = q_adaptation_failure_code
 
     return {
         "slot_id": q.slot_id,
@@ -241,8 +468,18 @@ def _to_question_dict(q: GeneratedQuestion) -> dict:
         "global_q_idx": q.global_q_idx,
         "text": q.question_text,
         "question_text": q.question_text,
+        "stem": extraction.stem if extraction.success and not label_mapping_failed and not is_high_partition else "",
         "sub_questions": sub_questions,
         "subQuestions": sub_questions,
+        # Resolution metadata
+        "is_unresolved": q_is_unresolved,
+        "unresolved_scope": q_unresolved_scope,
+        "unresolved_subparts": q_unresolved_subparts,
+        "failure_code": q_failure_code,
+        "failure_detail": q_failure_detail,
+        "adaptation_failure_code": q_adaptation_failure_code,
+        "adaptation_failure_detail": q_adaptation_failure_detail,
+        # Preserved pedagogical assets
         "solution": q.solution,
         "marking_scheme": list(q.marking_scheme or []),
         "marks": sum(partition),
