@@ -13,7 +13,7 @@ or the slot is a failure.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -48,6 +48,13 @@ class GeneratedQuestion:
 
     # Telemetry (populated by agents)
     telemetry: Dict[str, Any] = field(default_factory=dict)
+
+    # Resolution metadata (Stage 1B contract: structured metadata only, no raw failed text)
+    is_unresolved: bool = False
+    unresolved_scope: Optional[str] = None                  # "subquestion" | "question"
+    unresolved_subparts: Tuple[str, ...] = field(default_factory=tuple)  # e.g. ("b",)
+    failure_code: Optional[str] = None                      # e.g. "BLOOM_MISMATCH"
+    failure_detail: Optional[str] = None                    # Diagnostic summary
 
     @property
     def first_word(self) -> str:
