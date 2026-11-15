@@ -238,35 +238,25 @@ def _to_question_dict(q: GeneratedQuestion) -> dict:
     sub_texts = _extract_subpart_texts(q.question_text, len(partition))
     sub_texts = _strip_shared_prefix(sub_texts)
 
-    # Ensure subquestions within the same module are distinct and not near-duplicate paraphrases
+    # Detect subquestion overlap/duplicates and record structured validation telemetry.
+    # Reliability first: Never fabricate or overwrite pedagogical subquestion text with synthetic templates.
+    overlap_detected = False
+    overlap_details = []
     if len(partition) > 1:
-        aspects = [
-            "the architectural structure and primary operating principles",
-            "the operational characteristics, critical trade-offs, and boundary constraints",
-            "the practical implementation mechanisms and real-world deployment challenges",
-            "the comparative performance analysis and design criteria",
-        ]
-        topic_a = _clean_topic(getattr(q, "topic_a", "") or getattr(q, "topic", "") or getattr(q, "module_id", "the core module concept"))
-        topic_b = _clean_topic(getattr(q, "topic_b", "") or getattr(q, "topic", "") or getattr(q, "module_id", "the core module concept"))
-        bloom_val = getattr(q, "bloom", "L2")
-        from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
-        pool = BLOOM_VERB_LEVEL_MAP.get(bloom_val, {"explain"})
-        verb = sorted(list(pool))[0].capitalize()
-
         for i in range(len(sub_texts)):
-            is_dup = False
             for j in range(i):
                 w_i = set(re.findall(r"\w+", sub_texts[i].lower()))
                 w_j = set(re.findall(r"\w+", sub_texts[j].lower()))
                 jaccard = len(w_i & w_j) / max(1, len(w_i | w_j))
                 common, containment = _specific_overlap(sub_texts[i], sub_texts[j])
                 if sub_texts[i].strip().lower() == sub_texts[j].strip().lower() or jaccard >= 0.40 or (containment >= 0.6 and len(common) >= 2):
-                    is_dup = True
-                    break
-            if is_dup:
-                sub_aspect = aspects[i % len(aspects)]
-                active_topic = topic_b if (i > 0 and topic_b != topic_a) else topic_a
-                sub_texts[i] = f"{verb} {sub_aspect} of {active_topic} in detail."
+                    overlap_detected = True
+                    overlap_details.append({
+                        "sub_i": letters[i] if i < len(letters) else f"sub_{i+1}",
+                        "sub_j": letters[j] if j < len(letters) else f"sub_{j+1}",
+                        "jaccard": round(jaccard, 3),
+                        "containment": round(containment, 3),
+                    })
 
     sub_questions = [
         {
@@ -278,6 +268,11 @@ def _to_question_dict(q: GeneratedQuestion) -> dict:
         }
         for i in range(len(partition))
     ]
+
+    telemetry = dict(q.telemetry or {})
+    if overlap_detected:
+        telemetry["subquestion_overlap"] = True
+        telemetry["overlap_details"] = overlap_details
 
     return {
         "slot_id": q.slot_id,
@@ -301,7 +296,9 @@ def _to_question_dict(q: GeneratedQuestion) -> dict:
         "diagram_request": q.diagram_request,
         "generation_source": q.generation_source,
         "attempts": q.attempts,
-        "telemetry": dict(q.telemetry or {}),
+        "telemetry": telemetry,
+        "subquestion_overlap": overlap_detected,
+        "overlap_details": overlap_details,
     }
 
 

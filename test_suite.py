@@ -176,13 +176,13 @@ def test_bloom_taxonomy_and_opening_verbs():
 # =============================================================================
 
 def test_subquestion_diversity_within_same_module():
-    """Verify subquestions addressing the same module are distinct and not paraphrases."""
-    # Simulate a generated question with partition [6, 4] where raw generation omitted markers
-    raw_question = AgentGeneratedQuestion(
+    """Verify subquestions addressing the same module are distinct and not paraphrases, and overlap is tracked."""
+    # Multi-part question with distinct subquestions
+    distinct_question = AgentGeneratedQuestion(
         slot_id="mod_1_Q1",
         module_id="module_1",
         global_q_idx=1,
-        question_text="Explain the satellite link budget parameters and calculate the carrier-to-noise ratio.",
+        question_text="(a) Explain the satellite link budget parameters in detail. (b) Describe the carrier-to-noise ratio parameters for the uplink receiver.",
         solution="Model solution for link budget.",
         marking_scheme=[{"criterion": "Equations", "marks": 4}, {"criterion": "Derivation", "marks": 6}],
         marks=10,
@@ -192,7 +192,7 @@ def test_subquestion_diversity_within_same_module():
         topic="Satellite Link Budget",
     )
 
-    q_dict = _to_question_dict(raw_question)
+    q_dict = _to_question_dict(distinct_question)
     subs = q_dict["sub_questions"]
     assert len(subs) == 2, f"Expected 2 subquestions, got {len(subs)}"
     assert subs[0]["marks"] == 6
@@ -214,6 +214,30 @@ def test_subquestion_diversity_within_same_module():
     valid_verbs = BLOOM_VERB_LEVEL_MAP["L2"]
     assert verb_a in valid_verbs, f"Verb '{verb_a}' not in L2"
     assert verb_b in valid_verbs, f"Verb '{verb_b}' not in L2"
+    assert q_dict["subquestion_overlap"] is False
+
+    # Verify that when raw generation omits subpart markers or produces duplicates,
+    # the adapter NEVER fabricates synthetic templates and records structured overlap
+    overlapping_question = AgentGeneratedQuestion(
+        slot_id="mod_1_Q1_dup",
+        module_id="module_1",
+        global_q_idx=1,
+        question_text="Explain the satellite link budget parameters and calculate the carrier-to-noise ratio.",
+        solution="Model solution for link budget.",
+        marking_scheme=[{"criterion": "Equations", "marks": 4}, {"criterion": "Derivation", "marks": 6}],
+        marks=10,
+        partition=[6, 4],
+        bloom="L2",
+        co="CO1",
+        topic="Satellite Link Budget",
+    )
+    q_dict_dup = _to_question_dict(overlapping_question)
+    assert q_dict_dup["subquestion_overlap"] is True
+    assert len(q_dict_dup["overlap_details"]) > 0
+    # Crucial reliability assertion: NEVER fabricate synthetic template text
+    for sq in q_dict_dup["sub_questions"]:
+        assert "operational characteristics, critical trade-offs" not in sq["text"]
+    assert q_dict_dup["telemetry"]["subquestion_overlap"] is True
 
 
 # =============================================================================
