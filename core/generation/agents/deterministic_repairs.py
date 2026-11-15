@@ -35,6 +35,7 @@ from .evaluation_contracts import (
 )
 from .generated_question import GeneratedQuestion
 from .prompts import BLOOM_VERBS
+from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
 
 
 # -----------------------------------------------------------------------------
@@ -47,6 +48,18 @@ from .prompts import BLOOM_VERBS
 _PREAMBLE_PATTERN = re.compile(
     r"^(?:In\s+[^,]{2,40},\s*|Regarding\s+[^,]{2,40},\s*|"
     r"Concerning\s+[^,]{2,40},\s*|Given\s+[^,]{2,40},\s*)",
+    re.IGNORECASE,
+)
+
+# Canonical instructional verbs recognized across Bloom taxonomy levels
+KNOWN_INSTRUCTIONAL_VERBS = frozenset(
+    verb.lower() for verbs in BLOOM_VERB_LEVEL_MAP.values() for verb in verbs
+)
+
+# Multiword or qualified instruction patterns where a single-verb replacement
+# would produce ungrammatical or semantically broken phrasing (e.g. "Illustrate with a neat sketch")
+_MULTIWORD_MODIFIER_PATTERN = re.compile(
+    r"^(?:with\s+a\s+|with\s+the\s+|with\s+neat\s+|with\s+|using\s+|by\s+|through\s+|in\s+terms\s+of\b)",
     re.IGNORECASE,
 )
 
@@ -90,8 +103,19 @@ def repair_bloom_verb(
     detail: str,
 ) -> Optional[GeneratedQuestion]:
     """
-    Fix BLOOM_MISMATCH by stripping leading preambles and, if needed,
-    prepending the correct Bloom verb.
+    Fix BLOOM_MISMATCH safely and conservatively:
+      1. Strip a leading preamble clause (e.g. 'In modern operating systems, ...')
+         if that reveals an already-valid Bloom verb for the target level.
+      2. If the question begins with a recognized single instructional verb from
+         another level (e.g. 'Explain the architecture...' with target L4 'Analyze'),
+         and does NOT have a multiword modifier clause (like 'with a neat sketch'),
+         replace that leading verb with the canonical target Bloom verb while
+         preserving sentence structure and capitalization.
+      3. Never prepend 'X the following:' (which violates forbidden preamble rules).
+      4. Never strip topic prefixes (e.g. 'in and out:') or modify questions starting
+         with non-instructional phrases.
+      5. If a safe, meaning-preserving correction cannot be made, return None to let
+         the question be regenerated or rejected safely.
     """
     if reason_code != BLOOM_MISMATCH:
         return None
@@ -100,28 +124,49 @@ def repair_bloom_verb(
     if not text:
         return None
 
-    # Attempt 1: strip a preamble clause if present
-    stripped = _PREAMBLE_PATTERN.sub("", text, count=1)
-    if stripped != text:
-        candidate_first = _first_alpha_word(stripped)
-        allowed = BLOOM_VERBS.get(question.bloom, [])
-        if candidate_first in allowed:
-            repaired = _replace_text(question, stripped)
-            return repaired
-
-    # Attempt 2: prepend the appropriate Bloom verb
-    allowed = BLOOM_VERBS.get(question.bloom, [])
+    target_bloom = question.bloom or "L2"
+    allowed = BLOOM_VERBS.get(target_bloom, [])
     if not allowed:
         return None
-    verb = allowed[0]
-    # Only prepend if the current first word isn't already a Bloom verb
-    current_first = _first_alpha_word(text)
-    if current_first in allowed:
-        return None  # already correct — shouldn't reach here
+    target_verb = allowed[0]
 
-    # Lowercase the existing first letter to make a natural sentence
-    prepend = f"{verb.capitalize()} the following: {text[0].lower() + text[1:]}"
-    return _replace_text(question, prepend)
+    # Attempt 1: check if stripping a recognized preamble clause reveals a valid verb
+    stripped = _PREAMBLE_PATTERN.sub("", text, count=1).strip()
+    if stripped != text:
+        candidate_first = _first_alpha_word(stripped)
+        if candidate_first in allowed:
+            return _replace_text(question, stripped)
+
+    # Inspect the opening token of the question
+    m = re.match(r"^([A-Za-z]+)(\b.*)$", text, re.DOTALL)
+    if not m:
+        return None
+
+    leading_word = m.group(1)
+    remainder = m.group(2)
+    leading_lower = leading_word.lower()
+
+    # Already starts with an allowed Bloom verb for this level -> nothing to repair
+    if leading_lower in allowed:
+        return None
+
+    # Check if the leading word is a recognized instructional verb
+    if leading_lower not in KNOWN_INSTRUCTIONAL_VERBS:
+        # Not a recognized instructional verb (e.g. noun, topic prefix, or non-verb).
+        # Do not perform blind string replacement; fail safely.
+        return None
+
+    # Check for multiword instructional modifiers following the verb
+    # e.g., "Illustrate with a neat sketch..." -> replacing "illustrate" with "define" produces
+    # "Define with a neat sketch...", which alters pedagogical intent and breaks grammar.
+    remainder_clean = remainder.lstrip()
+    if _MULTIWORD_MODIFIER_PATTERN.match(remainder_clean):
+        return None
+
+    # Safe replacement: swap the single leading instructional verb with target Bloom verb
+    replacement_verb = target_verb.capitalize() if leading_word[0].isupper() else target_verb.lower()
+    repaired_text = replacement_verb + remainder
+    return _replace_text(question, repaired_text)
 
 
 def repair_marking_scheme(
