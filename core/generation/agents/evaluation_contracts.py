@@ -11,7 +11,7 @@ serialized directly to JSON and matched by the Refinement Agent.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 
 # -----------------------------------------------------------------------------
@@ -69,6 +69,7 @@ class SlotVerdict:
     reason_code: Optional[str] = None
     detail: str = ""
     suggested_fix: Optional[str] = None
+    affected_subparts: Tuple[str, ...] = field(default_factory=tuple)  # e.g. ("b",) or ("a", "b")
 
     def __post_init__(self) -> None:
         if self.verdict not in ("pass", "fail", "unverified"):

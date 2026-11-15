@@ -14,7 +14,7 @@ Composability:
 from __future__ import annotations
 
 import re
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 from .evaluation_contracts import (
     BLOOM_MISMATCH,
@@ -55,7 +55,13 @@ LocalEvaluator = Callable[[object], Optional[SlotVerdict]]
 # object is a GeneratedQuestion; typed loosely to avoid circular imports.
 
 
-def _fail(question, code: str, detail: str, fix: Optional[str] = None) -> SlotVerdict:
+def _fail(
+    question,
+    code: str,
+    detail: str,
+    fix: Optional[str] = None,
+    affected_subparts: Tuple[str, ...] = (),
+) -> SlotVerdict:
     return SlotVerdict(
         slot_id=question.slot_id,
         verdict="fail",
@@ -63,6 +69,7 @@ def _fail(question, code: str, detail: str, fix: Optional[str] = None) -> SlotVe
         reason_code=code,
         detail=detail,
         suggested_fix=fix,
+        affected_subparts=tuple(s.strip("(). ").lower() for s in affected_subparts),
     )
 
 
@@ -388,17 +395,20 @@ def bloom_content_evaluator(question) -> Optional[SlotVerdict]:
     if len(sub_parts) > 1 and bloom in ("L4", "L5", "L6"):
         for label, sub_text in sub_parts:
             first = _first_meaningful_word(sub_text)
+            clean_subpart = label.strip("(). ").lower()
             if first in L1_L2_VERBS:
                 return _fail(
                     question, BLOOM_DEPTH_MISMATCH,
                     f"Subpart {label} uses lower-order verb {first!r} (L1/L2) in a slot marked {bloom}.",
                     fix=f"Align subpart {label} to {bloom} cognitive level (e.g., analyze, compare, evaluate, critique).",
+                    affected_subparts=(clean_subpart,),
                 )
             if bloom in ("L5", "L6") and first in L3_VERBS:
                 return _fail(
                     question, BLOOM_DEPTH_MISMATCH,
                     f"Subpart {label} uses procedural verb {first!r} (L3) in a slot marked {bloom}.",
                     fix=f"Elevate subpart {label} to require evaluation, critique, or synthesis.",
+                    affected_subparts=(clean_subpart,),
                 )
 
     return None
@@ -463,6 +473,7 @@ def sibling_independence_evaluator(question) -> Optional[SlotVerdict]:
                 question, SIBLING_INTERCONNECTED,
                 f"Sub-question chaining detected: {desc}",
                 fix="Rewrite sub-part (b) as an independent question testing a distinct topic without referencing part (a).",
+                affected_subparts=("a", "b"),
             )
 
     subparts = _extract_subparts(text)
@@ -470,10 +481,12 @@ def sibling_independence_evaluator(question) -> Optional[SlotVerdict]:
         for label, sub_text in subparts[1:]:
             first_w = _first_meaningful_word(sub_text)
             if first_w in {"it", "this", "that", "these", "those", "they", "them", "such"}:
+                clean_subpart = label.strip("(). ").lower()
                 return _fail(
                     question, SIBLING_INTERCONNECTED,
                     f"Sub-part {label} starts with referring pronoun {first_w!r} rather than an independent concept/verb.",
                     fix=f"Make sub-part {label} self-contained with its own noun subject or Bloom verb.",
+                    affected_subparts=("a", clean_subpart),
                 )
 
     return None

@@ -22,7 +22,7 @@ import copy
 import json
 import re
 import time
-from typing import Any, Callable, Dict, List, Optional, Protocol
+from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
 
 from .base import Agent, AgentContext, AgentResult
 from .deterministic_repairs import try_deterministic_repair
@@ -78,6 +78,43 @@ _NUMERICAL_PATTERN = re.compile(
 )
 
 
+def _aggregate_unresolved_metadata(
+    unresolved_verdicts: List[SlotVerdict],
+) -> Tuple[str, Tuple[str, ...], str, str]:
+    """
+    Apply conservative aggregation over unresolved findings for a single slot.
+    Returns (unresolved_scope, unresolved_subparts, failure_code, failure_detail).
+
+    Rules:
+    - If any finding has empty affected_subparts (question-level or ambiguous),
+      final scope is "question" and unresolved_subparts is ().
+    - Otherwise, scope is "subquestion" and unresolved_subparts is the sorted union
+      of all affected subparts.
+    - failure_code is a sorted semicolon-joined list of unique reason_codes.
+    - failure_detail is a semicolon-joined list of finding details.
+    """
+    if not unresolved_verdicts:
+        return ("question", (), "UNKNOWN", "Unresolved failure")
+
+    is_question_level = any(not getattr(v, "affected_subparts", ()) for v in unresolved_verdicts)
+    if is_question_level:
+        scope = "question"
+        subparts: Tuple[str, ...] = ()
+    else:
+        scope = "subquestion"
+        all_parts = set()
+        for v in unresolved_verdicts:
+            all_parts.update(getattr(v, "affected_subparts", ()))
+        subparts = tuple(sorted(all_parts))
+
+    unique_codes = sorted(set(v.reason_code for v in unresolved_verdicts if v.reason_code))
+    code = ";".join(unique_codes) if unique_codes else "UNKNOWN"
+    details = [v.detail for v in unresolved_verdicts if v.detail]
+    detail = "; ".join(details) if details else "Repair unsuccessful"
+
+    return scope, subparts, code, detail
+
+
 # -----------------------------------------------------------------------------
 # Agent
 # -----------------------------------------------------------------------------
@@ -130,54 +167,124 @@ class RefinementAgent(Agent):
         budget_hits = 0
         sympy_rejections = 0
 
-        for verdict in report.verdicts:
-            original = q_by_slot.get(verdict.slot_id)
-            if original is None:
-                # Verdict references a slot we don't have — skip.
+        # Group verdicts by slot_id while preserving report order
+        verdicts_by_slot: Dict[str, List[SlotVerdict]] = {}
+        for v in report.verdicts:
+            verdicts_by_slot.setdefault(v.slot_id, []).append(v)
+
+        for q in questions:
+            slot_id = q.slot_id
+            slot_verdicts = verdicts_by_slot.get(slot_id, [])
+            failed_verdicts = [v for v in slot_verdicts if v.failed]
+
+            if not failed_verdicts:
+                repaired_questions.append(q)
                 continue
 
-            if not verdict.failed:
-                repaired_questions.append(original)
-                continue
+            original = q
 
-            outcome, repaired = self._refine_one(
-                original=original,
-                verdict=verdict,
-                llm_budget_used=llm_count,
-            )
+            # Diagnostic telemetry registry: capture unaliased deep snapshot ONCE pre-repair
+            diag_registry = context.telemetry.setdefault("diagnostic_unresolved", {})
+            if slot_id not in diag_registry:
+                diag_registry[slot_id] = {
+                    "slot_id": original.slot_id,
+                    "module_id": original.module_id,
+                    "global_q_idx": original.global_q_idx,
+                    "original_question": {
+                        "question_text": original.question_text,
+                        "solution": original.solution,
+                        "marking_scheme": copy.deepcopy(original.marking_scheme),
+                        "partition": list(original.partition),
+                        "bloom": original.bloom,
+                        "co": original.co,
+                    },
+                    "findings": [],
+                    "repair_attempts": [],
+                }
 
-            if outcome.resolved and repaired is not None:
-                # SymPy verification for numerical repairs
-                if (
-                    outcome.tier_used == TIER_LLM
-                    and self._sympy is not None
-                    and self._is_numerical(repaired)
-                ):
-                    if not self._verify_with_sympy(repaired):
-                        outcome = RefinementOutcome(
-                            slot_id=outcome.slot_id,
-                            resolved=False,
-                            tier_used=outcome.tier_used,
-                            reason_in=outcome.reason_in,
-                            reason_out="SYMPY_VERIFICATION_FAILED",
-                            detail="repaired numerical question failed SymPy check",
-                        )
-                        sympy_rejections += 1
+            # Record all failed findings in append-only telemetry
+            for fv in failed_verdicts:
+                diag_registry[slot_id]["findings"].append({
+                    "reason_code": fv.reason_code,
+                    "detail": fv.detail,
+                    "affected_subparts": list(getattr(fv, "affected_subparts", ())),
+                    "suggested_fix": fv.suggested_fix,
+                    "timestamp": self._clock(),
+                })
 
-            outcomes.append(outcome)
+            current_q = original
+            slot_resolved = True
+            unresolved_verdicts_for_slot: List[SlotVerdict] = []
 
-            if outcome.resolved and repaired is not None:
-                repaired_questions.append(repaired)
-                if outcome.tier_used == TIER_DETERMINISTIC:
-                    det_count += 1
-                elif outcome.tier_used == TIER_LLM:
-                    llm_count += 1
+            for fv in failed_verdicts:
+                outcome, repaired = self._refine_one(
+                    original=current_q,
+                    verdict=fv,
+                    llm_budget_used=llm_count,
+                )
+
+                if outcome.resolved and repaired is not None:
+                    # SymPy verification for numerical repairs
+                    if (
+                        outcome.tier_used == TIER_LLM
+                        and self._sympy is not None
+                        and self._is_numerical(repaired)
+                    ):
+                        if not self._verify_with_sympy(repaired):
+                            outcome = RefinementOutcome(
+                                slot_id=outcome.slot_id,
+                                resolved=False,
+                                tier_used=outcome.tier_used,
+                                reason_in=outcome.reason_in,
+                                reason_out="SYMPY_VERIFICATION_FAILED",
+                                detail="repaired numerical question failed SymPy check",
+                            )
+                            sympy_rejections += 1
+
+                # Record repair attempt in append-only telemetry
+                diag_registry[slot_id]["repair_attempts"].append({
+                    "attempt_index": len(diag_registry[slot_id]["repair_attempts"]) + 1,
+                    "tier_attempted": outcome.tier_used,
+                    "resolved": outcome.resolved,
+                    "reason_in": outcome.reason_in,
+                    "reason_out": outcome.reason_out,
+                    "detail": outcome.detail,
+                    "timestamp": self._clock(),
+                })
+
+                outcomes.append(outcome)
+
+                if outcome.resolved and repaired is not None:
+                    current_q = repaired
+                    if outcome.tier_used == TIER_DETERMINISTIC:
+                        det_count += 1
+                    elif outcome.tier_used == TIER_LLM:
+                        llm_count += 1
+                else:
+                    slot_resolved = False
+                    unresolved_verdicts_for_slot.append(fv)
+
+                if outcome.reason_out == "LLM_BUDGET_EXHAUSTED":
+                    budget_hits += 1
+
+            if slot_resolved and current_q is not original:
+                # Successfully repaired: clear all unresolved fields
+                current_q.is_unresolved = False
+                current_q.unresolved_scope = None
+                current_q.unresolved_subparts = ()
+                current_q.failure_code = None
+                current_q.failure_detail = None
+                repaired_questions.append(current_q)
             else:
-                unresolved.append(outcome.slot_id)
+                # Unresolved failure: populate deterministic metadata on original
+                unresolved.append(slot_id)
+                scope, subparts, code, detail = _aggregate_unresolved_metadata(unresolved_verdicts_for_slot)
+                original.is_unresolved = True
+                original.unresolved_scope = scope
+                original.unresolved_subparts = subparts
+                original.failure_code = code
+                original.failure_detail = detail
                 repaired_questions.append(original)
-
-            if outcome.reason_out == "LLM_BUDGET_EXHAUSTED":
-                budget_hits += 1
 
         elapsed = self._clock() - start
 
