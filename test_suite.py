@@ -216,10 +216,11 @@ def test_subquestion_diversity_within_same_module():
     assert verb_b in valid_verbs, f"Verb '{verb_b}' not in L2"
     assert q_dict["subquestion_overlap"] is False
 
-    # Verify that when raw generation omits subpart markers or produces duplicates,
-    # the adapter NEVER fabricates synthetic templates and records structured overlap
-    overlapping_question = AgentGeneratedQuestion(
-        slot_id="mod_1_Q1_dup",
+    # Verify that when raw generation omits subpart markers, the adapter NEVER
+    # duplicates text across slots or fabricates templates; it emits 1 unresolved
+    # aggregate entry with MULTI_PART_STRUCTURE_MISMATCH and skips pairwise overlap.
+    missing_markers_question = AgentGeneratedQuestion(
+        slot_id="mod_1_Q1_fallback",
         module_id="module_1",
         global_q_idx=1,
         question_text="Explain the satellite link budget parameters and calculate the carrier-to-noise ratio.",
@@ -231,12 +232,38 @@ def test_subquestion_diversity_within_same_module():
         co="CO1",
         topic="Satellite Link Budget",
     )
-    q_dict_dup = _to_question_dict(overlapping_question)
+    q_dict_fallback = _to_question_dict(missing_markers_question)
+    assert q_dict_fallback["is_unresolved"] is True
+    assert q_dict_fallback["adaptation_failure_code"] == "MULTI_PART_STRUCTURE_MISMATCH"
+    # Never duplicate question text across partition slots
+    assert len(q_dict_fallback["sub_questions"]) == 1
+    assert q_dict_fallback["sub_questions"][0]["text"] == missing_markers_question.question_text
+    assert q_dict_fallback["sub_questions"][0]["marks"] == 10
+    assert q_dict_fallback["sub_questions"][0]["is_unresolved"] is True
+    assert q_dict_fallback["sub_questions"][0]["adaptation_failure_code"] == "MULTI_PART_STRUCTURE_MISMATCH"
+    # Overlap detection is not incorrectly triggered on the aggregate fallback
+    assert q_dict_fallback["subquestion_overlap"] is False
+    assert q_dict_fallback["overlap_details"] == []
+    for sq in q_dict_fallback["sub_questions"]:
+        assert "operational characteristics, critical trade-offs" not in sq["text"]
+
+    # Verify that genuine duplicate subquestions with markers are tracked as overlap
+    duplicate_question = AgentGeneratedQuestion(
+        slot_id="mod_1_Q1_dup",
+        module_id="module_1",
+        global_q_idx=1,
+        question_text="(a) Explain the satellite link budget parameters in detail. (b) Explain the satellite link budget parameters in detail.",
+        solution="Model solution for link budget.",
+        marking_scheme=[{"criterion": "Equations", "marks": 4}, {"criterion": "Derivation", "marks": 6}],
+        marks=10,
+        partition=[6, 4],
+        bloom="L2",
+        co="CO1",
+        topic="Satellite Link Budget",
+    )
+    q_dict_dup = _to_question_dict(duplicate_question)
     assert q_dict_dup["subquestion_overlap"] is True
     assert len(q_dict_dup["overlap_details"]) > 0
-    # Crucial reliability assertion: NEVER fabricate synthetic template text
-    for sq in q_dict_dup["sub_questions"]:
-        assert "operational characteristics, critical trade-offs" not in sq["text"]
     assert q_dict_dup["telemetry"]["subquestion_overlap"] is True
 
 
