@@ -1101,3 +1101,49 @@ def test_checking_agent_missing_question_with_registry_entry_is_fatal_defect_blo
     res = agent.run(ctx)
     assert res.payload.status == STATUS_BLOCKED
     assert f"INTEGRITY_DEFECT:{expected_defect}" in res.payload.blocked_reasons
+
+
+# -----------------------------------------------------------------------------
+# Test 41: Degraded Audit Low Ratio Exception Preserves Partial Status
+# -----------------------------------------------------------------------------
+
+
+def test_checking_agent_degraded_audit_low_ratio_exception_preserves_partial():
+    """
+    When audit_report.degraded_mode is True and at least one slot is resolved,
+    a resolved ratio below min_questions_ratio (e.g. 8/10 < 0.9) enters degraded_reasons
+    rather than blocked_reasons. Combined with at least one unresolved slot,
+    status becomes STATUS_PARTIAL (not STATUS_BLOCKED).
+    """
+    agent = CheckingAgent(min_questions_ratio=0.9)
+    spec, plans, questions = make_10_plans_and_questions()
+
+    # 2 unresolved questions out of 10: 8 resolved / 10 expected = 0.8 < 0.9
+    for i in (0, 1):
+        questions[i].is_unresolved = True
+        questions[i].unresolved_scope = "question"
+        questions[i].unresolved_subparts = ()
+        questions[i].failure_code = "TOPIC_OUT_OF_SCOPE"
+        questions[i].failure_detail = "Failed topic"
+
+    mock_audit = type("Audit", (), {"degraded_mode": True, "verdicts": []})()
+    ctx = AgentContext(
+        plans=plans,
+        paper_spec=spec,
+        questions=questions,
+        unresolved_slots=["module_1_Q1", "module_1_Q2"],
+        audit_report=mock_audit,
+    )
+
+    res = agent.run(ctx)
+
+    # In degraded audit mode, low ratio does NOT hard-block if resolved > 0
+    assert BLOCK_REASON_INSUFFICIENT_QUESTIONS in res.payload.degraded_reasons
+    assert BLOCK_REASON_INSUFFICIENT_QUESTIONS not in res.payload.blocked_reasons
+    assert len(res.payload.blocked_reasons) == 0
+
+    # With 2 unresolved slots and 8 resolved slots, status is STATUS_PARTIAL
+    assert res.payload.status == STATUS_PARTIAL
+    assert res.payload.resolved_slots == 8
+    assert res.payload.unresolved_slots == ["module_1_Q1", "module_1_Q2"]
+
