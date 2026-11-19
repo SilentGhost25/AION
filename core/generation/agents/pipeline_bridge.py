@@ -814,6 +814,8 @@ def _finalize_reconciliation(
     expected_count = len(unique_expected_ids)
 
     # 2. Type-safe partition list validation & per-partition uniqueness
+    duplicate_slots: Set[str] = set()
+
     def _validate_partition_container_and_uniqueness(
         p_raw: Any, p_name: str
     ) -> Tuple[List[str], Set[str]]:
@@ -839,6 +841,7 @@ def _finalize_reconciliation(
                 continue
             if item in seen:
                 fatal_defects.append(f"DUPLICATE_SLOT_IN_PARTITION:{p_name}:{item}")
+                duplicate_slots.add(item)
             else:
                 seen.add(item)
                 deduped.append(item)
@@ -877,7 +880,7 @@ def _finalize_reconciliation(
     #         and evicted from F_hat and P_hat.
     # Rule 2: Unexpected IDs (not in E) are COMPLETELY EXCLUDED from F_hat, P_hat, and B_hat.
     #         They appear in fatal_defects diagnostics, but NEVER enter expected partitions.
-    problem_expected_slots = (all_overlaps & expected_set) | missing_slots
+    problem_expected_slots = ((all_overlaps | duplicate_slots) & expected_set) | missing_slots
 
     sanitized_f = [
         s for s in u_f if s in expected_set and s not in problem_expected_slots
@@ -919,6 +922,14 @@ def _finalize_reconciliation(
     elif pre_status not in ALL_VALID_STATUSES:
         fatal_defects.append(f"INVALID_PRE_QA_STATUS:{_safe_str(pre_status, 50)}")
 
+    # Execution flag integrity checks
+    if type(raw_success) is not bool or type(exec_succeeded) is not bool:
+        fatal_defects.append(
+            f"INVALID_EXECUTION_FLAG_TYPE:raw_{_safe_type_name(raw_success)}:exec_{_safe_type_name(exec_succeeded)}"
+        )
+    elif raw_success is True and not exec_succeeded:
+        fatal_defects.append("CONTRADICTORY_EXECUTION_FLAGS:raw_true_exec_false")
+
     blocked_reasons = list(validated_pre_blocked)
     degraded_reasons = list(validated_pre_degraded)
 
@@ -929,18 +940,18 @@ def _finalize_reconciliation(
 
     # 4-Tier Status Precedence Policy
     # Define one authoritative execution-state decision and use it consistently
-    validated_exec_success = (
-        type(raw_success) is bool and raw_success is True and bool(exec_succeeded)
-    )
-    if type(raw_success) is not bool:
+    if type(raw_success) is not bool or type(exec_succeeded) is not bool:
         # Tier 1: Invalid execution flag type -> BLOCKED
         status = STATUS_BLOCKED
-    elif not validated_exec_success:
+    elif raw_success is False:
         # Tier 2: Genuine execution failure (False) -> FAILED, retaining all fatal defects
         status = STATUS_FAILED
         blocked_reasons.append(
             f"EXECUTION_FAILURE:{_safe_str(failure_code or 'UNKNOWN_ERROR', 100)}"
         )
+    elif not exec_succeeded:
+        # Tier 3: Inconsistent execution flags (raw_success=True but exec_succeeded=False) -> BLOCKED
+        status = STATUS_BLOCKED
     elif fatal_defects:
         # Tier 3: Successful execution with fatal integrity defect(s) -> BLOCKED
         status = STATUS_BLOCKED
@@ -994,9 +1005,31 @@ def _finalize_reconciliation(
         "b_post": list(sanitized_b),
         "fatal_defects": list(fatal_defects),
         "adaptation_defects": list(adaptation_defects),
-        "accounting_incomplete": not bool(accounting_complete),
+        "accounting_incomplete": not bool(
+            accounting_complete
+            and expected_count > 0
+            and not any(
+                d.startswith("INVALID_EXPECTED_SLOT_SPECIFICATION")
+                or d.startswith("MALFORMED_EXPECTED_IDS_CONTAINER")
+                for d in fatal_defects
+            )
+            and len(f_post) + len(p_post) + len(b_post) == expected_count
+            and set(f_post) | set(p_post) | set(b_post) == expected_set
+        ),
         "accounting_completeness": (
-            "complete" if accounting_complete else "incomplete"
+            "complete"
+            if (
+                bool(accounting_complete)
+                and expected_count > 0
+                and not any(
+                    d.startswith("INVALID_EXPECTED_SLOT_SPECIFICATION")
+                    or d.startswith("MALFORMED_EXPECTED_IDS_CONTAINER")
+                    for d in fatal_defects
+                )
+                and len(f_post) + len(p_post) + len(b_post) == expected_count
+                and set(f_post) | set(p_post) | set(b_post) == expected_set
+            )
+            else "incomplete"
         ),
     }
     if is_synthetic:
@@ -1051,9 +1084,9 @@ def _finalize_reconciliation(
     )
 
     if not is_ser_success:
-        if type(raw_success) is not bool:
+        if type(raw_success) is not bool or type(exec_succeeded) is not bool:
             status = STATUS_BLOCKED
-        elif not validated_exec_success:
+        elif raw_success is False:
             status = STATUS_FAILED
         else:
             status = STATUS_BLOCKED
@@ -1681,9 +1714,11 @@ def _handle_emergency_pipeline_failure(
             "unresolved_slots": expected_count,
             "fatal_defects": list(fatal_defects),
             "adaptation_defects": [],
-            "accounting_incomplete": not accounting_established,
+            "accounting_incomplete": not (accounting_established and expected_count > 0),
             "accounting_completeness": (
-                "complete" if accounting_established else "incomplete"
+                "complete"
+                if (accounting_established and expected_count > 0)
+                else "incomplete"
             ),
             "emergency_failure": True,
             "emergency_stage": stage,
@@ -2564,7 +2599,8 @@ def _reconcile_post_adaptation(
         d.startswith("INVALID_EXPECTED_SLOT_SPECIFICATION") for d in fatal_defects
     )
     all_expected_accounted = (
-        set(f_post + p_post + b_post) == expected_set
+        len(f_post) + len(p_post) + len(b_post) == len(expected_set)
+        and set(f_post + p_post + b_post) == expected_set
         if accounting_established
         else False
     )

@@ -3982,7 +3982,7 @@ def test_finding_5_finalizer_enforces_raw_success_consistency():
     expected_ids = make_expected_slot_ids()
     ctx = make_test_context()
 
-    # Inconsistent caller flags: raw_success=False but exec_succeeded=True
+    # Case A: Inconsistent caller flags: raw_success=False but exec_succeeded=True
     reconciled_qa, _, _, _, _, _, eligible = _finalize_reconciliation(
         raw_success=False,
         exec_succeeded=True,
@@ -4010,6 +4010,120 @@ def test_finding_5_finalizer_enforces_raw_success_consistency():
     assert reconciled_qa.status == STATUS_FAILED
     assert eligible is False
     assert any("EXECUTION_FAILURE:INTERNAL_CRASH" in r for r in reconciled_qa.blocked_reasons)
+
+    # Case B: Inconsistent caller flags: raw_success=True but exec_succeeded=False -> BLOCKED (NOT FAILED!)
+    qa_b, _, _, _, _, _, el_b = _finalize_reconciliation(
+        raw_success=True,
+        exec_succeeded=False,
+        expected_ids=expected_ids,
+        f_post=expected_ids,
+        p_post=[],
+        b_post=[],
+        fatal_defects=[],
+        adaptation_defects=[],
+        pre_status="PASS",
+        context=ctx,
+        copied_telemetry={},
+        copied_cost_telemetry={},
+        copied_cache_telemetry={},
+        copied_result_telemetry={},
+        serialized_pre_qa={},
+        failure_code="INTERNAL_CRASH",
+        validated_pre_blocked=[],
+        validated_pre_degraded=[],
+        resolved_population_changed=False,
+        min_ratio=0.9,
+        accounting_complete=True,
+    )
+    assert qa_b.status == STATUS_BLOCKED
+    assert el_b is False
+    assert not any("EXECUTION_FAILURE" in r for r in qa_b.blocked_reasons)
+    assert any("CONTRADICTORY_EXECUTION_FLAGS" in r for r in qa_b.blocked_reasons)
+
+    # Case C: Non-bool execution flag: raw_success=None -> BLOCKED (NOT FAILED!)
+    qa_c, _, _, _, _, _, el_c = _finalize_reconciliation(
+        raw_success=None,
+        exec_succeeded=False,
+        expected_ids=expected_ids,
+        f_post=expected_ids,
+        p_post=[],
+        b_post=[],
+        fatal_defects=[],
+        adaptation_defects=[],
+        pre_status="PASS",
+        context=ctx,
+        copied_telemetry={},
+        copied_cost_telemetry={},
+        copied_cache_telemetry={},
+        copied_result_telemetry={},
+        serialized_pre_qa={},
+        failure_code="INTERNAL_CRASH",
+        validated_pre_blocked=[],
+        validated_pre_degraded=[],
+        resolved_population_changed=False,
+        min_ratio=0.9,
+        accounting_complete=True,
+    )
+    assert qa_c.status == STATUS_BLOCKED
+    assert el_c is False
+    assert not any("EXECUTION_FAILURE" in r for r in qa_c.blocked_reasons)
+    assert any("INVALID_EXECUTION_FLAG_TYPE" in r for r in qa_c.blocked_reasons)
+
+    # Case D: Non-bool execution flag: raw_success="true" -> BLOCKED (NOT FAILED!)
+    qa_d, _, _, _, _, _, el_d = _finalize_reconciliation(
+        raw_success="true",
+        exec_succeeded=True,
+        expected_ids=expected_ids,
+        f_post=expected_ids,
+        p_post=[],
+        b_post=[],
+        fatal_defects=[],
+        adaptation_defects=[],
+        pre_status="PASS",
+        context=ctx,
+        copied_telemetry={},
+        copied_cost_telemetry={},
+        copied_cache_telemetry={},
+        copied_result_telemetry={},
+        serialized_pre_qa={},
+        failure_code=None,
+        validated_pre_blocked=[],
+        validated_pre_degraded=[],
+        resolved_population_changed=False,
+        min_ratio=0.9,
+        accounting_complete=True,
+    )
+    assert qa_d.status == STATUS_BLOCKED
+    assert el_d is False
+    assert any("INVALID_EXECUTION_FLAG_TYPE" in r for r in qa_d.blocked_reasons)
+
+    # Case E: Non-bool exec_succeeded flag: raw_success=True, exec_succeeded=1 -> BLOCKED
+    qa_e, _, _, _, _, _, el_e = _finalize_reconciliation(
+        raw_success=True,
+        exec_succeeded=1,
+        expected_ids=expected_ids,
+        f_post=expected_ids,
+        p_post=[],
+        b_post=[],
+        fatal_defects=[],
+        adaptation_defects=[],
+        pre_status="PASS",
+        context=ctx,
+        copied_telemetry={},
+        copied_cost_telemetry={},
+        copied_cache_telemetry={},
+        copied_result_telemetry={},
+        serialized_pre_qa={},
+        failure_code=None,
+        validated_pre_blocked=[],
+        validated_pre_degraded=[],
+        resolved_population_changed=False,
+        min_ratio=0.9,
+        accounting_complete=True,
+    )
+    assert qa_e.status == STATUS_BLOCKED
+    assert el_e is False
+    assert any("INVALID_EXECUTION_FLAG_TYPE" in r for r in qa_e.blocked_reasons)
 
 
 def test_finding_6_telemetry_overwrite_protection():
@@ -4167,4 +4281,118 @@ def test_finding_9_serialization_fallback_guaranteed_json_serializable():
     dumped = json.dumps(ser_rec, allow_nan=False)
     assert isinstance(dumped, str)
     assert len(dumped) > 0
+
+
+def test_detail_b_partition_duplicate_detection_and_accounting_integrity():
+    expected_ids = make_expected_slot_ids()  # 10 unique slot IDs
+    ctx = make_test_context()
+
+    # Case 1: Intra-partition duplicate in f_post (first slot duplicated, total items = 11)
+    f_dup = [expected_ids[0], expected_ids[0]] + expected_ids[1:]
+    reconciled_qa, _, _, _, ser_rec, _, eligible = _finalize_reconciliation(
+        raw_success=True,
+        exec_succeeded=True,
+        expected_ids=expected_ids,
+        f_post=f_dup,
+        p_post=[],
+        b_post=[],
+        fatal_defects=[],
+        adaptation_defects=[],
+        pre_status="PASS",
+        context=ctx,
+        copied_telemetry={},
+        copied_cost_telemetry={},
+        copied_cache_telemetry={},
+        copied_result_telemetry={},
+        serialized_pre_qa={},
+        failure_code=None,
+        validated_pre_blocked=[],
+        validated_pre_degraded=[],
+        resolved_population_changed=False,
+        min_ratio=0.9,
+        accounting_complete=True,
+    )
+    # 1. Fatal defect must report duplicate slot in partition
+    assert any("DUPLICATE_SLOT_IN_PARTITION:f_post:" in d for d in ser_rec["telemetry"]["bridge_reconciliation"]["fatal_defects"])
+    # 2. Duplicate slot must be quarantined to b_post and excluded from f_post
+    assert expected_ids[0] in ser_rec["telemetry"]["bridge_reconciliation"]["b_post"]
+    assert expected_ids[0] not in ser_rec["telemetry"]["bridge_reconciliation"]["f_post"]
+    # 3. Status must be BLOCKED, export ineligible
+    assert reconciled_qa.status == STATUS_BLOCKED
+    assert eligible is False
+    # 4. Accounting incomplete must be True due to population mismatch (11 != 10)
+    assert ser_rec["telemetry"]["bridge_reconciliation"]["accounting_incomplete"] is True
+    assert ser_rec["telemetry"]["bridge_reconciliation"]["accounting_completeness"] == "incomplete"
+
+    # Case 2: Inter-partition overlap between f_post and p_post
+    f_overlap = list(expected_ids)
+    p_overlap = [expected_ids[0]]  # overlap on expected_ids[0]
+    qa_ov, _, _, _, ser_ov, _, el_ov = _finalize_reconciliation(
+        raw_success=True,
+        exec_succeeded=True,
+        expected_ids=expected_ids,
+        f_post=f_overlap,
+        p_post=p_overlap,
+        b_post=[],
+        fatal_defects=[],
+        adaptation_defects=[],
+        pre_status="PASS",
+        context=ctx,
+        copied_telemetry={},
+        copied_cost_telemetry={},
+        copied_cache_telemetry={},
+        copied_result_telemetry={},
+        serialized_pre_qa={},
+        failure_code=None,
+        validated_pre_blocked=[],
+        validated_pre_degraded=[],
+        resolved_population_changed=False,
+        min_ratio=0.9,
+        accounting_complete=True,
+    )
+    # 1. Overlap defect registered
+    assert any("PARTITION_OVERLAP_F_AND_P:" in d for d in ser_ov["telemetry"]["bridge_reconciliation"]["fatal_defects"])
+    # 2. Overlapping slot moved to b_post
+    assert expected_ids[0] in ser_ov["telemetry"]["bridge_reconciliation"]["b_post"]
+    assert expected_ids[0] not in ser_ov["telemetry"]["bridge_reconciliation"]["f_post"]
+    assert expected_ids[0] not in ser_ov["telemetry"]["bridge_reconciliation"]["p_post"]
+    # 3. Blocked and export ineligible
+    assert qa_ov.status == STATUS_BLOCKED
+    assert el_ov is False
+    # 4. Accounting incomplete due to cardinality mismatch (11 != 10)
+    assert ser_ov["telemetry"]["bridge_reconciliation"]["accounting_incomplete"] is True
+
+    # Case 3: Clean disjoint partitions with complete coverage
+    f_clean = expected_ids[:8]
+    p_clean = [expected_ids[8]]
+    b_clean = [expected_ids[9]]
+    qa_cl, _, _, _, ser_cl, _, el_cl = _finalize_reconciliation(
+        raw_success=True,
+        exec_succeeded=True,
+        expected_ids=expected_ids,
+        f_post=f_clean,
+        p_post=p_clean,
+        b_post=b_clean,
+        fatal_defects=[],
+        adaptation_defects=[],
+        pre_status="PASS",
+        context=ctx,
+        copied_telemetry={},
+        copied_cost_telemetry={},
+        copied_cache_telemetry={},
+        copied_result_telemetry={},
+        serialized_pre_qa={},
+        failure_code=None,
+        validated_pre_blocked=[],
+        validated_pre_degraded=[],
+        resolved_population_changed=False,
+        min_ratio=0.8,
+        accounting_complete=True,
+    )
+    assert qa_cl.status == STATUS_PASS
+    assert el_cl is True
+    assert ser_cl["telemetry"]["bridge_reconciliation"]["accounting_incomplete"] is False
+    assert ser_cl["telemetry"]["bridge_reconciliation"]["accounting_completeness"] == "complete"
+    assert len(ser_cl["telemetry"]["bridge_reconciliation"]["fatal_defects"]) == 0
+
 
