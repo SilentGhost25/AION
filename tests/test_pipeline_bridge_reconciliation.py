@@ -18,9 +18,11 @@ import collections.abc
 import copy
 import json
 import math
+import unittest.mock
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -3265,11 +3267,23 @@ def test_pipeline_bridge_legacy_malformed_non_empty_output_rejected(
         {
             "module_id": "module_1",
             "questions": [
-                {"question_text": "", "text": "Valid question text"}
+                {
+                    "question_text": "",
+                    "text": "Valid question text",
+                    "slot_id": "module_1_Q1",
+                    "module_id": "module_1",
+                }
             ],
         }
     ]
-    valid_full = [{"question_text": "", "text": "Valid question text"}]
+    valid_full = [
+        {
+            "question_text": "",
+            "text": "Valid question text",
+            "slot_id": "module_1_Q1",
+            "module_id": "module_1",
+        }
+    ]
     res_a = run_pipeline_v3_or_legacy(
         legacy_runner=lambda: (valid_parts, valid_full),
         v3_kwargs={},
@@ -3282,10 +3296,24 @@ def test_pipeline_bridge_legacy_malformed_non_empty_output_rejected(
     bad_parts_b = [
         {
             "module_id": "module_1",
-            "questions": [{"question_text": "   ", "text": ""}],
+            "questions": [
+                {
+                    "question_text": "   ",
+                    "text": "",
+                    "slot_id": "module_1_Q1",
+                    "module_id": "module_1",
+                }
+            ],
         }
     ]
-    bad_full_b = [{"question_text": "   ", "text": ""}]
+    bad_full_b = [
+        {
+            "question_text": "   ",
+            "text": "",
+            "slot_id": "module_1_Q1",
+            "module_id": "module_1",
+        }
+    ]
     res_b = run_pipeline_v3_or_legacy(
         legacy_runner=lambda: (bad_parts_b, bad_full_b),
         v3_kwargs={},
@@ -3538,10 +3566,22 @@ def test_pipeline_bridge_legacy_bilateral_question_population_equivalence(
     parts = [
         {
             "module_id": "module_1",
-            "questions": [{"text": "Text A", "slot_id": "module_1_Q1"}],
+            "questions": [
+                {
+                    "text": "Text A",
+                    "slot_id": "module_1_Q1",
+                    "module_id": "module_1",
+                }
+            ],
         }
     ]
-    full = [{"text": "Text B", "slot_id": "module_1_Q1"}]
+    full = [
+        {
+            "text": "Text B",
+            "slot_id": "module_1_Q1",
+            "module_id": "module_1",
+        }
+    ]
     res_a = run_pipeline_v3_or_legacy(
         legacy_runner=lambda: (parts, full),
         v3_kwargs={},
@@ -3554,10 +3594,22 @@ def test_pipeline_bridge_legacy_bilateral_question_population_equivalence(
     parts_b = [
         {
             "module_id": "module_1",
-            "questions": [{"text": "Same text", "slot_id": "module_1_Q1"}],
+            "questions": [
+                {
+                    "text": "Same text",
+                    "slot_id": "module_1_Q1",
+                    "module_id": "module_1",
+                }
+            ],
         }
     ]
-    full_b = [{"text": "Same text", "slot_id": "module_1_Q2"}]
+    full_b = [
+        {
+            "text": "Same text",
+            "slot_id": "module_1_Q2",
+            "module_id": "module_1",
+        }
+    ]
     res_b = run_pipeline_v3_or_legacy(
         legacy_runner=lambda: (parts_b, full_b),
         v3_kwargs={},
@@ -3643,3 +3695,476 @@ def test_pipeline_bridge_strict_pre_status_validation():
         assert any("INVALID_PRE_QA_STATUS" in d for d in fatal_defects)
         assert reconciled_qa.status == STATUS_BLOCKED
         assert eligible is False
+
+
+# =============================================================================
+# Targeted Defect Regression Tests (Findings 1 through 9)
+# =============================================================================
+
+
+def test_finding_1_legacy_validation_fail_closed_on_missing_or_non_string_ids(
+    monkeypatch,
+):
+    monkeypatch.setenv("AION_ENABLE_V3_AGENTS", "false")
+
+    # 1A: Missing slot_id in paper_parts
+    parts_no_slot = [
+        {
+            "module_id": "module_1",
+            "questions": [{"text": "Q1", "module_id": "module_1"}],
+        }
+    ]
+    full_no_slot = [
+        {"text": "Q1", "slot_id": "m1_q1", "module_id": "module_1"}
+    ]
+    res_1a = run_pipeline_v3_or_legacy(
+        legacy_runner=lambda: (parts_no_slot, full_no_slot),
+        v3_kwargs={},
+        legacy_kwargs={},
+        return_meta=True,
+    )
+    assert res_1a[2]["paper_status"] == "LEGACY_MALFORMED"
+    assert res_1a[2]["export_eligible"] is False
+
+    # 1B: Empty string slot_id in full_paper
+    parts_valid = [
+        {
+            "module_id": "module_1",
+            "questions": [
+                {"text": "Q1", "slot_id": "m1_q1", "module_id": "module_1"}
+            ],
+        }
+    ]
+    full_empty_slot = [
+        {"text": "Q1", "slot_id": "", "module_id": "module_1"}
+    ]
+    res_1b = run_pipeline_v3_or_legacy(
+        legacy_runner=lambda: (parts_valid, full_empty_slot),
+        v3_kwargs={},
+        legacy_kwargs={},
+        return_meta=True,
+    )
+    assert res_1b[2]["paper_status"] == "LEGACY_MALFORMED"
+    assert res_1b[2]["export_eligible"] is False
+
+    # 1C: Non-string slot_id (integer)
+    parts_int_slot = [
+        {
+            "module_id": "module_1",
+            "questions": [
+                {"text": "Q1", "slot_id": 123, "module_id": "module_1"}
+            ],
+        }
+    ]
+    full_int_slot = [
+        {"text": "Q1", "slot_id": 123, "module_id": "module_1"}
+    ]
+    res_1c = run_pipeline_v3_or_legacy(
+        legacy_runner=lambda: (parts_int_slot, full_int_slot),
+        v3_kwargs={},
+        legacy_kwargs={},
+        return_meta=True,
+    )
+    assert res_1c[2]["paper_status"] == "LEGACY_MALFORMED"
+    assert res_1c[2]["export_eligible"] is False
+
+    # 1D: Duplicate slot_id in legacy output
+    parts_dup = [
+        {
+            "module_id": "module_1",
+            "questions": [
+                {"text": "Q1", "slot_id": "m1_q1", "module_id": "module_1"},
+                {"text": "Q2", "slot_id": "m1_q1", "module_id": "module_1"},
+            ],
+        }
+    ]
+    full_dup = [
+        {"text": "Q1", "slot_id": "m1_q1", "module_id": "module_1"},
+        {"text": "Q2", "slot_id": "m1_q1", "module_id": "module_1"},
+    ]
+    res_1d = run_pipeline_v3_or_legacy(
+        legacy_runner=lambda: (parts_dup, full_dup),
+        v3_kwargs={},
+        legacy_kwargs={},
+        return_meta=True,
+    )
+    assert res_1d[2]["paper_status"] == "LEGACY_MALFORMED"
+    assert res_1d[2]["export_eligible"] is False
+
+    # 1E: Missing question-level module_id
+    parts_no_mod = [
+        {
+            "module_id": "module_1",
+            "questions": [{"text": "Q1", "slot_id": "m1_q1"}],
+        }
+    ]
+    full_no_mod = [{"text": "Q1", "slot_id": "m1_q1"}]
+    res_1e = run_pipeline_v3_or_legacy(
+        legacy_runner=lambda: (parts_no_mod, full_no_mod),
+        v3_kwargs={},
+        legacy_kwargs={},
+        return_meta=True,
+    )
+    assert res_1e[2]["paper_status"] == "LEGACY_MALFORMED"
+    assert res_1e[2]["export_eligible"] is False
+
+
+def test_finding_2_dispatcher_exception_preserves_consistent_blocked_state(
+    monkeypatch,
+):
+    monkeypatch.setenv("AION_ENABLE_V3_AGENTS", "true")
+
+    def mock_run_v3(**kwargs):
+        return (
+            [{"module_id": "module_1", "questions": []}],
+            [],
+            {
+                "success": True,
+                "raw_execution_success": True,
+                "paper_status": STATUS_OK,
+                "export_eligible": True,
+                "pre_adaptation_qa_report": {
+                    "status": "PASS",
+                    "blocked_reasons": [],
+                },
+            },
+        )
+
+    monkeypatch.setattr(
+        "core.generation.agents.pipeline_bridge.run_v3_pipeline", mock_run_v3
+    )
+
+    call_count = [0]
+    orig_wrap = _safe_wrap_bridge_result
+
+    def failing_wrap(*args, **kwargs):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            raise RuntimeError("POST_EXECUTION_DISPATCH_CRASH")
+        return orig_wrap(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "core.generation.agents.pipeline_bridge._safe_wrap_bridge_result",
+        failing_wrap,
+    )
+
+    res = run_pipeline_v3_or_legacy(
+        legacy_runner=lambda: ([], []),
+        v3_kwargs={},
+        legacy_kwargs={},
+        return_meta=False,
+    )
+
+    assert res.meta["success"] is True
+    assert res.meta["raw_execution_success"] is True
+    assert res.meta["paper_status"] == STATUS_BLOCKED
+    assert res.meta["export_eligible"] is False
+    assert res.meta["qa_report"]["status"] == STATUS_BLOCKED
+    assert not any(
+        "EXECUTION_FAILURE" in r
+        for r in res.meta["qa_report"]["blocked_reasons"]
+    )
+
+
+def test_finding_3_accounting_completeness_derived_dynamically():
+    mock_pre_qa = MagicMock(spec=QAReport)
+    mock_pre_qa.status = "PASS"
+    mock_pre_qa.slot_count = 0
+    mock_pre_qa.resolved_slots = 0
+    mock_pre_qa.unresolved_slots = []
+    mock_pre_qa.to_dict.return_value = {
+        "status": "PASS",
+        "slot_count": 0,
+        "resolved_slots": 0,
+        "unresolved_slots": [],
+        "degraded_reasons": [],
+        "blocked_reasons": [],
+        "telemetry": {},
+        "cost_telemetry": {},
+        "cache_telemetry": {},
+    }
+    mock_pre_qa.telemetry = {}
+    mock_pre_qa.cost_telemetry = {}
+    mock_pre_qa.cache_telemetry = {}
+    mock_pre_qa.blocked_reasons = []
+    mock_pre_qa.degraded_reasons = []
+
+    mock_result = MagicMock()
+    mock_result.success = True
+    mock_result.questions = []
+    mock_result.failure_code = None
+    mock_result.telemetry = {}
+    mock_result.qa_report = mock_pre_qa
+
+    mock_context = MagicMock()
+
+    # Empty expected slots -> accounting_incomplete MUST be True
+    with unittest.mock.patch(
+        "core.generation.agents.checking_agent.CheckingAgent._get_validated_expected_slots",
+        return_value=[],
+    ):
+        (
+            _,
+            _,
+            rec_meta_empty,
+            _,
+            ser_rec_empty,
+            _,
+            _,
+        ) = _reconcile_post_adaptation(
+            result=mock_result,
+            context=mock_context,
+            paper_parts=[],
+            full_paper=[],
+            cleanup_errors=[],
+        )
+        assert (
+            ser_rec_empty["telemetry"]["bridge_reconciliation"][
+                "accounting_incomplete"
+            ]
+            is True
+        )
+        assert (
+            ser_rec_empty["telemetry"]["bridge_reconciliation"][
+                "accounting_completeness"
+            ]
+            == "incomplete"
+        )
+
+
+def test_finding_4_duplicate_module_id_registered_when_malformed_part_appears_first():
+    mock_pre_qa = MagicMock(spec=QAReport)
+    mock_pre_qa.status = "PASS"
+    mock_pre_qa.to_dict.return_value = {"status": "PASS", "blocked_reasons": []}
+    mock_pre_qa.telemetry = {}
+    mock_pre_qa.cost_telemetry = {}
+    mock_pre_qa.cache_telemetry = {}
+    mock_pre_qa.blocked_reasons = []
+    mock_pre_qa.degraded_reasons = []
+
+    mock_result = MagicMock()
+    mock_result.success = True
+    mock_result.questions = []
+    mock_result.failure_code = None
+    mock_result.telemetry = {}
+    mock_result.qa_report = mock_pre_qa
+
+    mock_context = MagicMock()
+
+    parts_malformed_first = [
+        {"module_id": "module_1", "questions": None},
+        {
+            "module_id": "module_1",
+            "questions": [
+                {"slot_id": "m1_q1", "text": "Q1", "module_id": "module_1"}
+            ],
+        },
+    ]
+    full = [{"slot_id": "m1_q1", "text": "Q1", "module_id": "module_1"}]
+
+    with unittest.mock.patch(
+        "core.generation.agents.checking_agent.CheckingAgent._get_validated_expected_slots",
+        return_value=["m1_q1"],
+    ):
+        _, _, rec_meta, _, _, _, _ = _reconcile_post_adaptation(
+            result=mock_result,
+            context=mock_context,
+            paper_parts=parts_malformed_first,
+            full_paper=full,
+            cleanup_errors=[],
+        )
+        defects = rec_meta.get("fatal_defects", [])
+        assert any("DUPLICATE_PAPER_PART_MODULE_ID:module_1" in d for d in defects)
+        assert any("MALFORMED_PAPER_PART_QUESTIONS:index_0" in d for d in defects)
+
+
+def test_finding_5_finalizer_enforces_raw_success_consistency():
+    expected_ids = make_expected_slot_ids()
+    ctx = make_test_context()
+
+    # Inconsistent caller flags: raw_success=False but exec_succeeded=True
+    reconciled_qa, _, _, _, _, _, eligible = _finalize_reconciliation(
+        raw_success=False,
+        exec_succeeded=True,
+        expected_ids=expected_ids,
+        f_post=expected_ids,
+        p_post=[],
+        b_post=[],
+        fatal_defects=[],
+        adaptation_defects=[],
+        pre_status="PASS",
+        context=ctx,
+        copied_telemetry={},
+        copied_cost_telemetry={},
+        copied_cache_telemetry={},
+        copied_result_telemetry={},
+        serialized_pre_qa={},
+        failure_code="INTERNAL_CRASH",
+        validated_pre_blocked=[],
+        validated_pre_degraded=[],
+        resolved_population_changed=False,
+        min_ratio=0.9,
+        accounting_complete=True,
+    )
+    # Must fail-closed to STATUS_FAILED, never STATUS_PASS
+    assert reconciled_qa.status == STATUS_FAILED
+    assert eligible is False
+    assert any("EXECUTION_FAILURE:INTERNAL_CRASH" in r for r in reconciled_qa.blocked_reasons)
+
+
+def test_finding_6_telemetry_overwrite_protection():
+    expected_ids = make_expected_slot_ids()
+    ctx = make_test_context()
+
+    malicious_extra = {
+        "fatal_defects": ["FORGED_DEFECT_OVERWRITE"],
+        "accounting_incomplete": False,
+        "custom_plugin_metric": 99.5,
+    }
+
+    copied_tel = {}
+    reconciled_qa, _, _, _, ser_rec, _, _ = _finalize_reconciliation(
+        raw_success=True,
+        exec_succeeded=True,
+        expected_ids=expected_ids,
+        f_post=expected_ids,
+        p_post=[],
+        b_post=[],
+        fatal_defects=["AUTHENTIC_DEFECT"],
+        adaptation_defects=[],
+        pre_status="PASS",
+        context=ctx,
+        copied_telemetry=copied_tel,
+        copied_cost_telemetry={},
+        copied_cache_telemetry={},
+        copied_result_telemetry={},
+        serialized_pre_qa={},
+        failure_code=None,
+        validated_pre_blocked=[],
+        validated_pre_degraded=[],
+        resolved_population_changed=False,
+        min_ratio=0.9,
+        accounting_complete=False,
+        extra_reconciliation_telemetry=malicious_extra,
+    )
+
+    bridge_tel = ser_rec["telemetry"]["bridge_reconciliation"]
+    # Canonical integrity fields MUST NOT be overwritten
+    assert bridge_tel["fatal_defects"] == ["AUTHENTIC_DEFECT"]
+    assert bridge_tel["accounting_incomplete"] is True
+    # Non-reserved extra field is preserved
+    assert bridge_tel["custom_plugin_metric"] == 99.5
+    # Raw extra telemetry preserved under segregated namespace
+    assert "extra_telemetry" in bridge_tel
+    assert bridge_tel["extra_telemetry"]["custom_plugin_metric"] == 99.5
+
+
+def test_finding_7_full_paper_module_attribution_enforcement():
+    mock_pre_qa = MagicMock(spec=QAReport)
+    mock_pre_qa.status = "PASS"
+    mock_pre_qa.to_dict.return_value = {"status": "PASS", "blocked_reasons": []}
+    mock_pre_qa.telemetry = {}
+    mock_pre_qa.cost_telemetry = {}
+    mock_pre_qa.cache_telemetry = {}
+    mock_pre_qa.blocked_reasons = []
+    mock_pre_qa.degraded_reasons = []
+
+    mock_result = MagicMock()
+    mock_result.success = True
+    mock_result.questions = []
+    mock_result.failure_code = None
+    mock_result.telemetry = {}
+    mock_result.qa_report = mock_pre_qa
+
+    mock_context = MagicMock()
+
+    # Case 7A: Mismatched module_id between full_paper and paper_parts
+    parts = [
+        {
+            "module_id": "module_1",
+            "questions": [
+                {"slot_id": "m1_q1", "text": "Q1", "module_id": "module_1"}
+            ],
+        }
+    ]
+    full_mismatched = [
+        {"slot_id": "m1_q1", "text": "Q1", "module_id": "module_999"}
+    ]
+
+    with unittest.mock.patch(
+        "core.generation.agents.checking_agent.CheckingAgent._get_validated_expected_slots",
+        return_value=["m1_q1"],
+    ):
+        _, _, rec_meta, _, _, _, eligible = _reconcile_post_adaptation(
+            result=mock_result,
+            context=mock_context,
+            paper_parts=parts,
+            full_paper=full_mismatched,
+            cleanup_errors=[],
+        )
+        defects = rec_meta.get("fatal_defects", [])
+        assert any(
+            "QUESTION_MODULE_CROSS_REPRESENTATION_MISMATCH" in d
+            for d in defects
+        )
+        assert eligible is False
+
+
+def test_finding_8_emergency_handler_resilient_to_raising_len_object():
+    class RaisingLenSequence(list):
+        def __len__(self):
+            raise ArithmeticError("RAISING_LEN_PROPERTY")
+
+    # Must NOT escape with ArithmeticError
+    parts, full, meta = _handle_emergency_pipeline_failure(
+        exc=RuntimeError("Normal error"),
+        expected_ids=RaisingLenSequence(["s1"]),
+    )
+    assert parts == []
+    assert full == []
+    assert meta["paper_status"] == STATUS_FAILED
+    assert meta["export_eligible"] is False
+
+
+def test_finding_9_serialization_fallback_guaranteed_json_serializable():
+    expected_ids = make_expected_slot_ids()
+    ctx = make_test_context()
+
+    class UnserializableObject:
+        def __repr__(self):
+            return "<UnserializableObject>"
+
+    # Intentionally inject an object that fails standard json serialization
+    copied_tel = {"hostile_key": UnserializableObject()}
+
+    reconciled_qa, _, _, _, ser_rec, _, _ = _finalize_reconciliation(
+        raw_success=True,
+        exec_succeeded=True,
+        expected_ids=expected_ids,
+        f_post=expected_ids,
+        p_post=[],
+        b_post=[],
+        fatal_defects=[],
+        adaptation_defects=[],
+        pre_status="PASS",
+        context=ctx,
+        copied_telemetry=copied_tel,
+        copied_cost_telemetry={},
+        copied_cache_telemetry={},
+        copied_result_telemetry={},
+        serialized_pre_qa={},
+        failure_code=None,
+        validated_pre_blocked=[],
+        validated_pre_degraded=[],
+        resolved_population_changed=False,
+        min_ratio=0.9,
+        accounting_complete=True,
+    )
+
+    # Reconciled QA report should catch serialization error and produce valid JSON fallback
+    assert ser_rec.get("_is_synthetic_fallback") is True
+    # The ultimate test: json.dumps must succeed without throwing TypeError
+    dumped = json.dumps(ser_rec, allow_nan=False)
+    assert isinstance(dumped, str)
+    assert len(dumped) > 0
+

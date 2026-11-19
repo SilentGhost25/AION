@@ -928,10 +928,14 @@ def _finalize_reconciliation(
         degraded_reasons.append(defect)
 
     # 4-Tier Status Precedence Policy
+    # Define one authoritative execution-state decision and use it consistently
+    validated_exec_success = (
+        type(raw_success) is bool and raw_success is True and bool(exec_succeeded)
+    )
     if type(raw_success) is not bool:
         # Tier 1: Invalid execution flag type -> BLOCKED
         status = STATUS_BLOCKED
-    elif not exec_succeeded:
+    elif not validated_exec_success:
         # Tier 2: Genuine execution failure (False) -> FAILED, retaining all fatal defects
         status = STATUS_FAILED
         blocked_reasons.append(
@@ -998,8 +1002,29 @@ def _finalize_reconciliation(
     if is_synthetic:
         bridge_telemetry["is_synthetic"] = True
         bridge_telemetry["synthetic_reason"] = synthetic_reason
-    if extra_reconciliation_telemetry:
-        bridge_telemetry.update(extra_reconciliation_telemetry)
+    RESERVED_BRIDGE_KEYS = {
+        "expected_slots",
+        "resolved_slots",
+        "unresolved_slots",
+        "f_post",
+        "p_post",
+        "b_post",
+        "fatal_defects",
+        "adaptation_defects",
+        "accounting_incomplete",
+        "accounting_completeness",
+        "is_synthetic",
+        "synthetic_reason",
+    }
+    if extra_reconciliation_telemetry and isinstance(
+        extra_reconciliation_telemetry, dict
+    ):
+        bridge_telemetry["extra_telemetry"] = {
+            _safe_str(k, 100): v for k, v in extra_reconciliation_telemetry.items()
+        }
+        for k, v in extra_reconciliation_telemetry.items():
+            if k not in RESERVED_BRIDGE_KEYS and k not in bridge_telemetry:
+                bridge_telemetry[k] = v
 
     copied_telemetry["bridge_reconciliation"] = bridge_telemetry
 
@@ -1028,7 +1053,7 @@ def _finalize_reconciliation(
     if not is_ser_success:
         if type(raw_success) is not bool:
             status = STATUS_BLOCKED
-        elif not exec_succeeded:
+        elif not validated_exec_success:
             status = STATUS_FAILED
         else:
             status = STATUS_BLOCKED
@@ -1043,7 +1068,9 @@ def _finalize_reconciliation(
         bridge_telemetry["fatal_defects"] = list(fatal_defects)
         copied_telemetry["bridge_reconciliation"] = bridge_telemetry
 
-        # Complete 9-field QAReport fallback schema
+        # Complete 9-field QAReport fallback schema guaranteed to be JSON-serializable
+        safe_fallback_telemetry = _safe_dict_convert(copied_telemetry)
+        safe_fallback_telemetry["bridge_reconciliation"] = _safe_dict_convert(bridge_telemetry)
         serialized_reconciled_qa = {
             "status": status,
             "slot_count": expected_count,
@@ -1051,12 +1078,21 @@ def _finalize_reconciliation(
             "unresolved_slots": list(unresolved_slots),
             "degraded_reasons": list(degraded_reasons),
             "blocked_reasons": list(reconciled_qa.blocked_reasons),
-            "telemetry": copied_telemetry,
-            "cost_telemetry": copied_cost_telemetry,
-            "cache_telemetry": copied_cache_telemetry,
+            "telemetry": safe_fallback_telemetry,
+            "cost_telemetry": _safe_dict_convert(copied_cost_telemetry),
+            "cache_telemetry": _safe_dict_convert(copied_cache_telemetry),
             "_is_synthetic_fallback": True,
             "_serialization_error": _safe_str(ser_defect, 200),
         }
+        try:
+            json.dumps(serialized_reconciled_qa, allow_nan=False)
+        except Exception:
+            serialized_reconciled_qa["telemetry"] = {
+                "bridge_reconciliation": _safe_dict_convert(bridge_telemetry),
+                "_telemetry_unserializable": True,
+            }
+            serialized_reconciled_qa["cost_telemetry"] = {}
+            serialized_reconciled_qa["cache_telemetry"] = {}
 
     # Authoritative export_eligible derivation
     has_fatal = bool(fatal_defects)
@@ -1504,63 +1540,67 @@ def _handle_emergency_pipeline_failure(
     cleanup_errors: Optional[List[str]] = None,
     accounting_established: bool = False,
     expected_ids: Optional[List[str]] = None,
+    raw_success_override: Optional[bool] = None,
 ) -> Tuple[List[dict], List[dict], dict]:
     """
     Universal emergency containment boundary.
     Uses independent literal dictionary construction (_build_emergency_meta_dict).
     Preserves all established pipeline state, applies four-tier execution status precedence,
     and formats telemetry strictly under 'bridge_reconciliation'.
-    Pre-extracts primitive execution state BEFORE the try block so that the terminal fallback
+    Pre-extracts primitive execution state inside the try block so that the terminal fallback
     in outer except returns exact execution-state status (Tier 3 BLOCKED on success) with ZERO helper calls.
     Guaranteed never to raise even under malformed diagnostic state or raising property getters.
     """
-    # 0. Pure primitive execution-state extraction ahead of try block
-    raw_success = None
-    if result is not None:
-        try:
-            raw_success = getattr(result, "success", None)
-        except Exception:
-            raw_success = None
-
-    if result is None:
-        # Pre-execution failure or unavailable -> FAILED
-        validated_exec_success = False
-        paper_status = "FAILED"
-    elif type(raw_success) is not bool:
-        # Execution state invalid (non-boolean flag) -> BLOCKED
-        validated_exec_success = False
-        paper_status = "BLOCKED"
-    elif raw_success is False:
-        # Execution genuinely failed -> FAILED
-        validated_exec_success = False
-        paper_status = "FAILED"
-    else:
-        # Execution succeeded, but emergency failure occurred in reconciliation/meta -> BLOCKED
-        # Pre-computed OK, PARTIAL, DEGRADED CANNOT survive emergency failure!
-        validated_exec_success = True
-        paper_status = "BLOCKED"
-
-    safe_raw_success = (
-        raw_success if (type(raw_success) is bool or raw_success is None) else None
-    )
-
-    # Strictly validate known_expected_count as non-negative integer, explicitly rejecting bool
-    raw_count = (
-        len(expected_ids)
-        if isinstance(expected_ids, (list, tuple))
-        and not isinstance(expected_ids, (str, bytes))
-        else 0
-    )
-    if (
-        isinstance(raw_count, int)
-        and not isinstance(raw_count, bool)
-        and raw_count >= 0
-    ):
-        known_expected_count = raw_count
-    else:
-        known_expected_count = 0
+    # 0. Pure primitive execution-state defaults ahead of any operations
+    validated_exec_success = False
+    paper_status = "FAILED"
+    safe_raw_success = None
+    known_expected_count = 0
 
     try:
+        # Pre-extract primitive execution state safely inside containment
+        raw_success = (
+            raw_success_override if raw_success_override is not None else None
+        )
+        if raw_success is None and result is not None:
+            try:
+                raw_success = getattr(result, "success", None)
+            except Exception:
+                raw_success = None
+
+        if raw_success is True:
+            # Execution succeeded, but emergency failure occurred in reconciliation/meta/dispatcher -> BLOCKED
+            validated_exec_success = True
+            paper_status = "BLOCKED"
+            safe_raw_success = True
+        elif result is None or raw_success is False:
+            # Pre-execution failure or explicit failure -> FAILED
+            validated_exec_success = False
+            paper_status = "FAILED"
+            safe_raw_success = False if raw_success is False else None
+        elif type(raw_success) is not bool:
+            # Execution state invalid (non-boolean flag) -> BLOCKED
+            validated_exec_success = False
+            paper_status = "BLOCKED"
+            safe_raw_success = None
+
+        raw_count = 0
+        if isinstance(expected_ids, (list, tuple)) and not isinstance(
+            expected_ids, (str, bytes)
+        ):
+            try:
+                raw_count = len(expected_ids)
+            except Exception:
+                raw_count = 0
+        if (
+            isinstance(raw_count, int)
+            and not isinstance(raw_count, bool)
+            and raw_count >= 0
+        ):
+            known_expected_count = raw_count
+        else:
+            known_expected_count = 0
+
         exc_type = _safe_type_name(exc)
         exc_msg = _safe_str(exc, 200)
         failure_code = f"EMERGENCY_{stage}"
@@ -2216,6 +2256,19 @@ def _reconcile_post_adaptation(
                 f"MALFORMED_ADAPTED_SLOT_ID:index_{idx}:whitespace_or_empty"
             )
             continue
+
+        q_mod = q_dict.get("module_id")
+        if not isinstance(q_mod, str) or not q_mod.strip():
+            slots_with_fatal_defects.add(sid)
+            fatal_defects.append(
+                f"MALFORMED_ADAPTED_QUESTION_MODULE_ID:slot={sid}:type_{_safe_type_name(q_mod)}"
+            )
+        elif sid.startswith("module_") and not sid.startswith(f"{q_mod.strip()}_"):
+            slots_with_fatal_defects.add(sid)
+            fatal_defects.append(
+                f"ADAPTED_QUESTION_SLOT_MODULE_PREFIX_MISMATCH:module={q_mod.strip()}:slot={sid}"
+            )
+
         if sid not in expected_set:
             slots_with_fatal_defects.add(sid)
             fatal_defects.append(f"UNEXPECTED_ADAPTED_SLOT_ID:{_safe_str(sid, 50)}")
@@ -2270,6 +2323,15 @@ def _reconcile_post_adaptation(
                 )
                 continue
 
+            # Register valid module ID immediately to catch duplicates even if questions container is malformed
+            is_dup_mod = mod_id in seen_part_modules
+            if is_dup_mod:
+                fatal_defects.append(
+                    f"DUPLICATE_PAPER_PART_MODULE_ID:{_safe_str(mod_id, 50)}"
+                )
+            else:
+                seen_part_modules.add(mod_id)
+
             part_questions = part.get("questions")
             if not isinstance(part_questions, list):
                 fatal_defects.append(
@@ -2277,18 +2339,12 @@ def _reconcile_post_adaptation(
                 )
                 continue
 
-            # Duplicate module ID detection with affected question marking
-            if mod_id in seen_part_modules:
-                fatal_defects.append(
-                    f"DUPLICATE_PAPER_PART_MODULE_ID:{_safe_str(mod_id, 50)}"
-                )
+            if is_dup_mod:
                 for pq in part_questions:
                     if isinstance(pq, dict):
                         pq_sid = pq.get("slot_id")
                         if isinstance(pq_sid, str) and pq_sid in expected_set:
                             slots_with_fatal_defects.add(pq_sid)
-            else:
-                seen_part_modules.add(mod_id)
 
             for q_idx, pq in enumerate(part_questions):
                 if not isinstance(pq, dict):
@@ -2317,6 +2373,16 @@ def _reconcile_post_adaptation(
                     fatal_defects.append(
                         f"QUESTION_SLOT_MODULE_PREFIX_MISMATCH:part={mod_id}:slot={pq_sid}"
                     )
+
+                # Cross-representation module attribution matching between paper_parts and full_paper
+                if pq_sid in adapted_by_slot:
+                    full_q = adapted_by_slot[pq_sid]
+                    full_mod = full_q.get("module_id")
+                    if isinstance(full_mod, str) and full_mod.strip() != mod_id:
+                        slots_with_fatal_defects.add(pq_sid)
+                        fatal_defects.append(
+                            f"QUESTION_MODULE_CROSS_REPRESENTATION_MISMATCH:slot={pq_sid}:part_mod={mod_id}:full_mod={full_mod.strip()}"
+                        )
 
                 # Duplicate slot detection within paper_parts
                 seen_part_slot_counts[pq_sid] = (
@@ -2493,6 +2559,17 @@ def _reconcile_post_adaptation(
 
     resolved_population_changed = len(f_post) < len(f_pre)
 
+    # Derive accounting completeness dynamically from established expected population and complete partition coverage
+    accounting_established = bool(expected_ids) and len(expected_ids) > 0 and not any(
+        d.startswith("INVALID_EXPECTED_SLOT_SPECIFICATION") for d in fatal_defects
+    )
+    all_expected_accounted = (
+        set(f_post + p_post + b_post) == expected_set
+        if accounting_established
+        else False
+    )
+    accounting_complete = accounting_established and all_expected_accounted
+
     return _finalize_reconciliation(
         raw_success=raw_success,
         exec_succeeded=exec_succeeded,
@@ -2514,7 +2591,7 @@ def _reconcile_post_adaptation(
         validated_pre_degraded=validated_pre_degraded,
         resolved_population_changed=resolved_population_changed,
         min_ratio=min_ratio,
-        accounting_complete=True,
+        accounting_complete=accounting_complete,
     )
 
 
@@ -2955,13 +3032,15 @@ def run_pipeline_v3_or_legacy(
                                     )
                                     break
 
-                                # Module attribution
+                                # Module attribution: must be valid non-empty string and match part mod_id
                                 q_mod = pq.get("module_id")
-                                if (
-                                    q_mod is not None
-                                    and isinstance(q_mod, str)
-                                    and q_mod.strip() != mod_id
-                                ):
+                                if not isinstance(q_mod, str) or not q_mod.strip():
+                                    parts_valid = False
+                                    malformation_reason = (
+                                        f"paper_parts[{p_idx}].questions[{q_idx}] missing or non-string module_id"
+                                    )
+                                    break
+                                if q_mod.strip() != mod_id:
                                     parts_valid = False
                                     malformation_reason = (
                                         f"paper_parts[{p_idx}].questions[{q_idx}] module_id '{q_mod}' "
@@ -2969,7 +3048,16 @@ def run_pipeline_v3_or_legacy(
                                     )
                                     break
 
-                                parts_qs.append((pq, valid_text, mod_id))
+                                # Slot ID: must be valid non-empty string
+                                pq_sid = pq.get("slot_id")
+                                if not isinstance(pq_sid, str) or not pq_sid.strip():
+                                    parts_valid = False
+                                    malformation_reason = (
+                                        f"paper_parts[{p_idx}].questions[{q_idx}] missing or non-string slot_id"
+                                    )
+                                    break
+
+                                parts_qs.append((pq, valid_text, mod_id, pq_sid.strip()))
 
                             if not parts_valid:
                                 break
@@ -3009,7 +3097,7 @@ def run_pipeline_v3_or_legacy(
                                         )
                                         break
 
-                                    pq, pq_text, part_mod_id = parts_qs[q_idx]
+                                    pq, pq_text, part_mod_id, expected_pq_sid = parts_qs[q_idx]
                                     if valid_text != pq_text:
                                         legacy_malformed = True
                                         malformation_reason = (
@@ -3018,33 +3106,39 @@ def run_pipeline_v3_or_legacy(
                                         )
                                         break
 
-                                    # Check slot_id consistency if present
+                                    # Slot ID validation and bilateral equivalence
                                     q_sid = q.get("slot_id")
-                                    pq_sid = pq.get("slot_id")
-                                    if q_sid is not None or pq_sid is not None:
-                                        if q_sid != pq_sid:
-                                            legacy_malformed = True
-                                            malformation_reason = (
-                                                f"Slot ID mismatch at index {q_idx}: "
-                                                f"paper_parts '{pq_sid}' vs full_paper '{q_sid}'"
-                                            )
-                                            break
-                                        if isinstance(q_sid, str):
-                                            if q_sid in seen_slot_ids:
-                                                legacy_malformed = True
-                                                malformation_reason = (
-                                                    f"Duplicate slot_id '{q_sid}' at index {q_idx} in legacy output"
-                                                )
-                                                break
-                                            seen_slot_ids.add(q_sid)
+                                    if not isinstance(q_sid, str) or not q_sid.strip():
+                                        legacy_malformed = True
+                                        malformation_reason = (
+                                            f"full_paper[{q_idx}] missing or non-string slot_id"
+                                        )
+                                        break
+                                    clean_q_sid = q_sid.strip()
+                                    if clean_q_sid != expected_pq_sid:
+                                        legacy_malformed = True
+                                        malformation_reason = (
+                                            f"Slot ID mismatch at index {q_idx}: "
+                                            f"paper_parts '{expected_pq_sid}' vs full_paper '{clean_q_sid}'"
+                                        )
+                                        break
+                                    if clean_q_sid in seen_slot_ids:
+                                        legacy_malformed = True
+                                        malformation_reason = (
+                                            f"Duplicate slot_id '{clean_q_sid}' at index {q_idx} in legacy output"
+                                        )
+                                        break
+                                    seen_slot_ids.add(clean_q_sid)
 
-                                    # Check module_id consistency if present
+                                    # Module ID validation and bilateral attribution
                                     q_mod = q.get("module_id")
-                                    if (
-                                        q_mod is not None
-                                        and isinstance(q_mod, str)
-                                        and q_mod.strip() != part_mod_id
-                                    ):
+                                    if not isinstance(q_mod, str) or not q_mod.strip():
+                                        legacy_malformed = True
+                                        malformation_reason = (
+                                            f"full_paper[{q_idx}] missing or non-string module_id"
+                                        )
+                                        break
+                                    if q_mod.strip() != part_mod_id:
                                         legacy_malformed = True
                                         malformation_reason = (
                                             f"full_paper[{q_idx}] module_id '{q_mod}' "
@@ -3175,9 +3269,10 @@ def run_pipeline_v3_or_legacy(
             stage="DISPATCH_EXCEPTION",
             result=None,
             pre_qa_snapshot=pre_qa_snap if isinstance(pre_qa_snap, dict) else None,
+            raw_success_override=True if dispatch_exec_succeeded else None,
         )
 
-        # Enforce dispatch status preservation
+        # Enforce dispatch status preservation (defense in depth)
         if dispatch_exec_succeeded:
             emergency_meta["success"] = True
             emergency_meta["raw_execution_success"] = True
