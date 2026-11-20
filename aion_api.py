@@ -1359,11 +1359,34 @@ def generate_stream():
 
             import aion_patch
             result = (getattr(aion_patch, "normalize_paper_for_frontend_ui", lambda r, *a, **k: r)(result, _subject, _exam_type))
+
+            from core.validation.paper_export_registry import generate_paper_id, PaperExportRegistry
+            stream_paper_id = result.get("id") or result.get("paper_id")
+            if not stream_paper_id or stream_paper_id == "unknown":
+                stream_paper_id = generate_paper_id()
+                result["id"] = stream_paper_id
+                result["paper_id"] = stream_paper_id
+
+            stream_export_eligible = (qa_status == "PASS") and (total_subquestions > 0)
+            try:
+                PaperExportRegistry.register(
+                    paper_id=stream_paper_id,
+                    paper_data=result,
+                    export_eligible=stream_export_eligible,
+                    paper_status=qa_status,
+                    blocked_reasons=err_details if not stream_export_eligible else [],
+                    qa_report=qa_report or {},
+                )
+            except Exception as _reg_err:
+                print(f"[STREAM] Failed to register export record: {_reg_err}", flush=True)
+
             print(f"[STREAM DEBUG] About to yield paper_ready. result has {len(result.get('modules', []))} modules", flush=True)
             paper_payload = {
                 "paper": result,
                 "result": result,
                 "data": result,
+                "paper_id": stream_paper_id,
+                "export_eligible": stream_export_eligible,
                 **(result if isinstance(result, dict) else {}),
                 "question_count": total_subquestions,
                 "canonical_hash": canonical_hash
@@ -1378,7 +1401,8 @@ def generate_stream():
                 "paper": result,
                 "result": result,
                 "data": result,
-                "paper_id": result.get("id", "unknown"),
+                "paper_id": stream_paper_id,
+                "export_eligible": stream_export_eligible,
                 "question_count": total_subquestions,
                 "canonical_hash": canonical_hash
             }
@@ -1612,16 +1636,38 @@ def v3_direct_generate():
         else:
             paper_status = "OK" if meta.get("success") else "FAILED"
 
-
-
         success = paper_status in {"OK", "PARTIAL", "DEGRADED"}
-
         blocked_reasons = meta.get("blocked_reasons") or qa_rep.get("blocked_reasons", [])
         is_degraded = bool(meta.get("degraded") or paper_status == "DEGRADED")
 
+        from core.validation.paper_export_registry import generate_paper_id, PaperExportRegistry
+
+        paper_id = generate_paper_id()
+        formatted["id"] = paper_id
+        formatted["paper_id"] = paper_id
+
+        export_eligible = bool(meta.get("export_eligible", success and not blocked_reasons))
+        if paper_status in ("BLOCKED", "FAILED"):
+            export_eligible = False
+
+        try:
+            PaperExportRegistry.register(
+                paper_id=paper_id,
+                paper_data=formatted,
+                export_eligible=export_eligible,
+                paper_status=paper_status,
+                blocked_reasons=blocked_reasons if not export_eligible else [],
+                degraded_reasons=meta.get("degraded_reasons", []) if is_degraded else [],
+                qa_report=qa_rep,
+            )
+        except Exception as reg_err:
+            print(f"[AION API v3] Failed to register paper export record: {reg_err}", flush=True)
+
         return jsonify(jsonable({
             "success": success,
+            "paper_id": paper_id,
             "paper_status": paper_status,
+            "export_eligible": export_eligible,
             "paper": formatted,
             "questions": full_paper,
             "modules": formatted.get("modules", []),
@@ -2190,13 +2236,96 @@ def preview_paper():
     return Response(html, mimetype="text/html")
 
 
+def _validate_and_authorize_export_payload(req):
+    """
+    Dual-tier validation and authorization for physical exports (DOCX / PDF).
+    Returns (paper_data, None) if authorized, or (None, (error_response, status_code)) on failure.
+    """
+    from core.validation.paper_export_registry import (
+        validate_paper_id,
+        PaperExportRegistry,
+        STATUS_MISSING,
+        STATUS_EXPIRED,
+        STATUS_CORRUPTED,
+        STATUS_ERROR,
+        canonicalize_paper_payload,
+    )
+    from core.validation.export_gate import ExportGate
+
+    raw_bytes = req.get_data()
+    if not raw_bytes or not raw_bytes.strip():
+        return None, (jsonify({"error": "Empty request body", "code": "EMPTY_REQUEST_BODY"}), 400)
+
+    try:
+        import json
+        body = json.loads(raw_bytes.decode("utf-8"))
+    except Exception:
+        return None, (jsonify({"error": "Malformed JSON payload", "code": "INVALID_JSON"}), 400)
+
+    if not isinstance(body, dict):
+        return None, (jsonify({"error": "Payload must be a JSON object", "code": "INVALID_PAPER_SCHEMA"}), 422)
+
+    modules = body.get("modules")
+    if not isinstance(modules, list) or len(modules) == 0:
+        return None, (jsonify({"error": "Paper schema invalid: missing or empty modules list", "code": "INVALID_PAPER_SCHEMA"}), 422)
+
+    paper_id = body.get("id") or body.get("paper_id")
+    if not paper_id:
+        return None, (jsonify({"error": "Missing paper_id in export payload", "code": "MISSING_PAPER_ID"}), 422)
+
+    if not validate_paper_id(paper_id):
+        return None, (jsonify({"error": f"Malformed paper_id '{paper_id}'", "code": "MALFORMED_PAPER_ID"}), 422)
+
+    # Tier 1: Authoritative Registry Lookup
+    record, status = PaperExportRegistry.get(paper_id)
+    if status == STATUS_MISSING:
+        return None, (jsonify({"error": f"Paper '{paper_id}' not found in export registry", "code": "REGISTRY_RECORD_NOT_FOUND"}), 404)
+    elif status == STATUS_EXPIRED:
+        return None, (jsonify({"error": f"Export authorization for '{paper_id}' has expired", "code": "REGISTRY_RECORD_EXPIRED"}), 403)
+    elif status == STATUS_CORRUPTED:
+        return None, (jsonify({"error": f"Registry record for '{paper_id}' is corrupted", "code": "REGISTRY_RECORD_CORRUPTED"}), 500)
+    elif status == STATUS_ERROR:
+        return None, (jsonify({"error": f"Error accessing registry for '{paper_id}'", "code": "REGISTRY_ACCESS_ERROR"}), 500)
+
+    if not record.export_eligible:
+        return None, (jsonify({
+            "error": f"Paper '{paper_id}' is ineligible for export",
+            "code": "EXPORT_INELIGIBLE",
+            "blocked_reasons": record.blocked_reasons
+        }), 403)
+
+    # Tamper detection via canonical hash match
+    calc_hash = canonicalize_paper_payload(body)
+    if calc_hash != record.canonical_hash:
+        return None, (jsonify({
+            "error": f"Paper content digest mismatch for '{paper_id}'. Payload has been altered since generation.",
+            "code": "PAYLOAD_DIGEST_MISMATCH"
+        }), 409)
+
+    # Tier 2: Physical Payload Integrity Check via ExportGate
+    gate_res = ExportGate.evaluate_dict(body)
+    if not gate_res.passed:
+        return None, (jsonify({
+            "error": f"Physical export validation failed: {gate_res.message}",
+            "code": "PHYSICAL_VALIDATION_FAILED",
+            "failures": gate_res.failures
+        }), 422)
+
+    return body, None
+
+
 @app.route("/api/download/pdf", methods=["POST"])
 def download_pdf():
     from v0_1.paper_formatter import export_pdf
     from flask import send_file
-    data = request.get_json()
+
+    body, err_resp = _validate_and_authorize_export_payload(request)
+    if err_resp is not None:
+        resp, code = err_resp
+        return resp, code
+
     try:
-        out_path = export_pdf(data)
+        out_path = export_pdf(body)
         return send_file(str(out_path), mimetype="application/pdf", as_attachment=True)
     except Exception as e:
         print(f"[ERROR] PDF Generation failed: {e}")
@@ -2305,14 +2434,18 @@ def document_diagnostics(document_id):
 @app.route("/api/export/docx", methods=["POST"])
 def export_docx():
     """
-    Exports a GeneratedPaper object into a styled .docx document.
+    Exports an authorized GeneratedPaper object into a styled .docx document.
     """
     from flask import send_file
-    from v0_1.docx_export import generate_docx_from_paper
+    from v0_1.docx_export import render_docx_document
 
-    body = request.get_json(silent=True) or {}
+    body, err_resp = _validate_and_authorize_export_payload(request)
+    if err_resp is not None:
+        resp, code = err_resp
+        return resp, code
+
     try:
-        docx_buffer = generate_docx_from_paper(body)
+        docx_buffer = render_docx_document(body)
         
         config = body.get("config") or {}
         subject_code = config.get("subjectCode") or body.get("subject_code") or "VTU"

@@ -358,9 +358,14 @@ def get_module_for_q(q: Dict[str, Any]) -> int:
         return 1
 
 
-def generate_docx_from_paper(paper_data: Dict[str, Any], output_path: Optional[str] = None) -> io.BytesIO:
+class ExportIntegrityError(ValueError):
+    """Raised when physical export validation or authorization fails."""
+    pass
+
+
+def render_docx_document(paper_data: Dict[str, Any], output_path: Optional[str] = None) -> io.BytesIO:
     """
-    Generates a VTU formatted .docx document from a paper dictionary.
+    Renders a VTU formatted .docx document from a paper dictionary.
     Returns BytesIO object containing the docx binary, and optionally writes to output_path.
     """
     doc = Document()
@@ -970,3 +975,67 @@ def generate_docx_from_paper(paper_data: Dict[str, Any], output_path: Optional[s
         with open(output_path, "wb") as f:
             f.write(buffer.getvalue())
     return buffer
+
+
+def generate_docx_from_paper(
+    paper_data: Dict[str, Any],
+    output_path: Optional[str] = None,
+    enforce_registry: Optional[bool] = None,
+) -> io.BytesIO:
+    """
+    Export Gate Enforced Entry Point for DOCX generation.
+    Enforces Tier 2 physical payload validation and Tier 1 registry authorization.
+    """
+    if os.getenv("AION_ALLOW_UNREGISTERED_DOCX", "0") == "1":
+        enforce_registry = False
+
+    paper_id = paper_data.get("id") or paper_data.get("paper_id")
+
+    if paper_id:
+        # Tier 2: Physical export validation
+        from core.validation.export_gate import ExportGate
+        gate_res = ExportGate.evaluate_dict(paper_data)
+        if not gate_res.passed:
+            raise ExportIntegrityError(f"Physical export validation failed: {gate_res.failures}")
+
+        # Tier 1: Registry authorization
+        from core.validation.paper_export_registry import (
+            validate_paper_id,
+            PaperExportRegistry,
+            STATUS_MISSING,
+            STATUS_EXPIRED,
+            STATUS_CORRUPTED,
+            STATUS_ERROR,
+            canonicalize_paper_payload,
+        )
+
+        if not validate_paper_id(paper_id):
+            raise ExportIntegrityError(f"Export denied: paper_id '{paper_id}' is malformed.")
+
+        record, status = PaperExportRegistry.get(paper_id)
+        if status == STATUS_MISSING:
+            raise ExportIntegrityError(f"Export denied: paper_id '{paper_id}' not found in export registry.")
+        elif status == STATUS_EXPIRED:
+            raise ExportIntegrityError(f"Export denied: paper record for '{paper_id}' has expired.")
+        elif status in (STATUS_CORRUPTED, STATUS_ERROR):
+            raise ExportIntegrityError(f"Export denied: registry record for '{paper_id}' is corrupted or inaccessible.")
+
+        if not record.export_eligible:
+            raise ExportIntegrityError(
+                f"Export denied: paper '{paper_id}' is marked ineligible for export: {record.blocked_reasons}"
+            )
+
+        current_hash = canonicalize_paper_payload(paper_data)
+        if current_hash != record.canonical_hash:
+            raise ExportIntegrityError(
+                f"Export denied: paper content digest mismatch for '{paper_id}'. Payload has been altered."
+            )
+    elif enforce_registry is True:
+        raise ExportIntegrityError("Export denied: paper_id is missing. Direct unregistered export is disallowed.")
+    else:
+        # Fallback minimal safety check when registry bypass is active
+        if "[UNRESOLVED SLOT" in str(paper_data):
+            raise ExportIntegrityError("Export denied: paper contains unresolved slot markers.")
+
+    return render_docx_document(paper_data, output_path=output_path)
+

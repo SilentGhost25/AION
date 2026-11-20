@@ -89,7 +89,34 @@ def get_paper(paper_id):
 
 @papers_bp.route("/papers/<paper_id>/export", methods=["POST"])
 def export_paper(paper_id):
-    data = request.get_json() or {}
+    from core.validation.paper_export_registry import (
+        validate_paper_id,
+        PaperExportRegistry,
+        STATUS_MISSING,
+        STATUS_EXPIRED,
+        STATUS_CORRUPTED,
+        STATUS_ERROR,
+    )
+
+    if not validate_paper_id(paper_id):
+        return jsonify({"error": f"Malformed paper_id '{paper_id}'", "code": "MALFORMED_PAPER_ID"}), 422
+
+    record, status = PaperExportRegistry.get(paper_id)
+    if status == STATUS_MISSING:
+        if paper_id not in _paper_store:
+            return jsonify({"error": f"Paper '{paper_id}' not found in export registry", "code": "REGISTRY_RECORD_NOT_FOUND"}), 404
+    elif status == STATUS_EXPIRED:
+        return jsonify({"error": f"Export authorization for '{paper_id}' has expired", "code": "REGISTRY_RECORD_EXPIRED"}), 403
+    elif status in (STATUS_CORRUPTED, STATUS_ERROR):
+        return jsonify({"error": f"Error accessing registry for '{paper_id}'", "code": "REGISTRY_ACCESS_ERROR"}), 500
+    elif record and not record.export_eligible:
+        return jsonify({
+            "error": f"Paper '{paper_id}' is ineligible for export",
+            "code": "EXPORT_INELIGIBLE",
+            "blocked_reasons": record.blocked_reasons
+        }), 403
+
+    data = request.get_json(silent=True) or {}
     fmt = data.get("format", "pdf")
     return jsonify({
         "paper_id": paper_id,

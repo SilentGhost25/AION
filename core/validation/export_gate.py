@@ -1,9 +1,10 @@
 # core/validation/export_gate.py
 
 import os
+import re
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 from core.contracts.question import GeneratedQuestion
 from core.validation.common import CheckResult
 from core.validation.math_validator import validate_math_consistency, validate_math_block_with_render
@@ -13,6 +14,10 @@ LOG = logging.getLogger("aion.export_gate")
 
 DEFAULT_FAITHFULNESS_THRESHOLD: float = 0.75
 DEFAULT_QA_THRESHOLD: float = 75.0
+
+UNRESOLVED_PLACEHOLDER_REGEX = re.compile(
+    r"\[UNRESOLVED\s+(?:SLOT|QUESTION|SUBPART)[\s:][^\]]*\]", re.IGNORECASE
+)
 
 
 @dataclass
@@ -32,6 +37,164 @@ class ExportGate:
     Final authority. No paper reaches the frontend unless this passes.
     Legacy QA runs for diagnostics only — it cannot override ExportGate.
     """
+
+    @classmethod
+    def evaluate_dict(cls, paper_data: Any) -> ExportDecision:
+        """
+        Physical Export Gate for raw wire dictionary payloads (e.g. from /api/export/docx).
+        Validates structure, content completeness, duplicate slots, unicode, and marks.
+        """
+        if not isinstance(paper_data, dict):
+            return ExportDecision(
+                status="BLOCKED",
+                failures=["INVALID_PAPER_SCHEMA: Payload must be a JSON object."],
+                message="Export blocked: paper payload is not a dictionary."
+            )
+
+        modules = paper_data.get("modules")
+        if not isinstance(modules, list) or len(modules) == 0:
+            raw_qs = paper_data.get("questions")
+            if isinstance(raw_qs, list) and len(raw_qs) > 0:
+                modules = [{"module_index": 1, "questions": raw_qs}]
+            else:
+                return ExportDecision(
+                    status="BLOCKED",
+                    failures=["EMPTY_PAPER: Paper contains no modules."],
+                    message="Export blocked: paper contains no modules."
+                )
+
+        slot_ids = set()
+        physical_positions = set()
+        total_subquestions = 0
+
+        for m_idx, mod in enumerate(modules):
+            if not isinstance(mod, dict):
+                return ExportDecision(
+                    status="BLOCKED",
+                    failures=[f"MALFORMED_MODULE: Module at index {m_idx} is not an object."],
+                    message=f"Export blocked: module {m_idx} is malformed."
+                )
+            questions = mod.get("questions", [])
+            if not isinstance(questions, list):
+                return ExportDecision(
+                    status="BLOCKED",
+                    failures=[f"MALFORMED_QUESTIONS: Questions in module {m_idx} is not a list."],
+                    message=f"Export blocked: questions in module {m_idx} is malformed."
+                )
+
+            for q_idx, q in enumerate(questions):
+                if not isinstance(q, dict):
+                    return ExportDecision(
+                        status="BLOCKED",
+                        failures=[f"MALFORMED_QUESTION: Question at module {m_idx}, index {q_idx} is not an object."],
+                        message="Export blocked: question is malformed."
+                    )
+
+                # Check question-level status
+                if q.get("status") == "UNRESOLVED" or q.get("is_unresolved") is True or q.get("unresolved") is True:
+                    return ExportDecision(
+                        status="BLOCKED",
+                        failures=[f"UNRESOLVED_SLOT_DETECTED: Question at module {m_idx}, index {q_idx} is marked UNRESOLVED."],
+                        message="Export blocked: unresolved question detected."
+                    )
+
+                subquestions = q.get("subquestions", [])
+                if not isinstance(subquestions, list):
+                    return ExportDecision(
+                        status="BLOCKED",
+                        failures=[f"MALFORMED_SUBQUESTIONS: Subquestions at module {m_idx}, question {q_idx} is not a list."],
+                        message="Export blocked: subquestions is not a list."
+                    )
+
+                for s_idx, sq in enumerate(subquestions):
+                    if not isinstance(sq, dict):
+                        return ExportDecision(
+                            status="BLOCKED",
+                            failures=[f"MALFORMED_SUBQUESTION: Subquestion at module {m_idx}, q {q_idx}, sub {s_idx} is not an object."],
+                            message="Export blocked: subquestion is malformed."
+                        )
+
+                    total_subquestions += 1
+                    letter = str(sq.get("letter") or chr(ord('a') + s_idx)).strip().lower()
+                    pos = (m_idx, q_idx, letter)
+                    if pos in physical_positions:
+                        return ExportDecision(
+                            status="BLOCKED",
+                            failures=[f"DUPLICATE_QUESTION_SLOT: Duplicate subquestion position (mod {m_idx}, q {q_idx}, letter {letter})."],
+                            message=f"Export blocked: duplicate subquestion position {pos}."
+                        )
+                    physical_positions.add(pos)
+
+                    # Slot ID uniqueness if present
+                    sq_slot_id = sq.get("slot_id")
+                    if sq_slot_id and isinstance(sq_slot_id, str) and sq_slot_id.strip():
+                        if sq_slot_id in slot_ids:
+                            return ExportDecision(
+                                status="BLOCKED",
+                                failures=[f"DUPLICATE_QUESTION_SLOT: Slot {sq_slot_id} appears multiple times in the paper."],
+                                message=f"Export blocked: duplicate slot {sq_slot_id}."
+                            )
+                        slot_ids.add(sq_slot_id)
+
+                    # Status checks
+                    if sq.get("status") == "UNRESOLVED" or sq.get("is_unresolved") is True or sq.get("unresolved") is True:
+                        return ExportDecision(
+                            status="BLOCKED",
+                            failures=[f"UNRESOLVED_SLOT_DETECTED: Subquestion {pos} is marked UNRESOLVED."],
+                            message=f"Export blocked: unresolved subquestion {pos}."
+                        )
+
+                    text = str(sq.get("text") or "").strip()
+                    if not text:
+                        return ExportDecision(
+                            status="BLOCKED",
+                            failures=[f"EMPTY_QUESTION_TEXT: Subquestion {pos} has empty text."],
+                            message=f"Export blocked: empty question text at {pos}."
+                        )
+
+                    # Placeholder regex check
+                    if UNRESOLVED_PLACEHOLDER_REGEX.search(text) or "[UNRESOLVED SLOT" in text:
+                        return ExportDecision(
+                            status="BLOCKED",
+                            failures=[f"UNRESOLVED_SLOT_DETECTED: Placeholder detected in subquestion {pos}: {text[:60]}..."],
+                            message=f"Export blocked: unresolved placeholder at {pos}."
+                        )
+
+                    # Unicode check
+                    uni_check = check_unicode_integrity(text)
+                    if not uni_check.passed:
+                        return ExportDecision(
+                            status="BLOCKED",
+                            failures=[f"UNICODE_CORRUPTION: Subquestion {pos} has unicode corruption: {uni_check.message}"],
+                            message=f"Export blocked: unicode corruption at {pos}."
+                        )
+
+                    # Multi-slot contamination
+                    multi_check = check_multi_slot_contamination(text)
+                    if not multi_check.passed:
+                        return ExportDecision(
+                            status="BLOCKED",
+                            failures=[f"MULTI_SLOT_CONTAMINATION: Subquestion {pos} has multi-slot contamination: {multi_check.message}"],
+                            message=f"Export blocked: multi-slot contamination at {pos}."
+                        )
+
+                    # Marks check: positive integer
+                    marks = sq.get("marks")
+                    if marks is None or isinstance(marks, bool) or not isinstance(marks, (int, float)) or marks <= 0 or int(marks) != marks:
+                        return ExportDecision(
+                            status="BLOCKED",
+                            failures=[f"INVALID_MARKS: Subquestion {pos} has invalid marks: {marks}"],
+                            message=f"Export blocked: invalid marks {marks} at {pos}."
+                        )
+
+        if total_subquestions == 0:
+            return ExportDecision(
+                status="BLOCKED",
+                failures=["EMPTY_PAPER: Paper contains no subquestions."],
+                message="Export blocked: paper contains no questions."
+            )
+
+        return ExportDecision(status="PASS", failures=[], message="Physical export validation PASS")
 
     @classmethod
     def evaluate(
