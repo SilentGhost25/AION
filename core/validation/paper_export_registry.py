@@ -398,7 +398,9 @@ class PaperExportRegistry:
         tmp_path = reg_dir / tmp_name
 
         try:
-            raw_json = json.dumps(asdict(record), indent=2)
+            rec_dict = asdict(record)
+            rec_dict["paper_payload"] = paper_data
+            raw_json = json.dumps(rec_dict, indent=2)
             with open(tmp_path, "w", encoding="utf-8") as f:
                 f.write(raw_json)
                 f.flush()
@@ -475,3 +477,18 @@ class PaperExportRegistry:
             return None, STATUS_CORRUPTED
         except Exception:
             return None, STATUS_ERROR
+
+    @classmethod
+    def get_payload(cls, paper_id: Any) -> Optional[Dict[str, Any]]:
+        """Retrieves stored paper payload for authorized downstream file emission."""
+        if not validate_paper_id(paper_id):
+            return None
+        record_path = cls.get_record_path(paper_id)
+        if record_path is None or not record_path.exists():
+            return None
+        try:
+            with open(record_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data.get("paper_payload")
+        except Exception:
+            return None

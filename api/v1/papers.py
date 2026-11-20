@@ -117,10 +117,73 @@ def export_paper(paper_id):
         }), 403
 
     data = request.get_json(silent=True) or {}
-    fmt = data.get("format", "pdf")
+    fmt = data.get("format", "docx")
     return jsonify({
         "paper_id": paper_id,
         "format": fmt,
         "download_url": f"/api/v1/papers/{paper_id}/download?format={fmt}",
         "status": "ready",
     })
+
+
+@papers_bp.route("/papers/<paper_id>/download", methods=["GET"])
+def download_paper(paper_id):
+    """
+    Delivers physical document bytes for an authorized paper.
+    Enforces identical authorization gates: missing (404), expired (403), ineligible (403).
+    """
+    from flask import send_file
+    from core.validation.paper_export_registry import (
+        validate_paper_id,
+        PaperExportRegistry,
+        STATUS_MISSING,
+        STATUS_EXPIRED,
+        STATUS_CORRUPTED,
+        STATUS_ERROR,
+    )
+
+    if not validate_paper_id(paper_id):
+        return jsonify({"error": f"Malformed paper_id '{paper_id}'", "code": "MALFORMED_PAPER_ID"}), 422
+
+    record, status = PaperExportRegistry.get(paper_id)
+    if status == STATUS_MISSING:
+        if paper_id not in _paper_store:
+            return jsonify({"error": f"Paper '{paper_id}' not found in export registry", "code": "REGISTRY_RECORD_NOT_FOUND"}), 404
+    elif status == STATUS_EXPIRED:
+        return jsonify({"error": f"Export authorization for '{paper_id}' has expired", "code": "REGISTRY_RECORD_EXPIRED"}), 403
+    elif status in (STATUS_CORRUPTED, STATUS_ERROR):
+        return jsonify({"error": f"Error accessing registry for '{paper_id}'", "code": "REGISTRY_ACCESS_ERROR"}), 500
+    elif record and not record.export_eligible:
+        return jsonify({
+            "error": f"Paper '{paper_id}' is ineligible for export",
+            "code": "EXPORT_INELIGIBLE",
+            "blocked_reasons": record.blocked_reasons
+        }), 403
+
+    payload = PaperExportRegistry.get_payload(paper_id) or _paper_store.get(paper_id)
+    if not payload:
+        return jsonify({"error": f"Paper payload not found for '{paper_id}'", "code": "PAYLOAD_NOT_FOUND"}), 404
+
+    fmt = request.args.get("format", "docx").lower()
+    subject_code = payload.get("subject_code") or "VTU"
+    exam_type = payload.get("exam_type") or "IA"
+
+    if fmt == "docx":
+        from v0_1.docx_export import render_docx_document
+        docx_buffer = render_docx_document(payload)
+        filename = f"{subject_code}_{exam_type}_{paper_id}.docx"
+        return send_file(
+            docx_buffer,
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            as_attachment=True,
+            download_name=filename,
+        )
+    elif fmt == "pdf":
+        from v0_1.paper_formatter import export_pdf
+        filename = f"{subject_code}_{exam_type}_{paper_id}.pdf"
+        out_path = export_pdf(payload, filename=filename)
+        return send_file(str(out_path), mimetype="application/pdf", as_attachment=True)
+    elif fmt == "json":
+        return jsonify(payload), 200
+    else:
+        return jsonify({"error": f"Unsupported export format '{fmt}'", "code": "UNSUPPORTED_FORMAT"}), 400

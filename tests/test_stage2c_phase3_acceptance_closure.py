@@ -291,3 +291,74 @@ def test_v1_route_eligible_and_ineligible_exports(client, tmp_path):
     data = resp_ok.get_json()
     assert data["paper_id"] == paper_id_ok
     assert f"/api/v1/papers/{paper_id_ok}/download" in data["download_url"]
+
+
+def test_v1_complete_export_to_download_flow_and_rejection_gates(client, tmp_path):
+    """
+    Verifies the complete 2-step V1 flow:
+    POST /api/v1/papers/<paper_id>/export -> 200, download_url
+    GET  /api/v1/papers/<paper_id>/download?format=docx -> 200, valid DOCX binary (PK header)
+    And verifies that the download endpoint rejects ineligible, expired, and unregistered requests.
+    """
+    paper = make_sample_paper_with_all_rendered_types(tmp_path)
+    paper_id = paper["id"]
+
+    # 1. Register eligible paper
+    PaperExportRegistry.register(
+        paper_id=paper_id,
+        paper_data=paper,
+        export_eligible=True,
+        paper_status="OK",
+    )
+
+    # 2. Step 1: POST export -> 200 with download_url
+    export_resp = client.post(f"/api/v1/papers/{paper_id}/export", json={"format": "docx"})
+    assert export_resp.status_code == 200
+    download_url = export_resp.get_json()["download_url"]
+    assert f"/api/v1/papers/{paper_id}/download?format=docx" in download_url
+
+    # 3. Step 2: GET download_url -> 200 with valid DOCX binary starting with PK
+    dl_resp = client.get(download_url)
+    assert dl_resp.status_code == 200
+    assert dl_resp.mimetype == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    assert dl_resp.data.startswith(b"PK"), "Downloaded DOCX must start with PK zip header"
+    assert len(dl_resp.data) > 5000, "Downloaded DOCX must contain substantial document content"
+
+    # 4. Gate Enforcement: Unregistered paper download -> 404
+    unreg_dl = client.get("/api/v1/papers/paper_unregistered_99999999/download?format=docx")
+    assert unreg_dl.status_code == 404
+    assert unreg_dl.get_json()["code"] == "REGISTRY_RECORD_NOT_FOUND"
+
+    # 5. Gate Enforcement: Ineligible paper download -> 403
+    inelig_id = generate_paper_id()
+    inelig_paper = deepcopy(paper)
+    inelig_paper["id"] = inelig_id
+    inelig_paper["paper_id"] = inelig_id
+    PaperExportRegistry.register(
+        paper_id=inelig_id,
+        paper_data=inelig_paper,
+        export_eligible=False,
+        paper_status="BLOCKED",
+        blocked_reasons=["QUALITY_GATE_FAILED"],
+    )
+    inelig_dl = client.get(f"/api/v1/papers/{inelig_id}/download?format=docx")
+    assert inelig_dl.status_code == 403
+    assert inelig_dl.get_json()["code"] == "EXPORT_INELIGIBLE"
+
+    # 6. Gate Enforcement: Expired paper download -> 403
+    expired_id = generate_paper_id()
+    expired_paper = deepcopy(paper)
+    expired_paper["id"] = expired_id
+    expired_paper["paper_id"] = expired_id
+    from datetime import datetime, timezone, timedelta
+    past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    PaperExportRegistry.register(
+        paper_id=expired_id,
+        paper_data=expired_paper,
+        export_eligible=True,
+        paper_status="OK",
+        expires_at=past,
+    )
+    exp_dl = client.get(f"/api/v1/papers/{expired_id}/download?format=docx")
+    assert exp_dl.status_code == 403
+    assert exp_dl.get_json()["code"] == "REGISTRY_RECORD_EXPIRED"
