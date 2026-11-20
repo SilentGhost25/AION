@@ -103,17 +103,16 @@ def export_paper(paper_id):
 
     record, status = PaperExportRegistry.get(paper_id)
     if status == STATUS_MISSING:
-        if paper_id not in _paper_store:
-            return jsonify({"error": f"Paper '{paper_id}' not found in export registry", "code": "REGISTRY_RECORD_NOT_FOUND"}), 404
+        return jsonify({"error": f"Paper '{paper_id}' not found in export registry", "code": "REGISTRY_RECORD_NOT_FOUND"}), 404
     elif status == STATUS_EXPIRED:
         return jsonify({"error": f"Export authorization for '{paper_id}' has expired", "code": "REGISTRY_RECORD_EXPIRED"}), 403
     elif status in (STATUS_CORRUPTED, STATUS_ERROR):
         return jsonify({"error": f"Error accessing registry for '{paper_id}'", "code": "REGISTRY_ACCESS_ERROR"}), 500
-    elif record and not record.export_eligible:
+    elif record is None or not record.export_eligible:
         return jsonify({
             "error": f"Paper '{paper_id}' is ineligible for export",
             "code": "EXPORT_INELIGIBLE",
-            "blocked_reasons": record.blocked_reasons
+            "blocked_reasons": record.blocked_reasons if record else []
         }), 403
 
     data = request.get_json(silent=True) or {}
@@ -130,7 +129,8 @@ def export_paper(paper_id):
 def download_paper(paper_id):
     """
     Delivers physical document bytes for an authorized paper.
-    Enforces identical authorization gates: missing (404), expired (403), ineligible (403).
+    Enforces identical authorization gates: missing (404), expired (403), ineligible (403),
+    digest mismatch (409). Never falls back to unvalidated stores.
     """
     from flask import send_file
     from core.validation.paper_export_registry import (
@@ -140,27 +140,31 @@ def download_paper(paper_id):
         STATUS_EXPIRED,
         STATUS_CORRUPTED,
         STATUS_ERROR,
+        STATUS_DIGEST_MISMATCH,
     )
 
     if not validate_paper_id(paper_id):
         return jsonify({"error": f"Malformed paper_id '{paper_id}'", "code": "MALFORMED_PAPER_ID"}), 422
 
-    record, status = PaperExportRegistry.get(paper_id)
+    payload, record, status = PaperExportRegistry.get_verified_payload(paper_id)
     if status == STATUS_MISSING:
-        if paper_id not in _paper_store:
-            return jsonify({"error": f"Paper '{paper_id}' not found in export registry", "code": "REGISTRY_RECORD_NOT_FOUND"}), 404
+        return jsonify({"error": f"Paper '{paper_id}' not found in export registry", "code": "REGISTRY_RECORD_NOT_FOUND"}), 404
     elif status == STATUS_EXPIRED:
         return jsonify({"error": f"Export authorization for '{paper_id}' has expired", "code": "REGISTRY_RECORD_EXPIRED"}), 403
+    elif status == STATUS_DIGEST_MISMATCH:
+        return jsonify({
+            "error": f"Paper content digest mismatch for '{paper_id}'. Registry payload has been altered.",
+            "code": "DIGEST_MISMATCH"
+        }), 409
     elif status in (STATUS_CORRUPTED, STATUS_ERROR):
         return jsonify({"error": f"Error accessing registry for '{paper_id}'", "code": "REGISTRY_ACCESS_ERROR"}), 500
-    elif record and not record.export_eligible:
+    elif record is None or not record.export_eligible:
         return jsonify({
             "error": f"Paper '{paper_id}' is ineligible for export",
             "code": "EXPORT_INELIGIBLE",
-            "blocked_reasons": record.blocked_reasons
+            "blocked_reasons": record.blocked_reasons if record else []
         }), 403
 
-    payload = PaperExportRegistry.get_payload(paper_id) or _paper_store.get(paper_id)
     if not payload:
         return jsonify({"error": f"Paper payload not found for '{paper_id}'", "code": "PAYLOAD_NOT_FOUND"}), 404
 

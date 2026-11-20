@@ -28,6 +28,7 @@ STATUS_MISSING = "MISSING"
 STATUS_EXPIRED = "EXPIRED"
 STATUS_CORRUPTED = "CORRUPTED"
 STATUS_ERROR = "ERROR"
+STATUS_DIGEST_MISMATCH = "DIGEST_MISMATCH"
 
 
 class RegistryError(Exception):
@@ -479,16 +480,74 @@ class PaperExportRegistry:
             return None, STATUS_ERROR
 
     @classmethod
-    def get_payload(cls, paper_id: Any) -> Optional[Dict[str, Any]]:
-        """Retrieves stored paper payload for authorized downstream file emission."""
+    def get_verified_payload(
+        cls, paper_id: Any
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[PaperExportRecord], str]:
+        """
+        Retrieves and verifies the authorized paper record and its payload together.
+        Ensures a single atomic read, schema validation, expiration checking,
+        and canonical digest verification of the stored payload against canonical_hash.
+
+        Returns:
+            (payload, record, status)
+            where status in (STATUS_VALID, STATUS_MISSING, STATUS_EXPIRED, STATUS_CORRUPTED, STATUS_ERROR, STATUS_DIGEST_MISMATCH)
+        """
         if not validate_paper_id(paper_id):
-            return None
+            return None, None, STATUS_MISSING
+
         record_path = cls.get_record_path(paper_id)
         if record_path is None or not record_path.exists():
-            return None
+            return None, None, STATUS_MISSING
+
         try:
             with open(record_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            return data.get("paper_payload")
+
+            if not isinstance(data, dict):
+                return None, None, STATUS_CORRUPTED
+
+            required_keys = {"paper_id", "canonical_hash", "export_eligible", "paper_status", "created_at", "expires_at"}
+            if not required_keys.issubset(data.keys()):
+                return None, None, STATUS_CORRUPTED
+
+            record = PaperExportRecord(
+                paper_id=str(data["paper_id"]),
+                canonical_hash=str(data["canonical_hash"]),
+                export_eligible=bool(data["export_eligible"]),
+                paper_status=str(data["paper_status"]),
+                created_at=str(data["created_at"]),
+                expires_at=str(data["expires_at"]),
+                blocked_reasons=list(data.get("blocked_reasons") or []),
+                degraded_reasons=list(data.get("degraded_reasons") or []),
+                qa_report_summary=dict(data.get("qa_report_summary") or {}),
+                subject=str(data.get("subject", "")),
+                exam_type=str(data.get("exam_type", "")),
+                total_marks=int(data.get("total_marks", 0)),
+                module_count=int(data.get("module_count", 0)),
+                question_count=int(data.get("question_count", 0)),
+            )
+
+            if record.is_expired():
+                return None, record, STATUS_EXPIRED
+
+            payload = data.get("paper_payload")
+            if not payload or not isinstance(payload, dict):
+                return None, record, STATUS_CORRUPTED
+
+            computed_hash = canonicalize_paper_payload(payload)
+            if computed_hash != record.canonical_hash:
+                return None, record, STATUS_DIGEST_MISMATCH
+
+            return payload, record, STATUS_VALID
+        except json.JSONDecodeError:
+            return None, None, STATUS_CORRUPTED
         except Exception:
-            return None
+            return None, None, STATUS_ERROR
+
+    @classmethod
+    def get_payload(cls, paper_id: Any) -> Optional[Dict[str, Any]]:
+        """Retrieves verified paper payload for authorized downstream file emission."""
+        payload, _record, status = cls.get_verified_payload(paper_id)
+        if status == STATUS_VALID:
+            return payload
+        return None

@@ -362,3 +362,101 @@ def test_v1_complete_export_to_download_flow_and_rejection_gates(client, tmp_pat
     exp_dl = client.get(f"/api/v1/papers/{expired_id}/download?format=docx")
     assert exp_dl.status_code == 403
     assert exp_dl.get_json()["code"] == "REGISTRY_RECORD_EXPIRED"
+
+
+def test_v1_download_rejects_unregistered_paper_present_in_paper_store(client, tmp_path):
+    """
+    CRITICAL REGRESSION TEST:
+    Verifies that an unregistered paper present in _paper_store CANNOT bypass registry authorization.
+    Both export and download endpoints must return HTTP 404 REGISTRY_RECORD_NOT_FOUND.
+    """
+    from api.v1.papers import _paper_store
+
+    paper = make_sample_paper_with_all_rendered_types(tmp_path)
+    paper_id = generate_paper_id()
+    paper["id"] = paper_id
+    paper["paper_id"] = paper_id
+
+    # Place in _paper_store without registering in PaperExportRegistry
+    _paper_store[paper_id] = paper
+
+    # Step 1: POST /export must fail closed with 404
+    export_resp = client.post(f"/api/v1/papers/{paper_id}/export", json={"format": "docx"})
+    assert export_resp.status_code == 404
+    assert export_resp.get_json()["code"] == "REGISTRY_RECORD_NOT_FOUND"
+
+    # Step 2: GET /download must fail closed with 404
+    dl_resp = client.get(f"/api/v1/papers/{paper_id}/download?format=docx")
+    assert dl_resp.status_code == 404
+    assert dl_resp.get_json()["code"] == "REGISTRY_RECORD_NOT_FOUND"
+
+
+def test_v1_download_detects_tampered_stored_registry_payload(client, tmp_path):
+    """
+    INTEGRITY REGRESSION TEST:
+    Verifies that if an on-disk registry file's paper_payload is tampered with,
+    the V1 download endpoint detects canonical digest mismatch and returns HTTP 409 DIGEST_MISMATCH.
+    """
+    import json
+    paper = make_sample_paper_with_all_rendered_types(tmp_path)
+    paper_id = paper["id"]
+
+    PaperExportRegistry.register(
+        paper_id=paper_id,
+        paper_data=paper,
+        export_eligible=True,
+        paper_status="OK",
+    )
+
+    record_path = PaperExportRegistry.get_record_path(paper_id)
+    assert record_path.exists()
+
+    # Tamper with the paper_payload on disk without altering canonical_hash
+    with open(record_path, "r", encoding="utf-8") as f:
+        rec_data = json.load(f)
+
+    rec_data["paper_payload"]["modules"][0]["questions"][0]["subquestions"][0]["text"] = "TAMPERED QUESTION VIA DISK INJECTION"
+    with open(record_path, "w", encoding="utf-8") as f:
+        json.dump(rec_data, f)
+
+    dl_resp = client.get(f"/api/v1/papers/{paper_id}/download?format=docx")
+    assert dl_resp.status_code == 409
+    data = dl_resp.get_json()
+    assert data["code"] == "DIGEST_MISMATCH"
+    assert "digest mismatch" in data["error"].lower()
+
+
+def test_v1_download_rejects_expired_registry_record_with_paper_in_store(client, tmp_path):
+    """
+    EXPIRY & STORE ISOLATION REGRESSION TEST:
+    Verifies that an expired registry record is rejected with HTTP 403 REGISTRY_RECORD_EXPIRED
+    even when the full payload exists in _paper_store.
+    """
+    from datetime import datetime, timezone, timedelta
+    from api.v1.papers import _paper_store
+
+    paper = make_sample_paper_with_all_rendered_types(tmp_path)
+    paper_id = generate_paper_id()
+    paper["id"] = paper_id
+    paper["paper_id"] = paper_id
+
+    # Place in _paper_store
+    _paper_store[paper_id] = paper
+
+    past = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    PaperExportRegistry.register(
+        paper_id=paper_id,
+        paper_data=paper,
+        export_eligible=True,
+        paper_status="OK",
+        expires_at=past,
+    )
+
+    # Both POST export and GET download must reject with 403
+    export_resp = client.post(f"/api/v1/papers/{paper_id}/export", json={"format": "docx"})
+    assert export_resp.status_code == 403
+    assert export_resp.get_json()["code"] == "REGISTRY_RECORD_EXPIRED"
+
+    dl_resp = client.get(f"/api/v1/papers/{paper_id}/download?format=docx")
+    assert dl_resp.status_code == 403
+    assert dl_resp.get_json()["code"] == "REGISTRY_RECORD_EXPIRED"
