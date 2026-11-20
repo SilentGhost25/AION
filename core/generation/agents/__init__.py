@@ -7,6 +7,7 @@ from .question_plan import QuestionPlan
 from .generated_question import (
     GeneratedQuestion,
     SlotFailure,
+    SubPart,
     WritingAgentOutput,
 )
 from .planning_agent import PlanningAgent
@@ -75,6 +76,7 @@ __all__ = [
     "QuestionPlan",
     "GeneratedQuestion",
     "SlotFailure",
+    "SubPart",
     "WritingAgentOutput",
     # Agents
     "PlanningAgent",
