@@ -3,7 +3,16 @@ AION v3 Multi-Agent Generation Layer.
 """
 
 from .base import Agent, AgentContext, AgentResult
-from .question_plan import QuestionPlan
+from .question_plan import (
+    QuestionPlan,
+    SubPartPlan,
+    PlanStatus,
+    PlanFailureCode,
+)
+from ..assessment_config import (
+    AssessmentConfig,
+    AssessmentRegistry,
+)
 from .generated_question import (
     GeneratedQuestion,
     SlotFailure,
@@ -74,6 +83,11 @@ __all__ = [
     "AgentContext",
     "AgentResult",
     "QuestionPlan",
+    "SubPartPlan",
+    "PlanStatus",
+    "PlanFailureCode",
+    "AssessmentConfig",
+    "AssessmentRegistry",
     "GeneratedQuestion",
     "SlotFailure",
     "SubPart",
