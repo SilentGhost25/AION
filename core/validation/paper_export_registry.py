@@ -179,6 +179,17 @@ def canonicalize_paper_payload(paper_data: Dict[str, Any]) -> str:
                 else:
                     img_str = str(img_val or "").strip()
 
+                img_bytes_hash = ""
+                if img_str:
+                    try:
+                        p_img = Path(img_str)
+                        if not p_img.is_file():
+                            p_img = Path.cwd() / img_str
+                        if p_img.is_file():
+                            img_bytes_hash = hashlib.sha256(p_img.read_bytes()).hexdigest()[:16]
+                    except Exception:
+                        pass
+
                 tbl_val = sq.get("table") or sq.get("table_data")
                 tbl_repr = json.dumps(tbl_val, sort_keys=True) if isinstance(tbl_val, (dict, list)) else ""
 
@@ -193,6 +204,7 @@ def canonicalize_paper_payload(paper_data: Dict[str, Any]) -> str:
                     co_norm,
                     bloom_norm,
                     img_str,
+                    img_bytes_hash,
                     tbl_repr,
                     sol_norm,
                 )
@@ -206,6 +218,18 @@ def canonicalize_paper_payload(paper_data: Dict[str, Any]) -> str:
                 bloom_norm = str(q.get("bloom") or q.get("bloom_level") or q.get("rbt") or "").strip().upper()
                 img_val = q.get("image_path") or q.get("figure_path") or q.get("image")
                 img_str = str(img_val or "").strip()
+
+                img_bytes_hash = ""
+                if img_str:
+                    try:
+                        p_img = Path(img_str)
+                        if not p_img.is_file():
+                            p_img = Path.cwd() / img_str
+                        if p_img.is_file():
+                            img_bytes_hash = hashlib.sha256(p_img.read_bytes()).hexdigest()[:16]
+                    except Exception:
+                        pass
+
                 tbl_val = q.get("table") or q.get("table_data")
                 tbl_repr = json.dumps(tbl_val, sort_keys=True) if isinstance(tbl_val, (dict, list)) else ""
                 sol_raw = str(q.get("solution") or q.get("answer") or q.get("model_answer") or "")
@@ -219,6 +243,7 @@ def canonicalize_paper_payload(paper_data: Dict[str, Any]) -> str:
                     co_norm,
                     bloom_norm,
                     img_str,
+                    img_bytes_hash,
                     tbl_repr,
                     sol_norm,
                 ))
