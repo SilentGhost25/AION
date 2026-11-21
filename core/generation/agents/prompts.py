@@ -58,6 +58,15 @@ IMAGE_REFERENCE_PHRASES = (
 )
 
 
+def get_figure_field(figure: Any, key: str, default: Any = None) -> Any:
+    """Safely retrieve a field from a figure represented as either an object or a dictionary."""
+    if figure is None:
+        return default
+    if isinstance(figure, dict):
+        return figure.get(key, default)
+    return getattr(figure, key, default)
+
+
 # -----------------------------------------------------------------------------
 # Truncation caps (chars)
 # -----------------------------------------------------------------------------
@@ -98,18 +107,25 @@ CRITICAL: marking_scheme rules
 
 
 SUBPART_OUTPUT_SCHEMA_DESCRIPTION = """{
-  "text": "string — the full, self-contained question text for this subpart (MANDATORY)",
-  "solution": "string — a complete, self-contained model answer for this subpart (MANDATORY)",
+  "text": "string — the full, self-contained question text for this subpart",
+  "solution": "string — a complete, self-contained model answer for this subpart",
   "marking_scheme": [
-    {"criterion": "string — what earns marks", "marks": integer}
-  ] (MANDATORY),
+    {"criterion": "string — what earns marks", "marks": 0}
+  ],
   "diagram_request": {
     "diagram_type": "string — e.g. schematic, graph, block_diagram",
     "description": "string — short description of the required figure"
-  } (OPTIONAL — include if figure provided or diagram requested),
-  "references_image": boolean (OPTIONAL — true if referencing a provided figure),
-  "bloom_verb_used": "string — the first verb of the text (OPTIONAL)"
+  },
+  "references_image": false,
+  "bloom_verb_used": "string — the first verb of the text"
 }
+
+FIELD REQUIREMENTS:
+  - MANDATORY keys: "text", "solution", "marking_scheme". These MUST be present in every response.
+  - OPTIONAL/CONDITIONAL keys:
+      * "diagram_request": include if a figure is provided or a diagram is requested.
+      * "references_image": boolean, include (true) if referencing a provided figure.
+      * "bloom_verb_used": string, include the first verb of the text.
 
 CRITICAL: marking_scheme rules
   - Provide 1 to 4 entries.
@@ -191,8 +207,8 @@ def build_visual_section(plan) -> str:
     if not plan.visual_required or plan.figure is None:
         return ""
     fig = plan.figure
-    caption = getattr(fig, "caption", "") or "(no caption)"
-    page = getattr(fig, "page", "?")
+    caption = get_figure_field(fig, "caption", "") or "(no caption)"
+    page = get_figure_field(fig, "page", "?")
     return (
         "[VISUAL DIRECTIVE — FIGURE PROVIDED]\n"
         f"An authoritative figure is provided with this question.\n"
@@ -368,8 +384,8 @@ def build_subpart_visual_section(sp_plan) -> str:
     if not sp_plan.visual_required or sp_plan.figure is None:
         return ""
     fig = sp_plan.figure
-    caption = getattr(fig, "caption", "") or "(no caption)"
-    page = getattr(fig, "page", "?")
+    caption = get_figure_field(fig, "caption", "") or "(no caption)"
+    page = get_figure_field(fig, "page", "?")
     return (
         "[VISUAL DIRECTIVE — FIGURE PROVIDED]\n"
         f"An authoritative figure is provided with this sub-question.\n"

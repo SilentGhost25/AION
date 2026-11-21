@@ -1154,16 +1154,141 @@ def test_40_structural_validation_enforced_on_generated_question():
 
 def test_41_prompt_schema_and_constraints_consistency():
     """Test 41: Prompt constraints section explicitly resolves mandatory vs optional fields without contradiction."""
+    import json
     from core.generation.agents.prompts import (
         build_subpart_constraints_section,
         SUBPART_OUTPUT_SCHEMA_DESCRIPTION,
     )
 
     constraints = build_subpart_constraints_section(marks=5)
-    assert "Mandatory keys: \"text\", \"solution\", \"marking_scheme\"" in constraints
-    assert "Optional/conditional keys: \"diagram_request\", \"references_image\", \"bloom_verb_used\"" in constraints
-    assert "Return ONLY valid JSON with keys: \"text\", \"solution\", \"marking_scheme\"." not in constraints
+    assert 'Mandatory keys: "text", "solution", "marking_scheme"' in constraints
+    assert 'Optional/conditional keys: "diagram_request", "references_image", "bloom_verb_used"' in constraints
+    assert 'Return ONLY valid JSON with keys: "text", "solution", "marking_scheme".' not in constraints
 
-    assert "(MANDATORY)" in SUBPART_OUTPUT_SCHEMA_DESCRIPTION
-    assert "(OPTIONAL" in SUBPART_OUTPUT_SCHEMA_DESCRIPTION
+    # Decode the JSON example block from the schema description using raw_decode
+    parsed_schema, end_idx = json.JSONDecoder().raw_decode(SUBPART_OUTPUT_SCHEMA_DESCRIPTION.strip())
+    json_block = SUBPART_OUTPUT_SCHEMA_DESCRIPTION.strip()[:end_idx]
+    assert "text" in parsed_schema
+    assert "solution" in parsed_schema
+    assert "marking_scheme" in parsed_schema
+    assert "diagram_request" in parsed_schema
+    assert "references_image" in parsed_schema
+    assert "bloom_verb_used" in parsed_schema
+
+    # Verify no pseudo-schema annotations are inside the JSON block
+    assert "(MANDATORY)" not in json_block
+    assert "(OPTIONAL" not in json_block
+
+    # Verify field requirements in prose explain mandatory vs optional keys
+    assert 'MANDATORY keys: "text", "solution", "marking_scheme"' in SUBPART_OUTPUT_SCHEMA_DESCRIPTION
+    assert "OPTIONAL/CONDITIONAL keys:" in SUBPART_OUTPUT_SCHEMA_DESCRIPTION
+
+
+def test_42_dictionary_figure_compatibility_end_to_end():
+    """Test 42: Dictionary-based figure asset is fully supported through prompt, VLM, and parent mapping."""
+    dict_fig = {
+        "id": "fig_dict_1",
+        "image_path": "/path/dict_figure.png",
+        "caption": "Memory Hierarchy Diagram",
+        "page": 4,
+    }
+    plan = create_planned_question([10], blueprint_id="BP_10M")
+    plan.sub_part_plans[0].visual_required = True
+    plan.sub_part_plans[0].figure = dict_fig
+
+    response = {
+        "text": "With reference to the figure, explain the hierarchy of computer memory.",
+        "solution": "Memory hierarchy consists of registers, cache, main memory, and secondary storage.",
+        "marking_scheme": [{"criterion": "Hierarchy explanation", "marks": 10}],
+        "references_image": True,
+        "bloom_verb_used": "explain",
+    }
+
+    llm = MockLLMCaller()
+    vlm = MockVLMCaller(responses=[response])
+    agent = WritingAgent(llm_caller=llm, vlm_caller=vlm, enable_irt=False)
+
+    gq, attempts = agent._generate_one(plan)
+
+    # 1. VLM called with correct image_path from dictionary
+    assert len(vlm.calls) == 1
+    assert vlm.calls[0]["image_path"] == "/path/dict_figure.png"
+
+    # 2. VLM prompt contains dictionary caption and page
+    vlm_prompt = vlm.calls[0]["prompt"]
+    assert "Caption: Memory Hierarchy Diagram" in vlm_prompt
+    assert "Page: 4" in vlm_prompt
+
+    # 3. Parent mapping preserves dictionary figure metadata
+    assert gq.references_image is True
+    assert gq.image_path == "/path/dict_figure.png"
+    assert gq.figure_caption == "Memory Hierarchy Diagram"
+    assert gq.generation_source == "local_vlm"
+    assert len(llm.calls) == 0
+
+
+def test_43_conflicting_diagram_requests_same_type_different_descriptions_fails_closed():
+    """Test 43: Conflicting diagram requests with same type but different descriptions fail closed."""
+    plan = create_planned_question([5, 5])
+    resp_a = {
+        "text": "Explain CPU scheduling architecture.",
+        "solution": "CPU scheduling handles process queue execution.",
+        "marking_scheme": [{"criterion": "Explanation", "marks": 5}],
+        "diagram_request": {
+            "diagram_type": "block_diagram",
+            "description": "CPU scheduling architecture",
+        },
+    }
+    resp_b = {
+        "text": "Explain memory management hierarchy.",
+        "solution": "Memory management manages paging and segmentation.",
+        "marking_scheme": [{"criterion": "Explanation", "marks": 5}],
+        "diagram_request": {
+            "diagram_type": "block_diagram",
+            "description": "Memory management hierarchy",
+        },
+    }
+
+    llm = MockLLMCaller(responses=[resp_a, resp_b])
+    agent = WritingAgent(llm_caller=llm, enable_irt=False)
+
+    with pytest.raises(GenerationFailed) as excinfo:
+        agent._generate_one(plan)
+
+    assert excinfo.value.code == "UNSUPPORTED_MULTIPLE_VISUALS"
+    assert "conflicting diagram requests" in excinfo.value.detail
+
+
+def test_44_identical_diagram_requests_across_subparts_accepted():
+    """Test 44: Identical diagram requests across subparts are accepted and retained on parent."""
+    plan = create_planned_question([5, 5])
+    resp_a = {
+        "text": "Explain system architecture components.",
+        "solution": "System architecture consists of bus and controllers.",
+        "marking_scheme": [{"criterion": "Explanation", "marks": 5}],
+        "diagram_request": {
+            "diagram_type": "block_diagram",
+            "description": "System architecture",
+        },
+    }
+    resp_b = {
+        "text": "Discuss system architecture data flow.",
+        "solution": "Data flow transfers words across synchronous bus.",
+        "marking_scheme": [{"criterion": "Explanation", "marks": 5}],
+        "diagram_request": {
+            "diagram_type": "block_diagram",
+            "description": "System architecture",
+        },
+    }
+
+    llm = MockLLMCaller(responses=[resp_a, resp_b])
+    agent = WritingAgent(llm_caller=llm, enable_irt=False)
+
+    gq, attempts = agent._generate_one(plan)
+
+    assert gq.diagram_request == {
+        "diagram_type": "block_diagram",
+        "description": "System architecture",
+    }
+    assert len(gq.sub_parts) == 2
 

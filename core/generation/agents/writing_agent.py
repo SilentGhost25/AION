@@ -40,6 +40,7 @@ from .prompts import (
     build_difficulty_feedback,
     build_prompt,
     build_subpart_prompt,
+    get_figure_field,
     IMAGE_REFERENCE_PHRASES,
 )
 
@@ -394,8 +395,8 @@ class WritingAgent(Agent):
         if len(visual_subparts) > 1:
             fig_keys = set()
             for sp in visual_subparts:
-                if sp.figure:
-                    f_key = getattr(sp.figure, "image_path", None) or getattr(sp.figure, "id", None)
+                if sp.figure is not None:
+                    f_key = get_figure_field(sp.figure, "image_path") or get_figure_field(sp.figure, "id")
                     if f_key:
                         fig_keys.add(f_key)
                 else:
@@ -418,7 +419,8 @@ class WritingAgent(Agent):
         for sp_plan in plan.sub_part_plans:
             use_vlm = False
             if sp_plan.visual_required:
-                if not sp_plan.figure or not getattr(sp_plan.figure, "image_path", None):
+                fig_path = get_figure_field(sp_plan.figure, "image_path") if sp_plan.figure is not None else None
+                if sp_plan.figure is None or not fig_path:
                     raise GenerationFailed(
                         code="MISSING_FIGURE_ASSET",
                         detail=f"Subpart ({sp_plan.label}) requires a visual but no figure asset with image_path was provided",
@@ -447,7 +449,7 @@ class WritingAgent(Agent):
                     if use_vlm:
                         raw = self._vlm.call(
                             prompt,
-                            image_path=getattr(sp_plan.figure, "image_path", ""),
+                            image_path=get_figure_field(sp_plan.figure, "image_path", ""),
                             schema=None,
                             seed=self._seed,
                         )
@@ -573,30 +575,47 @@ class WritingAgent(Agent):
         primary_diagram_request = None
 
         for sp_plan, sp in zip(plan.sub_part_plans, subparts):
-            has_fig = bool(getattr(sp_plan.figure, "image_path", None)) if sp_plan.figure else False
+            has_fig = bool(get_figure_field(sp_plan.figure, "image_path")) if sp_plan.figure is not None else False
             text_ref = self._references_figure(sp.text)
             if sp_plan.visual_required and has_fig and text_ref:
                 references_image = True
             if has_fig and image_path is None:
-                image_path = sp_plan.figure.image_path
-                figure_caption = getattr(sp_plan.figure, "caption", None)
+                image_path = get_figure_field(sp_plan.figure, "image_path")
+                figure_caption = get_figure_field(sp_plan.figure, "caption")
 
         if not image_path and plan.figure:
-            image_path = getattr(plan.figure, "image_path", None)
-            figure_caption = getattr(plan.figure, "caption", None)
+            image_path = get_figure_field(plan.figure, "image_path")
+            figure_caption = get_figure_field(plan.figure, "caption")
             if plan.visual_required and any(self._references_figure(sp.text) for sp in subparts):
                 references_image = True
 
         if len(subpart_diagram_requests) > 1:
-            diag_types = {
-                d.get("diagram_type")
-                for d in subpart_diagram_requests.values()
-                if isinstance(d, dict) and d.get("diagram_type")
-            }
-            if len(diag_types) > 1:
+            def _normalize_diagram_request(d: Any) -> Optional[tuple]:
+                if not isinstance(d, dict):
+                    return None
+                norm = {}
+                for k, v in d.items():
+                    if isinstance(v, str):
+                        norm[str(k).strip().lower()] = v.strip().lower()
+                    else:
+                        norm[str(k).strip().lower()] = v
+                if not any(norm.values()):
+                    return None
+                return tuple(sorted(norm.items()))
+
+            distinct_requests = set()
+            for d in subpart_diagram_requests.values():
+                norm = _normalize_diagram_request(d)
+                if norm is not None:
+                    distinct_requests.add(norm)
+
+            if len(distinct_requests) > 1:
                 raise GenerationFailed(
                     code="UNSUPPORTED_MULTIPLE_VISUALS",
-                    detail=f"Slot {plan.slot_id} produced conflicting diagram requests across subparts: {sorted(list(diag_types))}",
+                    detail=(
+                        f"Slot {plan.slot_id} produced conflicting diagram requests across subparts: "
+                        f"{list(subpart_diagram_requests.values())}"
+                    ),
                 )
 
         if subpart_diagram_requests:
@@ -688,7 +707,7 @@ class WritingAgent(Agent):
                 if use_vlm:
                     raw = self._vlm.call(
                         prompt,
-                        image_path=getattr(plan.figure, "image_path", ""),
+                        image_path=get_figure_field(plan.figure, "image_path", ""),
                         schema=None,
                         seed=self._seed,
                     )
@@ -717,7 +736,7 @@ class WritingAgent(Agent):
             # Check figure reference if visual required
             # Distinguish asset availability from reference wording:
             # references_image is True ONLY when question references an actually available figure asset.
-            has_figure = bool(getattr(plan.figure, "image_path", None)) if plan.figure else False
+            has_figure = bool(get_figure_field(plan.figure, "image_path", None)) if plan.figure else False
             text_references = self._references_figure(parsed["question_text"])
             references_image = bool(text_references and has_figure)
             if plan.visual_required and not text_references:
@@ -828,8 +847,8 @@ class WritingAgent(Agent):
         references_image: bool,
     ) -> GeneratedQuestion:
         figure = plan.figure
-        image_path = getattr(figure, "image_path", None) if figure else None
-        caption = getattr(figure, "caption", None) if figure else None
+        image_path = get_figure_field(figure, "image_path", None)
+        caption = get_figure_field(figure, "caption", None)
 
         q_text = self._clean_text(parsed.get("question_text", ""))
 
