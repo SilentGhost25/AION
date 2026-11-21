@@ -32,11 +32,14 @@ from .base import Agent, AgentContext, AgentResult
 from .generated_question import (
     GeneratedQuestion,
     SlotFailure,
+    SubPart,
     WritingAgentOutput,
 )
+from .planning_agent import PlanStatus
 from .prompts import (
     build_difficulty_feedback,
     build_prompt,
+    build_subpart_prompt,
     IMAGE_REFERENCE_PHRASES,
 )
 
@@ -81,8 +84,11 @@ DEFAULT_SEED = 42
 # Phrases that signal a question references a figure are imported from .prompts
 # (IMAGE_REFERENCE_PHRASES is re-exported here for backward compatibility)
 
-# Required keys in the LLM's JSON output.
+# Required keys in the LLM's JSON output for monolithic generation.
 REQUIRED_OUTPUT_KEYS = ("question_text", "solution", "marking_scheme")
+
+# Required keys in the LLM's JSON output for structured SubPart generation.
+REQUIRED_SUBPART_KEYS = ("text", "solution", "marking_scheme")
 
 
 @dataclass
@@ -254,6 +260,9 @@ class WritingAgent(Agent):
         Generate one question with closed-loop IRT difficulty feedback.
         Returns (GeneratedQuestion, attempts).
         """
+        if getattr(plan, "status", None) == PlanStatus.UNRESOLVED:
+            return self._generate_one_raw(plan)
+
         if not self._enable_irt or self._irt is None:
             return self._generate_one_raw(plan)
 
@@ -321,8 +330,269 @@ class WritingAgent(Agent):
         difficulty_feedback: Optional[str] = None,
     ) -> tuple:
         """
-        Raw question generation attempt loop. Returns (GeneratedQuestion, attempts).
-        Raises GenerationFailed on final failure.
+        Validate plan and dispatch to structured subpart generation or legacy generation.
+        """
+        plan_status = getattr(plan, "status", None)
+
+        if plan_status == PlanStatus.UNRESOLVED:
+            f_code = getattr(plan, "failure_code", None)
+            code_str = f_code.value if hasattr(f_code, "value") else (str(f_code) if f_code else "UNRESOLVED_PLAN")
+            f_detail = getattr(plan, "failure_detail", None) or f"QuestionPlan {plan.slot_id} is unresolved"
+            raise GenerationFailed(code=code_str, detail=f_detail)
+
+        if plan_status == PlanStatus.PLANNED:
+            # Must fail closed if sub_part_plans missing or invalid
+            sub_part_plans = getattr(plan, "sub_part_plans", None)
+            if not sub_part_plans or not plan.is_currently_valid():
+                is_valid, f_code, f_detail = plan.validation_result()
+                code_str = f_code.value if hasattr(f_code, "value") else (str(f_code) if f_code else "INVALID_PLAN")
+                detail_str = f_detail or f"QuestionPlan {plan.slot_id} marked PLANNED but sub_part_plans are invalid or missing"
+                raise GenerationFailed(code=code_str, detail=detail_str)
+            return self._generate_structured_subparts(plan, difficulty_feedback=difficulty_feedback)
+
+        if plan_status == PlanStatus.LEGACY_UNVALIDATED:
+            return self._generate_legacy_raw(plan, difficulty_feedback=difficulty_feedback)
+
+        raise GenerationFailed(
+            code="INVALID_PLAN_STATUS",
+            detail=f"Unknown plan status {plan_status!r} for slot {getattr(plan, 'slot_id', 'unknown')}",
+        )
+
+    def _generate_structured_subparts(
+        self,
+        plan,
+        difficulty_feedback: Optional[str] = None,
+    ) -> Tuple[GeneratedQuestion, int]:
+        """
+        Generate structured SubPart objects for each SubPartPlan independently.
+        Fails closed on any subpart exhaustion without partial return or mark redistribution.
+        """
+        subparts: List[SubPart] = []
+        subpart_attempts: Dict[str, int] = {}
+        subpart_diagram_requests: Dict[str, Any] = {}
+        subpart_bloom_verbs: Dict[str, str] = {}
+        vlm_used = False
+
+        for sp_plan in plan.sub_part_plans:
+            use_vlm = (
+                sp_plan.visual_required
+                and sp_plan.figure is not None
+                and self._vlm is not None
+            )
+            if use_vlm:
+                vlm_used = True
+
+            last_error = ""
+            subpart_succeeded = False
+
+            for attempt in range(1, self._max_attempts + 1):
+                strict_json = attempt > 1
+                prompt = build_subpart_prompt(
+                    plan,
+                    sp_plan,
+                    strict_json=strict_json,
+                    difficulty_feedback=difficulty_feedback,
+                )
+
+                try:
+                    if use_vlm:
+                        raw = self._vlm.call(
+                            prompt,
+                            image_path=getattr(sp_plan.figure, "image_path", ""),
+                            schema=None,
+                            seed=self._seed,
+                        )
+                    else:
+                        raw = self._llm.call(
+                            prompt,
+                            schema=None,
+                            image_path=None,
+                            seed=self._seed,
+                        )
+                except Exception as e:
+                    is_to = isinstance(e, TimeoutError) or "timeout" in str(e).lower() or "timed out" in str(e).lower()
+                    last_error = f"caller raised: {'timeout: ' if is_to else ''}{e}"
+                    print(f"[WRITING-WARN] slot={plan.slot_id} subpart={sp_plan.label} attempt={attempt} caller raised: {e}", flush=True)
+                    continue
+
+                parsed = self._parse_response(raw)
+                if parsed is None:
+                    last_error = "response was not valid JSON"
+                    continue
+
+                # Check required keys for subpart: text, solution, marking_scheme
+                missing = [k for k in REQUIRED_SUBPART_KEYS if k not in parsed]
+                if missing:
+                    last_error = f"missing required keys: {missing}"
+                    continue
+
+                text_raw = parsed.get("text")
+                if not isinstance(text_raw, str) or not text_raw.strip():
+                    last_error = "subpart 'text' must be a non-empty string"
+                    continue
+
+                sol_raw = parsed.get("solution")
+                if not isinstance(sol_raw, str) or not sol_raw.strip():
+                    last_error = "subpart 'solution' must be a non-empty string"
+                    continue
+
+                scheme_raw = parsed.get("marking_scheme")
+                if not isinstance(scheme_raw, list) or len(scheme_raw) < 1 or len(scheme_raw) > 4:
+                    last_error = f"marking_scheme must be list of 1 to 4 items, got {len(scheme_raw) if isinstance(scheme_raw, list) else type(scheme_raw).__name__}"
+                    continue
+
+                # Validate marking scheme entries and sum
+                scheme_sum = 0
+                valid_entries = True
+                for i_c, entry in enumerate(scheme_raw):
+                    if not isinstance(entry, dict):
+                        last_error = f"marking_scheme[{i_c}] must be dict"
+                        valid_entries = False
+                        break
+                    crit_text = entry.get("criterion")
+                    if not isinstance(crit_text, str) or not crit_text.strip():
+                        last_error = f"marking_scheme[{i_c}] missing valid criterion"
+                        valid_entries = False
+                        break
+                    crit_marks = entry.get("marks")
+                    if type(crit_marks) is not int or isinstance(crit_marks, bool) or crit_marks <= 0:
+                        last_error = f"marking_scheme[{i_c}] marks must be strictly positive int"
+                        valid_entries = False
+                        break
+                    scheme_sum += crit_marks
+
+                if not valid_entries:
+                    continue
+
+                if scheme_sum != sp_plan.marks:
+                    last_error = f"marking_scheme criteria sum ({scheme_sum}) != subpart marks ({sp_plan.marks})"
+                    continue
+
+                # Clean subpart text (strip preamble and any accidental leading label)
+                clean_t = self._clean_text(text_raw)
+                # Strip leading subpart label like "(a)", "a.", "a)" if model included it
+                clean_t = re.sub(r"^\s*\(?[a-zA-Z0-9ivxIVX]+\)?[.:]\s*", "", clean_t)
+                clean_t = clean_t.strip()
+                if not clean_t:
+                    last_error = "subpart text was empty after cleaning"
+                    continue
+
+                clean_sol = sol_raw.strip()
+
+                # Authoritative label assignment: sp_plan.label governs, ignoring any LLM-supplied label
+                try:
+                    sp = SubPart(
+                        label=sp_plan.label,
+                        marks=sp_plan.marks,
+                        text=clean_t,
+                        topic=sp_plan.topic or "",
+                        solution=clean_sol,
+                        marking_scheme=scheme_raw,
+                    )
+                except Exception as exc:
+                    last_error = f"SubPart construction failed: {exc}"
+                    continue
+
+                # Capture diagram request and bloom verb if emitted
+                if parsed.get("diagram_request"):
+                    subpart_diagram_requests[sp_plan.label] = parsed.get("diagram_request")
+                if parsed.get("bloom_verb_used"):
+                    subpart_bloom_verbs[sp_plan.label] = parsed.get("bloom_verb_used")
+
+                subparts.append(sp)
+                subpart_attempts[sp_plan.label] = attempt
+                subpart_succeeded = True
+                break
+
+            if not subpart_succeeded:
+                failure_code = "TIMEOUT" if ("timeout" in last_error.lower() or "timed out" in last_error.lower()) else "SUBPART_GENERATION_FAILED"
+                raise GenerationFailed(
+                    code=failure_code,
+                    detail=f"Subpart ({sp_plan.label}) failed after {self._max_attempts} attempts: {last_error}",
+                )
+
+        # All subparts succeeded. Now assemble parent GeneratedQuestion.
+        # Visual mapping:
+        references_image = False
+        image_path = None
+        figure_caption = None
+        primary_diagram_request = None
+
+        for sp_plan, sp in zip(plan.sub_part_plans, subparts):
+            has_fig = bool(getattr(sp_plan.figure, "image_path", None)) if sp_plan.figure else False
+            text_ref = self._references_figure(sp.text)
+            if sp_plan.visual_required and has_fig and text_ref:
+                references_image = True
+            if has_fig and image_path is None:
+                image_path = sp_plan.figure.image_path
+                figure_caption = getattr(sp_plan.figure, "caption", None)
+
+        if not image_path and plan.figure:
+            image_path = getattr(plan.figure, "image_path", None)
+            figure_caption = getattr(plan.figure, "caption", None)
+            if plan.visual_required and any(self._references_figure(sp.text) for sp in subparts):
+                references_image = True
+
+        if subpart_diagram_requests:
+            primary_diagram_request = (
+                subpart_diagram_requests.get("a")
+                or list(subpart_diagram_requests.values())[0]
+            )
+
+        source = "local_vlm" if vlm_used else "local_llm"
+        parent_attempts = max(subpart_attempts.values()) if subpart_attempts else 1
+
+        # Build evidence summary
+        evidence_summary = self._build_evidence_summary(plan)
+
+        gq = GeneratedQuestion(
+            slot_id=plan.slot_id,
+            module_id=plan.module_id,
+            global_q_idx=plan.global_q_idx,
+            question_text="",   # Populated by sync_materialized_projections()
+            solution="",        # Populated by sync_materialized_projections()
+            marking_scheme=[],  # Populated by sync_materialized_projections()
+            marks=plan.total_marks,
+            partition=list(plan.partition),
+            bloom=plan.bloom,
+            co=plan.co,
+            topic=plan.topic,
+            evidence_summary=evidence_summary,
+            references_image=references_image,
+            image_path=image_path,
+            figure_caption=figure_caption,
+            diagram_request=primary_diagram_request,
+            generation_source=source,
+            attempts=parent_attempts,
+            telemetry={
+                "subpart_attempts": subpart_attempts,
+                "bloom_verb_used": subpart_bloom_verbs.get("a", ""),
+                "subpart_bloom_verbs": subpart_bloom_verbs,
+                "subpart_diagram_requests": subpart_diagram_requests,
+            },
+            sub_parts=subparts,
+        )
+
+        # Synchronize projections
+        gq.sync_materialized_projections()
+
+        valid_proj, err_proj = gq.verify_projection_consistency()
+        if not valid_proj:
+            raise GenerationFailed(
+                code="PROJECTION_INCONSISTENCY",
+                detail=f"Synthesized question failed projection consistency check: {err_proj}",
+            )
+
+        return gq, parent_attempts
+
+    def _generate_legacy_raw(
+        self,
+        plan,
+        difficulty_feedback: Optional[str] = None,
+    ) -> tuple:
+        """
+        Monolithic question generation attempt loop for LEGACY_UNVALIDATED plans.
+        Returns (GeneratedQuestion, attempts).
         """
         # Route to VLM if visual required and VLM available
         use_vlm = (
@@ -434,19 +704,9 @@ class WritingAgent(Agent):
         lower = question_text.lower()
         return any(phrase in lower for phrase in IMAGE_REFERENCE_PHRASES)
 
-    def _build_question(
-        self,
-        plan,
-        parsed: dict,
-        source: str,
-        attempts: int,
-        references_image: bool,
-    ) -> GeneratedQuestion:
-        figure = plan.figure
-        image_path = getattr(figure, "image_path", None) if figure else None
-        caption = getattr(figure, "caption", None) if figure else None
-
-        q_text = str(parsed.get("question_text", "")).strip()
+    def _clean_text(self, text: str) -> str:
+        """Strip forbidden preambles, bullet markers, and trailing stray markers."""
+        q_text = str(text or "").strip()
         _preamble_regex = re.compile(
             r"^(?:Based\s+on\s+(?:the\s+)?evidence\s*(?:provided)?\s*[,.:;]?\s*|"
             r"Based\s+on\s+the\s+provided\s+evidence\s*[,.:;]?\s*|"
@@ -467,6 +727,38 @@ class WritingAgent(Agent):
         q_text = re.sub(r"\s*\([ivxIVX\d]+\)\s*(?=[.?!]|$)", "", q_text)
         q_text = re.sub(r"\.\s*\([ivxIVX\d]+\)\s*$", ".", q_text)
         q_text = re.sub(r"\s+", " ", q_text).strip()
+        return q_text
+
+    def _build_evidence_summary(self, plan) -> str:
+        """Build evidence summary from plan's evidence blocks or fallback."""
+        evidence_texts = []
+        for block in (getattr(plan, "evidence_blocks", None) or [])[:5]:
+            text = getattr(block, "text", "")
+            if text:
+                evidence_texts.append(text[:500])
+        evidence_summary = " ".join(evidence_texts)[:2500]
+        if not evidence_summary or len(evidence_summary.strip()) < 80:
+            concepts = ", ".join(getattr(plan, "concept_neighborhood", []) or [])
+            evidence_summary = (
+                f"Module topic: {plan.topic}. "
+                f"Related curriculum concepts: {concepts if concepts else plan.topic}. "
+                f"Evidence context for question {plan.slot_id}."
+            )
+        return evidence_summary
+
+    def _build_question(
+        self,
+        plan,
+        parsed: dict,
+        source: str,
+        attempts: int,
+        references_image: bool,
+    ) -> GeneratedQuestion:
+        figure = plan.figure
+        image_path = getattr(figure, "image_path", None) if figure else None
+        caption = getattr(figure, "caption", None) if figure else None
+
+        q_text = self._clean_text(parsed.get("question_text", ""))
 
         scheme = list(parsed.get("marking_scheme", []) or [])
         if scheme and all(isinstance(e, dict) for e in scheme):
@@ -482,20 +774,7 @@ class WritingAgent(Agent):
                     new_scheme.append(dict(entry, marks=new_marks))
                 scheme = new_scheme
 
-        # Build evidence summary from the plan's evidence blocks
-        evidence_texts = []
-        for block in (getattr(plan, "evidence_blocks", None) or [])[:5]:
-            text = getattr(block, "text", "")
-            if text:
-                evidence_texts.append(text[:500])
-        evidence_summary = " ".join(evidence_texts)[:2500]
-        if not evidence_summary or len(evidence_summary.strip()) < 80:
-            concepts = ", ".join(getattr(plan, "concept_neighborhood", []) or [])
-            evidence_summary = (
-                f"Module topic: {plan.topic}. "
-                f"Related curriculum concepts: {concepts if concepts else plan.topic}. "
-                f"Evidence context for question {plan.slot_id}."
-            )
+        evidence_summary = self._build_evidence_summary(plan)
 
         return GeneratedQuestion(
             slot_id=plan.slot_id,

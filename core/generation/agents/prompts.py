@@ -97,6 +97,27 @@ CRITICAL: marking_scheme rules
   - Double-check your arithmetic before returning."""
 
 
+SUBPART_OUTPUT_SCHEMA_DESCRIPTION = """{
+  "text": "string — the full, self-contained question text for this subpart",
+  "solution": "string — a complete, self-contained model answer for this subpart",
+  "marking_scheme": [
+    {"criterion": "string — what earns marks", "marks": integer}
+  ],
+  "diagram_request": {
+    "diagram_type": "string — e.g. schematic, graph, block_diagram",
+    "description": "string — short description of the required figure"
+  },
+  "references_image": boolean,
+  "bloom_verb_used": "string — the first verb of the text"
+}
+
+CRITICAL: marking_scheme rules
+  - Provide 1 to 4 entries.
+  - Each entry has {"criterion": "...", "marks": N}.
+  - The sum of all entries MUST equal the subpart's marks exactly.
+  - Double-check your arithmetic before returning."""
+
+
 # -----------------------------------------------------------------------------
 # Section builders
 # -----------------------------------------------------------------------------
@@ -208,7 +229,9 @@ def build_difficulty_feedback(estimate: Any, target_band: str) -> str:
 
 
 def build_task_section(plan, difficulty_feedback: Optional[str] = None) -> str:
-    verbs = BLOOM_VERBS.get(plan.bloom, BLOOM_VERBS["L2"])
+    if plan.bloom not in BLOOM_VERBS:
+        raise ValueError(f"Unknown bloom level '{plan.bloom}'. Must be one of {list(BLOOM_VERBS.keys())}")
+    verbs = BLOOM_VERBS[plan.bloom]
     verb_list = ", ".join(verbs)
     minutes = max(2, int(plan.total_marks * 1.5))
 
@@ -317,3 +340,130 @@ def build_prompt(
         )
 
     return "\n\n".join(s for s in sections if s)
+
+
+# -----------------------------------------------------------------------------
+# SubPart prompt builders (Stage G1-C)
+# -----------------------------------------------------------------------------
+
+
+def build_subpart_slot_contract(plan, sp_plan) -> str:
+    return (
+        "[SUBPART CONTRACT]\n"
+        f"Subpart: ({sp_plan.label})\n"
+        f"Marks: {sp_plan.marks}\n"
+        f"Bloom level: {sp_plan.bloom}\n"
+        f"Course Outcome: {sp_plan.co}\n"
+        f"Module: {plan.module_id} (Module {plan.module_idx})\n"
+        f"Question number: Q{plan.global_q_idx}({sp_plan.label})"
+    )
+
+
+def build_subpart_topic_section(sp_plan) -> str:
+    topic = (sp_plan.topic or "").strip()[:MAX_TOPIC_CHARS] or "(unspecified)"
+    return f"[TOPIC]\n{topic}"
+
+
+def build_subpart_visual_section(sp_plan) -> str:
+    if not sp_plan.visual_required or sp_plan.figure is None:
+        return ""
+    fig = sp_plan.figure
+    caption = getattr(fig, "caption", "") or "(no caption)"
+    page = getattr(fig, "page", "?")
+    return (
+        "[VISUAL DIRECTIVE — FIGURE PROVIDED]\n"
+        f"An authoritative figure is provided with this sub-question.\n"
+        f"Caption: {caption}\n"
+        f"Page: {page}\n"
+        "Requirements:\n"
+        "  1. The sub-question text MUST explicitly ask the student to refer to,\n"
+        "     interpret, or sketch the given figure.\n"
+        "  2. Acceptable openings include: 'With the aid of the given diagram...',\n"
+        "     'Refer to the given figure and...', 'Using the provided schematic...'\n"
+        "  3. The sub-question must be answerable ONLY with the figure present.\n"
+        "  4. Include `diagram_request` and `references_image: true` in the output."
+    )
+
+
+def build_subpart_task_section(sp_plan, difficulty_feedback: Optional[str] = None) -> str:
+    if sp_plan.bloom not in BLOOM_VERBS:
+        raise ValueError(f"Unknown bloom level '{sp_plan.bloom}'. Must be one of {list(BLOOM_VERBS.keys())}")
+    verbs = BLOOM_VERBS[sp_plan.bloom]
+    verb_list = ", ".join(verbs)
+    minutes = max(2, int(sp_plan.marks * 1.5))
+
+    lines = [
+        "[TASK]",
+        f"Generate ONE {sp_plan.bloom}-level sub-question ({sp_plan.label}) worth {sp_plan.marks} marks.",
+        f"Start with an approved {sp_plan.bloom} verb: {verb_list}.",
+        f"Target completion time: ~{minutes} minutes.",
+        f"Provide a complete solution and a marking scheme totaling exactly {sp_plan.marks} marks.",
+        "INDEPENDENCE: This sub-question must be completely self-contained and independently answerable. Do not reference other sub-parts.",
+    ]
+
+    if difficulty_feedback:
+        lines.append("")
+        lines.append("[DIFFICULTY ADJUSTMENT]")
+        lines.append(difficulty_feedback)
+
+    return "\n".join(lines)
+
+
+def build_subpart_constraints_section(marks: int) -> str:
+    return (
+        "[CONSTRAINTS]\n"
+        "  - The sub-question must be self-contained; no references to 'the notes',\n"
+        "    'the textbook', 'chapter N', or other subparts.\n"
+        "  - FORBIDDEN PHRASES: Do NOT include preamble phrases such as 'Based on the provided evidence',\n"
+        "    'Based on the evidence provided', 'Apply the following', or 'Refer to the text'.\n"
+        "  - Open directly with the target Bloom action verb or scenario context.\n"
+        "  - Keep under 60 words. State the scenario or context concisely, then pose the task.\n"
+        "  - Do not reveal the answer in the question text.\n"
+        "  - If the topic is mathematical or numerical, provide concrete givens.\n"
+        f"  - The marking_scheme MUST sum to exactly {marks}.\n"
+        "  - Return ONLY valid JSON with keys: \"text\", \"solution\", \"marking_scheme\". No commentary, no code fences, no preamble."
+    )
+
+
+def build_subpart_prompt(
+    plan,
+    sp_plan,
+    *,
+    strict_json: bool = False,
+    difficulty_feedback: Optional[str] = None,
+) -> str:
+    """
+    Compose the Writing Agent prompt for an individual SubPartPlan.
+    """
+    sections = [
+        build_subpart_slot_contract(plan, sp_plan),
+        build_subpart_topic_section(sp_plan),
+    ]
+
+    kg_neighborhood = getattr(sp_plan, "concept_neighborhood", None) or getattr(plan, "concept_neighborhood", None)
+    kg = build_kg_section(kg_neighborhood)
+    if kg:
+        sections.append(kg)
+
+    evidence_blocks = getattr(sp_plan, "evidence_blocks", None) or getattr(plan, "evidence_blocks", None)
+    ev = build_evidence_section(evidence_blocks)
+    if ev:
+        sections.append(ev)
+
+    vis = build_subpart_visual_section(sp_plan)
+    if vis:
+        sections.append(vis)
+
+    sections.append(build_subpart_task_section(sp_plan, difficulty_feedback=difficulty_feedback))
+    sections.append(build_subpart_constraints_section(marks=sp_plan.marks))
+    sections.append(f"[OUTPUT JSON SCHEMA]\n{SUBPART_OUTPUT_SCHEMA_DESCRIPTION}")
+
+    if strict_json:
+        sections.append(
+            "[IMPORTANT]\n"
+            "Your previous response could not be parsed as JSON.\n"
+            "Return ONLY the JSON object. Do not include any other text."
+        )
+
+    return "\n\n".join(s for s in sections if s)
+
