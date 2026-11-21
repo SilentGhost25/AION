@@ -98,17 +98,17 @@ CRITICAL: marking_scheme rules
 
 
 SUBPART_OUTPUT_SCHEMA_DESCRIPTION = """{
-  "text": "string — the full, self-contained question text for this subpart",
-  "solution": "string — a complete, self-contained model answer for this subpart",
+  "text": "string — the full, self-contained question text for this subpart (MANDATORY)",
+  "solution": "string — a complete, self-contained model answer for this subpart (MANDATORY)",
   "marking_scheme": [
     {"criterion": "string — what earns marks", "marks": integer}
-  ],
+  ] (MANDATORY),
   "diagram_request": {
     "diagram_type": "string — e.g. schematic, graph, block_diagram",
     "description": "string — short description of the required figure"
-  },
-  "references_image": boolean,
-  "bloom_verb_used": "string — the first verb of the text"
+  } (OPTIONAL — include if figure provided or diagram requested),
+  "references_image": boolean (OPTIONAL — true if referencing a provided figure),
+  "bloom_verb_used": "string — the first verb of the text (OPTIONAL)"
 }
 
 CRITICAL: marking_scheme rules
@@ -421,7 +421,9 @@ def build_subpart_constraints_section(marks: int) -> str:
         "  - Do not reveal the answer in the question text.\n"
         "  - If the topic is mathematical or numerical, provide concrete givens.\n"
         f"  - The marking_scheme MUST sum to exactly {marks}.\n"
-        "  - Return ONLY valid JSON with keys: \"text\", \"solution\", \"marking_scheme\". No commentary, no code fences, no preamble."
+        "  - Return ONLY valid JSON. Mandatory keys: \"text\", \"solution\", \"marking_scheme\". "
+        "Optional/conditional keys: \"diagram_request\", \"references_image\", \"bloom_verb_used\". "
+        "No commentary, no code fences, no preamble."
     )
 
 

@@ -960,7 +960,7 @@ def test_33_planned_status_with_invalid_subpart_plans_fails_closed():
 
 
 def test_34_failure_propagation_to_orchestrator_and_checking_agent():
-    """Test 34: WritingAgent SlotFailure propagates to unresolved_slots and blocks CheckingAgent."""
+    """Test 34: WritingAgent SlotFailure propagates through AgentOrchestrator to unresolved_slots and blocks CheckingAgent."""
     plan = QuestionPlan(
         slot_id="module_1_Q1",
         module_id="module_1",
@@ -975,35 +975,34 @@ def test_34_failure_propagation_to_orchestrator_and_checking_agent():
         telemetry={"attempts": []},
     )
 
-    llm = MockLLMCaller()
-    agent = WritingAgent(llm_caller=llm, enable_irt=False)
-    ctx = AgentContext(plans=[plan])
-
-    result = agent.run(ctx)
-    assert result.success is True
-    output: WritingAgentOutput = result.payload
-    assert len(output.failures) == 1
-    assert output.failures[0].slot_id == "module_1_Q1"
-    assert output.failures[0].failure_code == "INVALID_CONFIG"
-
-    # Simulate orchestrator unresolved_slots propagation
-    for f in output.failures:
-        if f.slot_id not in ctx.unresolved_slots:
-            ctx.unresolved_slots.append(f.slot_id)
-
-    assert "module_1_Q1" in ctx.unresolved_slots
-
-    # Verify checking agent contract: unresolved slots trigger block
+    from core.generation.agents.base import Agent, AgentResult
+    from core.generation.agents.agent_orchestrator import AgentOrchestrator
     from core.generation.agents.checking_contracts import QAReport
     from core.generation.agents.checking_agent import CheckingAgent
 
-    chk_agent = CheckingAgent()
-    chk_result = chk_agent.run(ctx)
-    assert chk_result.success is True
-    report: QAReport = chk_result.payload
+    class ControlledPlanningAgent(Agent):
+        name = "planning"
+        def run(self, context: AgentContext) -> AgentResult:
+            return AgentResult(success=True, payload=[plan])
 
-    assert report.status == STATUS_BLOCKED
-    assert BLOCK_REASON_UNRESOLVED_SLOTS in report.blocked_reasons
+    llm = MockLLMCaller()
+    writing_agent = WritingAgent(llm_caller=llm, enable_irt=False)
+    checking_agent = CheckingAgent()
+
+    orchestrator = AgentOrchestrator(
+        planning_agent=ControlledPlanningAgent(),
+        writing_agent=writing_agent,
+        checking_agent=checking_agent,
+    )
+
+    ctx = AgentContext()
+    res = orchestrator.run(ctx)
+
+    assert res.success is True
+    # Orchestrator itself must have recorded the slot failure in unresolved_slots
+    assert "module_1_Q1" in ctx.unresolved_slots
+    assert res.qa_report.status == STATUS_BLOCKED
+    assert BLOCK_REASON_UNRESOLVED_SLOTS in res.qa_report.blocked_reasons
 
 
 def test_35_legacy_unvalidated_plan_uses_legacy_generator():
@@ -1033,3 +1032,138 @@ def test_35_legacy_unvalidated_plan_uses_legacy_generator():
     assert gq.question_text == "Explain monolithic operating systems."
     assert gq.solution == "All OS services run in kernel space."
     assert len(gq.sub_parts) == 0  # Legacy raw generation leaves sub_parts empty
+
+
+# =============================================================================
+# Group 8: Corrective Milestone G1-C.1 Integration Safeguards (Tests 36–41)
+# =============================================================================
+
+def test_36_irt_difficulty_does_not_regenerate_structured_subparts():
+    """Test 36: Out-of-band IRT difficulty calibrates structured question without regenerating subparts."""
+    plan = create_planned_question([5, 5])
+    llm = MockLLMCaller()
+
+    class MockCalibrator:
+        def __init__(self, difficulty: float = 2.5):
+            self._diff = difficulty
+        def calibrate(self, text: str):
+            from core.evaluation.irt_calibrator import DifficultyEstimate
+            return DifficultyEstimate(difficulty=self._diff, standard_error=0.1, n_responses=10, converged=True)
+
+    # Slot target is "easy" ([-3.0, -0.5]), but calibrator returns 2.5 (hard / out-of-band)
+    agent = WritingAgent(
+        llm_caller=llm,
+        irt_calibrator=MockCalibrator(difficulty=2.5),
+        enable_irt=True,
+    )
+    gq, attempts = agent._generate_one(plan)
+
+    # Subparts must have been generated exactly once (1 call for 'a', 1 call for 'b')
+    assert len(llm.calls) == 2
+    assert gq.telemetry["irt_difficulty"] == 2.5
+    assert gq.telemetry["irt_band_miss"] == "easy"
+    assert gq.telemetry["irt_attempts"] == 1
+
+
+def test_37_visual_required_without_vlm_fails_closed():
+    """Test 37: Visual-required subpart fails closed with MISSING_VLM_CAPABILITY when VLM is None."""
+    plan = create_planned_question([5, 5])
+    fig = MockFigure(image_path="/path/figure.png", caption="Process Transitions")
+    plan.sub_part_plans[0].visual_required = True
+    plan.sub_part_plans[0].figure = fig
+
+    llm = MockLLMCaller()
+    # No VLM caller provided
+    agent = WritingAgent(llm_caller=llm, vlm_caller=None, enable_irt=False)
+
+    with pytest.raises(GenerationFailed) as excinfo:
+        agent._generate_one(plan)
+
+    assert excinfo.value.code == "MISSING_VLM_CAPABILITY"
+    assert "no VLM caller is available" in excinfo.value.detail
+    assert len(llm.calls) == 0  # 0 silent fallback calls
+
+
+def test_38_visual_required_without_figure_reference_triggers_retry_and_fails():
+    """Test 38: Visual-required subpart without figure reference in text triggers retry and fails if not fixed."""
+    plan = create_planned_question([10], blueprint_id="BP_10M")
+    fig = MockFigure(image_path="/path/figure.png", caption="Process Transitions")
+    plan.sub_part_plans[0].visual_required = True
+    plan.sub_part_plans[0].figure = fig
+
+    # Model generates text that does NOT contain any recognised figure reference phrase
+    no_fig_ref_response = {
+        "text": "Explain the concept of mutual exclusion in critical sections.",
+        "solution": "Mutual exclusion ensures only one process enters the critical section.",
+        "marking_scheme": [{"criterion": "Explanation", "marks": 10}],
+        "references_image": True,
+    }
+
+    llm = MockLLMCaller()
+    vlm = MockVLMCaller(responses=[no_fig_ref_response, no_fig_ref_response, no_fig_ref_response])
+    agent = WritingAgent(llm_caller=llm, vlm_caller=vlm, enable_irt=False)
+
+    with pytest.raises(GenerationFailed) as excinfo:
+        agent._generate_one(plan)
+
+    assert excinfo.value.code == "SUBPART_GENERATION_FAILED"
+    assert "without a figure reference" in excinfo.value.detail
+    assert len(vlm.calls) == 3  # retried all 3 times
+
+
+def test_39_multiple_subparts_with_distinct_figures_fails_closed():
+    """Test 39: Multiple subparts requiring distinct figures fail closed with UNSUPPORTED_MULTIPLE_VISUALS."""
+    plan = create_planned_question([5, 5])
+    fig1 = MockFigure(id="fig1", image_path="/path/fig1.png", caption="Figure 1")
+    fig2 = MockFigure(id="fig2", image_path="/path/fig2.png", caption="Figure 2")
+    plan.sub_part_plans[0].visual_required = True
+    plan.sub_part_plans[0].figure = fig1
+    plan.sub_part_plans[1].visual_required = True
+    plan.sub_part_plans[1].figure = fig2
+
+    llm = MockLLMCaller()
+    vlm = MockVLMCaller()
+    agent = WritingAgent(llm_caller=llm, vlm_caller=vlm, enable_irt=False)
+
+    with pytest.raises(GenerationFailed) as excinfo:
+        agent._generate_one(plan)
+
+    assert excinfo.value.code == "UNSUPPORTED_MULTIPLE_VISUALS"
+    assert "distinct figures" in excinfo.value.detail
+    assert len(llm.calls) == 0
+    assert len(vlm.calls) == 0
+
+
+def test_40_structural_validation_enforced_on_generated_question():
+    """Test 40: Generated question passes validate_structure() and fails closed on structural defect."""
+    plan = create_planned_question([5, 5])
+    llm = MockLLMCaller()
+    agent = WritingAgent(llm_caller=llm, enable_irt=False)
+    gq, attempts = agent._generate_one(plan)
+
+    # Valid question passes structural validation
+    valid, err = gq.validate_structure(allow_legacy=False, check_projections=True)
+    assert valid
+    assert err == ""
+
+    # Corrupt subpart marks and verify validate_structure detects it
+    gq.sub_parts[0].marks = 99
+    valid_bad, err_bad = gq.validate_structure(allow_legacy=False, check_projections=False)
+    assert not valid_bad
+
+
+def test_41_prompt_schema_and_constraints_consistency():
+    """Test 41: Prompt constraints section explicitly resolves mandatory vs optional fields without contradiction."""
+    from core.generation.agents.prompts import (
+        build_subpart_constraints_section,
+        SUBPART_OUTPUT_SCHEMA_DESCRIPTION,
+    )
+
+    constraints = build_subpart_constraints_section(marks=5)
+    assert "Mandatory keys: \"text\", \"solution\", \"marking_scheme\"" in constraints
+    assert "Optional/conditional keys: \"diagram_request\", \"references_image\", \"bloom_verb_used\"" in constraints
+    assert "Return ONLY valid JSON with keys: \"text\", \"solution\", \"marking_scheme\"." not in constraints
+
+    assert "(MANDATORY)" in SUBPART_OUTPUT_SCHEMA_DESCRIPTION
+    assert "(OPTIONAL" in SUBPART_OUTPUT_SCHEMA_DESCRIPTION
+

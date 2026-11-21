@@ -263,6 +263,28 @@ class WritingAgent(Agent):
         if getattr(plan, "status", None) == PlanStatus.UNRESOLVED:
             return self._generate_one_raw(plan)
 
+        # For PLANNED structured questions, generate once without whole-question IRT retries.
+        # Calibrate with IRT if enabled, and record calibration result in telemetry.
+        if getattr(plan, "status", None) == PlanStatus.PLANNED:
+            gq, attempts = self._generate_one_raw(plan)
+            if self._enable_irt and self._irt is not None:
+                self._current_bloom = plan.bloom
+                target_band = self._band_for_plan(plan)
+                try:
+                    estimate = self._irt.calibrate(gq.question_text)
+                    lo, hi = self._difficulty_bands.get(target_band, (-3.0, 3.0))
+                    gq.telemetry["irt_difficulty"] = estimate.difficulty
+                    gq.telemetry["irt_converged"] = estimate.converged
+                    gq.telemetry["irt_attempts"] = 1
+                    if lo <= estimate.difficulty <= hi:
+                        gq.telemetry["irt_band"] = target_band
+                    else:
+                        gq.telemetry["irt_band_miss"] = target_band
+                except Exception as e:
+                    print(f"[IRT] calibration exception for {plan.slot_id}: {e}", flush=True)
+                    gq.telemetry["irt_calibration_error"] = str(e)
+            return gq, attempts
+
         if not self._enable_irt or self._irt is None:
             return self._generate_one_raw(plan)
 
@@ -367,6 +389,26 @@ class WritingAgent(Agent):
         Generate structured SubPart objects for each SubPartPlan independently.
         Fails closed on any subpart exhaustion without partial return or mark redistribution.
         """
+        # Upfront check for multiple visuals across subparts in plan
+        visual_subparts = [sp for sp in plan.sub_part_plans if sp.visual_required]
+        if len(visual_subparts) > 1:
+            fig_keys = set()
+            for sp in visual_subparts:
+                if sp.figure:
+                    f_key = getattr(sp.figure, "image_path", None) or getattr(sp.figure, "id", None)
+                    if f_key:
+                        fig_keys.add(f_key)
+                else:
+                    fig_keys.add(f"missing_fig_{sp.label}")
+            if len(fig_keys) > 1:
+                raise GenerationFailed(
+                    code="UNSUPPORTED_MULTIPLE_VISUALS",
+                    detail=(
+                        f"Slot {plan.slot_id} has {len(visual_subparts)} subparts requiring distinct figures "
+                        f"({sorted(list(fig_keys))}), exceeding single-visual contract of GeneratedQuestion"
+                    ),
+                )
+
         subparts: List[SubPart] = []
         subpart_attempts: Dict[str, int] = {}
         subpart_diagram_requests: Dict[str, Any] = {}
@@ -374,12 +416,19 @@ class WritingAgent(Agent):
         vlm_used = False
 
         for sp_plan in plan.sub_part_plans:
-            use_vlm = (
-                sp_plan.visual_required
-                and sp_plan.figure is not None
-                and self._vlm is not None
-            )
-            if use_vlm:
+            use_vlm = False
+            if sp_plan.visual_required:
+                if not sp_plan.figure or not getattr(sp_plan.figure, "image_path", None):
+                    raise GenerationFailed(
+                        code="MISSING_FIGURE_ASSET",
+                        detail=f"Subpart ({sp_plan.label}) requires a visual but no figure asset with image_path was provided",
+                    )
+                if self._vlm is None:
+                    raise GenerationFailed(
+                        code="MISSING_VLM_CAPABILITY",
+                        detail=f"Subpart ({sp_plan.label}) has visual_required=True but no VLM caller is available",
+                    )
+                use_vlm = True
                 vlm_used = True
 
             last_error = ""
@@ -479,6 +528,11 @@ class WritingAgent(Agent):
 
                 clean_sol = sol_raw.strip()
 
+                # Enforce figure reference in question text for visual-required subparts
+                if sp_plan.visual_required and not self._references_figure(clean_t):
+                    last_error = f"visual-required subpart ({sp_plan.label}) produced text without a figure reference"
+                    continue
+
                 # Authoritative label assignment: sp_plan.label governs, ignoring any LLM-supplied label
                 try:
                     sp = SubPart(
@@ -533,6 +587,18 @@ class WritingAgent(Agent):
             if plan.visual_required and any(self._references_figure(sp.text) for sp in subparts):
                 references_image = True
 
+        if len(subpart_diagram_requests) > 1:
+            diag_types = {
+                d.get("diagram_type")
+                for d in subpart_diagram_requests.values()
+                if isinstance(d, dict) and d.get("diagram_type")
+            }
+            if len(diag_types) > 1:
+                raise GenerationFailed(
+                    code="UNSUPPORTED_MULTIPLE_VISUALS",
+                    detail=f"Slot {plan.slot_id} produced conflicting diagram requests across subparts: {sorted(list(diag_types))}",
+                )
+
         if subpart_diagram_requests:
             primary_diagram_request = (
                 subpart_diagram_requests.get("a")
@@ -581,6 +647,13 @@ class WritingAgent(Agent):
             raise GenerationFailed(
                 code="PROJECTION_INCONSISTENCY",
                 detail=f"Synthesized question failed projection consistency check: {err_proj}",
+            )
+
+        valid_struct, err_struct = gq.validate_structure(allow_legacy=False, check_projections=True)
+        if not valid_struct:
+            raise GenerationFailed(
+                code="INVALID_STRUCTURE",
+                detail=f"Synthesized question failed structural validation: {err_struct}",
             )
 
         return gq, parent_attempts
