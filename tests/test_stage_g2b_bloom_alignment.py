@@ -136,6 +136,60 @@ def test_g2b_substring_collision_protection():
         assert classify_verb(word) == expected
 
 
+def test_g2b_canonical_mapping_matches_approved_specification_exactly():
+    """Verify BLOOM_VERB_LEVEL_MAP matches Section 2.1 of the reviewed specification exactly."""
+    expected = {
+        "L1": {"define", "list", "identify", "name", "state", "recall", "recognize", "recognise", "enumerate"},
+        "L2": {"explain", "describe", "summarize", "summarise", "illustrate", "interpret", "classify", "discuss", "outline"},
+        "L3": {"calculate", "apply", "demonstrate", "determine", "solve", "implement", "use", "compute", "derive", "show", "find"},
+        "L4": {"analyze", "analyse", "compare", "differentiate", "examine", "investigate", "categorize", "categorise", "contrast", "distinguish"},
+        "L5": {"evaluate", "critique", "justify", "assess", "validate", "judge", "defend", "appraise"},
+        "L6": {"design", "develop", "propose", "formulate", "create", "generate", "construct", "build", "invent"},
+    }
+    assert BLOOM_VERB_LEVEL_MAP == expected
+
+
+def test_g2b_canonical_mapping_mutually_disjoint_zero_collisions():
+    """
+    Every canonical verb belongs to EXACTLY one level.
+    Verify pairwise intersection between any two levels is strictly empty (0 collisions).
+    """
+    levels = ["L1", "L2", "L3", "L4", "L5", "L6"]
+    all_verbs_union = set()
+    for lvl in levels:
+        all_verbs_union.update(BLOOM_VERB_LEVEL_MAP[lvl])
+    assert len(all_verbs_union) == 56
+
+    for i in range(len(levels)):
+        for j in range(i + 1, len(levels)):
+            l1, l2 = levels[i], levels[j]
+            overlap = BLOOM_VERB_LEVEL_MAP[l1] & BLOOM_VERB_LEVEL_MAP[l2]
+            assert not overlap, f"Collision detected between {l1} and {l2}: {overlap}"
+
+
+def test_g2b_no_multi_level_collisions_for_sensitive_verbs():
+    """Assert unambiguous deterministic classification for verbs commonly confused across taxonomies."""
+    # 'find' is strictly L3 Apply in VTU (find parameters/solutions), not L1 recall
+    assert classify_verb("find") == "L3"
+    assert "find" not in BLOOM_VERB_LEVEL_MAP["L1"]
+    assert "find" in BLOOM_VERB_LEVEL_MAP["L3"]
+
+    # 'classify' is strictly L2 Understand (conceptual categorization), not L4 analyze
+    assert classify_verb("classify") == "L2"
+    assert "classify" in BLOOM_VERB_LEVEL_MAP["L2"]
+    assert "classify" not in BLOOM_VERB_LEVEL_MAP["L4"]
+
+    # 'compare' is strictly L4 Analyze (comparative analysis/decomposition), not L2
+    assert classify_verb("compare") == "L4"
+    assert "compare" not in BLOOM_VERB_LEVEL_MAP["L2"]
+    assert "compare" in BLOOM_VERB_LEVEL_MAP["L4"]
+
+    # 'determine' is strictly L3 Apply (computational determination), not L5 evaluate
+    assert classify_verb("determine") == "L3"
+    assert "determine" in BLOOM_VERB_LEVEL_MAP["L3"]
+    assert "determine" not in BLOOM_VERB_LEVEL_MAP["L5"]
+
+
 # =============================================================================
 # 2. 6 x 6 Exact Slot Compliance Matrix Tests
 # =============================================================================
@@ -300,6 +354,35 @@ def test_g2b_bloom_content_evaluator_fails_indeterminate():
     assert verdict is not None
     assert verdict.verdict == "fail"
     assert "lacks explicit" in verdict.detail
+
+
+def test_g2b_semantic_demand_indeterminate_fail_closed_guarantee():
+    """
+    Ensure INDETERMINATE outcomes cannot become PASS through fallback,
+    and are strictly rejected by bloom_content_evaluator.
+    """
+    class DummyQ:
+        def __init__(self, text: str, bloom: str):
+            self.question_text = text
+            self.bloom = bloom
+            self.slot_id = "test_slot"
+
+    naked_questions = [
+        ("Calculate throughput.", "L3"),
+        ("Determine the latency.", "L3"),
+        ("Analyze paging.", "L4"),
+        ("Evaluate the operating system.", "L5"),
+        ("Design a cache.", "L6"),
+    ]
+    for text, lvl in naked_questions:
+        outcome, reason = evaluate_cognitive_demand(text, lvl)
+        assert outcome == SemanticDemandOutcome.INDETERMINATE
+        assert outcome != SemanticDemandOutcome.PASS
+
+        # Local evaluator must fail closed
+        verdict = bloom_content_evaluator(DummyQ(text, lvl))
+        assert verdict is not None
+        assert verdict.verdict == "fail"
 
 
 # =============================================================================
