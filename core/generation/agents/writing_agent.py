@@ -697,6 +697,10 @@ class WritingAgent(Agent):
                     if first_v:
                         subpart_bloom_verbs[sp_plan.label] = first_v
 
+                sp_spec = getattr(sp_plan, "specification", None)
+                if sp_spec is not None:
+                    sp.specification = sp_spec
+
                 subparts.append(sp)
                 subpart_attempts[sp_plan.label] = attempt
                 subpart_succeeded = True

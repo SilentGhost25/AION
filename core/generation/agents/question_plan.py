@@ -11,7 +11,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
+
+if TYPE_CHECKING:
+    from core.contracts.assessment_blueprint import QuestionSpecification, SubPartSpecification
 
 
 # -----------------------------------------------------------------------------
@@ -109,7 +112,7 @@ class SubPartPlan:
     evidence_blocks: List[Any] = field(default_factory=list)
     visual_required: bool = False
     figure: Optional[Any] = None
-    specification: Optional[Any] = None  # Stage G2-C: Optional[SubPartSpecification]
+    specification: Optional[SubPartSpecification] = None  # Stage G2-C: Optional[SubPartSpecification]
 
     def validate_fields(self) -> Tuple[bool, str]:
         """Validate internal data types, labels, marks, pedagogy, and syntax."""
@@ -161,6 +164,11 @@ class SubPartPlan:
             if self.figure is not None:
                 return False, "SubPartPlan visual_required=False must have figure=None"
 
+        if self.specification is not None:
+            from core.contracts.assessment_blueprint import SubPartSpecification
+            if not isinstance(self.specification, SubPartSpecification):
+                return False, f"SubPartPlan specification must be SubPartSpecification, got {type(self.specification).__name__}"
+
         return True, ""
 
     def validate_provenance(self, module_idx: int, page_start: int, page_end: int) -> Tuple[bool, str]:
@@ -210,9 +218,15 @@ class SubPartPlan:
         return True, ""
 
     def __post_init__(self) -> None:
+        if self.specification is not None:
+            from core.contracts.assessment_blueprint import SubPartSpecification
+            if not isinstance(self.specification, SubPartSpecification):
+                raise TypeError(
+                    f"SubPartPlan specification must be SubPartSpecification or None, got {type(self.specification).__name__}"
+                )
         valid, err = self.validate_fields()
         if not valid:
-            if "must be exact" in err or "must be list" in err:
+            if "must be exact" in err or "must be list" in err or "must be SubPartSpecification" in err:
                 raise TypeError(err)
             raise ValueError(err)
         self.topic = self.topic.strip()
@@ -264,9 +278,15 @@ class QuestionPlan:
     module_page_start: Optional[int] = None
     module_page_end: Optional[int] = None
     assessment_identity: Tuple[str, str, str, str] = ("", "", "", "") # (scheme_id, course_type, assessment_type, blueprint_id)
-    specification: Optional[Any] = None  # Stage G2-C: Optional[QuestionSpecification]
+    specification: Optional[QuestionSpecification] = None  # Stage G2-C: Optional[QuestionSpecification]
 
     def __post_init__(self) -> None:
+        if self.specification is not None:
+            from core.contracts.assessment_blueprint import QuestionSpecification
+            if not isinstance(self.specification, QuestionSpecification):
+                raise TypeError(
+                    f"QuestionPlan specification must be QuestionSpecification or None, got {type(self.specification).__name__}"
+                )
         if self.status == PlanStatus.PLANNED:
             valid, code, err = self.validation_result()
             if not valid:
@@ -454,6 +474,11 @@ class QuestionPlan:
 
             if part_sum != self.total_marks:
                 return False, PlanFailureCode.MARKS_MISMATCH, f"Subpart marks sum ({part_sum}) != total_marks ({self.total_marks})"
+
+            if self.specification is not None:
+                from core.contracts.assessment_blueprint import QuestionSpecification
+                if not isinstance(self.specification, QuestionSpecification):
+                    return False, PlanFailureCode.INVALID_CONFIG, f"QuestionPlan specification must be QuestionSpecification, got {type(self.specification).__name__}"
 
             return True, None, ""
         except Exception as exc:

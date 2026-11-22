@@ -96,8 +96,13 @@ class ParameterRequirement:
             raise TypeError(f"ParameterRequirement: invalid ParameterState {self.state!r}")
 
         if self.state == ParameterState.GIVEN:
-            if self.value is None:
-                raise ValueError(f"Parameter {self.name!r} marked GIVEN must have an explicit value, not None")
+            if self.value is None or (isinstance(self.value, str) and not self.value.strip()):
+                raise ValueError(f"Parameter {self.name!r} marked GIVEN must have an explicit value, not None or empty")
+            if not self.source_reference or not self.source_reference.strip():
+                raise ValueError(f"Parameter {self.name!r} marked GIVEN must declare a nonempty source_reference")
+        elif self.state == ParameterState.STANDARD_REFERENCED:
+            if not self.source_reference or not self.source_reference.strip():
+                raise ValueError(f"Parameter {self.name!r} marked STANDARD_REFERENCED must declare a standard code/reference in source_reference")
         elif self.state == ParameterState.STUDENT_SELECTED:
             if not self.selection_constraints or not self.selection_constraints.strip():
                 raise ValueError(f"Parameter {self.name!r} marked STUDENT_SELECTED must declare selection_constraints")
@@ -443,6 +448,13 @@ def evaluate_task_completeness(
     Determines if sufficient information and constraints exist for a valid response.
     Returns (TaskCompleteness, reason).
     """
+    if spec is None:
+        return TaskCompleteness.INDETERMINATE, "Specification is None"
+
+    rubric = getattr(spec, "marking_rubric", None)
+    if rubric is not None and not rubric.criteria:
+        return TaskCompleteness.INCOMPLETE, "Assessment task lacks marking rubric criteria"
+
     archetype = getattr(spec, "primary_archetype", None)
     if archetype is None and hasattr(spec, "subparts") and spec.subparts:
         # For a parent question, verify all subparts
@@ -459,8 +471,10 @@ def evaluate_task_completeness(
             for param in artifact.parameters:
                 if param.state == ParameterState.UNSPECIFIED and artifact.required_for_solution:
                     return TaskCompleteness.INCOMPLETE, f"Critical parameter {param.name!r} is UNSPECIFIED"
-                if param.state == ParameterState.GIVEN and param.value is None:
+                if param.state == ParameterState.GIVEN and (param.value is None or not str(param.value).strip()):
                     return TaskCompleteness.INCOMPLETE, f"Parameter {param.name!r} marked GIVEN lacks explicit value"
+                if param.state == ParameterState.GIVEN and not (param.source_reference and param.source_reference.strip()):
+                    return TaskCompleteness.INCOMPLETE, f"Parameter {param.name!r} marked GIVEN lacks source reference"
         return TaskCompleteness.COMPLETE, None
 
     elif archetype == UniversalArchetype.COMPARATIVE_ANALYSIS:
