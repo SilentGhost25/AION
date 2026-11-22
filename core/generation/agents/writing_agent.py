@@ -593,12 +593,19 @@ class WritingAgent(Agent):
             def _normalize_diagram_request(d: Any) -> Optional[tuple]:
                 if not isinstance(d, dict):
                     return None
+
+                def _freeze_val(val: Any) -> Any:
+                    if isinstance(val, dict):
+                        return tuple(sorted((str(k).strip().lower(), _freeze_val(v)) for k, v in val.items()))
+                    elif isinstance(val, (list, tuple)):
+                        return tuple(_freeze_val(x) for x in val)
+                    elif isinstance(val, str):
+                        return val.strip().lower()
+                    return val
+
                 norm = {}
                 for k, v in d.items():
-                    if isinstance(v, str):
-                        norm[str(k).strip().lower()] = v.strip().lower()
-                    else:
-                        norm[str(k).strip().lower()] = v
+                    norm[str(k).strip().lower()] = _freeze_val(v)
                 if not any(norm.values()):
                     return None
                 return tuple(sorted(norm.items()))

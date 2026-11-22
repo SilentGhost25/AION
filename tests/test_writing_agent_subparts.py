@@ -1292,3 +1292,49 @@ def test_44_identical_diagram_requests_across_subparts_accepted():
     }
     assert len(gq.sub_parts) == 2
 
+
+def test_45_diagram_request_with_nested_unhashable_structures_normalized_safely():
+    """Test 45: Diagram requests with nested unhashable structures (lists, nested dicts) normalize without error."""
+    plan = create_planned_question([5, 5])
+    resp_a = {
+        "text": "Explain memory hierarchy structure.",
+        "solution": "Memory hierarchy consists of cache and main store.",
+        "marking_scheme": [{"criterion": "Explanation", "marks": 5}],
+        "diagram_request": {
+            "diagram_type": "block_diagram",
+            "description": "Memory Hierarchy",
+            "components": ["L1 Cache", "L2 Cache", "DRAM"],
+            "metadata": {"scale": "logarithmic", "unit": "ns"},
+        },
+    }
+    resp_b = {
+        "text": "Discuss cache organization levels.",
+        "solution": "Cache organization uses direct and set-associative mappings.",
+        "marking_scheme": [{"criterion": "Explanation", "marks": 5}],
+        "diagram_request": {
+            "diagram_type": "block_diagram",
+            "description": "Memory Hierarchy",
+            "components": ["L1 Cache", "L2 Cache", "DRAM"],
+            "metadata": {"scale": "logarithmic", "unit": "ns"},
+        },
+    }
+
+    llm = MockLLMCaller(responses=[resp_a, resp_b])
+    agent = WritingAgent(llm_caller=llm, enable_irt=False)
+
+    # Identical nested structures do not raise TypeError: unhashable type
+    gq, attempts = agent._generate_one(plan)
+    assert gq.diagram_request["diagram_type"] == "block_diagram"
+    assert gq.diagram_request["components"] == ["L1 Cache", "L2 Cache", "DRAM"]
+
+    # Now make subpart b differ in nested components and verify failure is caught cleanly
+    resp_b_diff = dict(resp_b)
+    resp_b_diff["diagram_request"] = dict(resp_b["diagram_request"])
+    resp_b_diff["diagram_request"]["components"] = ["Registers", "Disk"]
+
+    llm2 = MockLLMCaller(responses=[resp_a, resp_b_diff])
+    agent2 = WritingAgent(llm_caller=llm2, enable_irt=False)
+    with pytest.raises(GenerationFailed) as excinfo:
+        agent2._generate_one(plan)
+    assert excinfo.value.code == "UNSUPPORTED_MULTIPLE_VISUALS"
+
