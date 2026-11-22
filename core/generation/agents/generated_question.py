@@ -81,6 +81,10 @@ class SubPart:
     topic: str = ""                                         # Specific topic allocated from the module KG
     solution: str = ""                                      # Model answer for this subpart
     marking_scheme: List[Dict[str, Any]] = field(default_factory=list)  # Criteria breakdown for this subpart
+    figure_id: Optional[str] = None                         # Bound FigureArtifact.id (Stage G2-D)
+    image_path: Optional[str] = None                        # Visual asset path (Stage G2-D)
+    figure_caption: Optional[str] = None                    # Figure caption (Stage G2-D)
+    image_sha256: Optional[str] = None                      # Cryptographic hash (Stage G2-D)
 
     def validate(self) -> Tuple[bool, str]:
         """
@@ -141,6 +145,13 @@ class SubPart:
             # Exhaustive criteria sum rule
             if crit_sum != self.marks:
                 return False, f"SubPart ({self.label}) criteria sum ({crit_sum}) != subpart marks ({self.marks})"
+
+        if self.figure_id is not None and type(self.figure_id) is not str:
+            return False, f"SubPart.figure_id must be str or None, got {type(self.figure_id).__name__}"
+        if self.image_path is not None and type(self.image_path) is not str:
+            return False, f"SubPart.image_path must be str or None, got {type(self.image_path).__name__}"
+        if self.image_sha256 is not None and type(self.image_sha256) is not str:
+            return False, f"SubPart.image_sha256 must be str or None, got {type(self.image_sha256).__name__}"
 
         return True, ""
 
@@ -212,6 +223,97 @@ class GeneratedQuestion:
 
     # Canonical structured subparts representation (Field 25 - Stage G1-A)
     sub_parts: List[SubPart] = field(default_factory=list)
+
+    def __init__(
+        self,
+        slot_id: str,
+        module_id: str,
+        global_q_idx: int,
+        question_text: str,
+        solution: str,
+        marking_scheme: List[Dict[str, Any]],
+        marks: int = 0,
+        partition: Optional[List[int]] = None,
+        bloom: str = "L2",
+        co: str = "CO1",
+        topic: str = "",
+        evidence_summary: str = "",
+        references_image: bool = False,
+        image_path: Optional[str] = None,
+        figure_caption: Optional[str] = None,
+        diagram_request: Optional[Dict[str, Any]] = None,
+        generation_source: str = "local_llm",
+        attempts: int = 1,
+        telemetry: Optional[Dict[str, Any]] = None,
+        is_unresolved: bool = False,
+        unresolved_scope: Optional[str] = None,
+        unresolved_subparts: Tuple[str, ...] = (),
+        failure_code: Optional[str] = None,
+        failure_detail: Optional[str] = None,
+        sub_parts: Optional[List[SubPart]] = None,
+        figure_id: Optional[str] = None,
+        image_sha256: Optional[str] = None,
+    ):
+        self.slot_id = slot_id
+        self.module_id = module_id
+        self.global_q_idx = global_q_idx
+        self.question_text = question_text
+        self.solution = solution
+        self.marking_scheme = marking_scheme
+        self.marks = marks
+        self.partition = list(partition) if partition is not None else []
+        self.bloom = bloom
+        self.co = co
+        self.topic = topic
+        self.evidence_summary = evidence_summary
+        self.references_image = references_image
+        self.image_path = image_path
+        self.figure_caption = figure_caption
+        self.diagram_request = diagram_request
+        self.generation_source = generation_source
+        self.attempts = attempts
+        self.telemetry = dict(telemetry) if telemetry is not None else {}
+        self.is_unresolved = is_unresolved
+        self.unresolved_scope = unresolved_scope
+        self.unresolved_subparts = tuple(unresolved_subparts)
+        self.failure_code = failure_code
+        self.failure_detail = failure_detail
+        if sub_parts is not None:
+            _require_exact_type(sub_parts, list, "sub_parts")
+            self.sub_parts = list(sub_parts)
+        else:
+            self.sub_parts = []
+        self._figure_id = figure_id
+        self._image_sha256 = image_sha256
+        self.__post_init__()
+
+    @property
+    def figure_id(self) -> Optional[str]:
+        if getattr(self, "_figure_id", None) is not None:
+            return self._figure_id
+        for sp in self.sub_parts:
+            f_id = getattr(sp, "figure_id", None) if not isinstance(sp, dict) else sp.get("figure_id")
+            if f_id:
+                return f_id
+        return None
+
+    @figure_id.setter
+    def figure_id(self, val: Optional[str]) -> None:
+        self._figure_id = val
+
+    @property
+    def image_sha256(self) -> Optional[str]:
+        if getattr(self, "_image_sha256", None) is not None:
+            return self._image_sha256
+        for sp in self.sub_parts:
+            h = getattr(sp, "image_sha256", None) if not isinstance(sp, dict) else sp.get("image_sha256")
+            if h:
+                return h
+        return None
+
+    @image_sha256.setter
+    def image_sha256(self, val: Optional[str]) -> None:
+        self._image_sha256 = val
 
     def __post_init__(self) -> None:
         """Validate container and item types for subparts."""
@@ -319,7 +421,12 @@ class GeneratedQuestion:
         """Convert to plain dictionary representation. Synchronizes projections first by default."""
         if sync_projections and self.sub_parts:
             self.sync_materialized_projections()
-        return asdict(self)
+        d = asdict(self)
+        if getattr(self, "_figure_id", None) is not None:
+            d["figure_id"] = self._figure_id
+        if getattr(self, "_image_sha256", None) is not None:
+            d["image_sha256"] = self._image_sha256
+        return d
 
     # =========================================================================
     # Structural Integrity Validation
@@ -473,7 +580,8 @@ class GeneratedQuestion:
             "evidence_summary", "references_image", "image_path", "figure_caption",
             "diagram_request", "generation_source", "attempts", "telemetry",
             "is_unresolved", "unresolved_scope", "unresolved_subparts",
-            "failure_code", "failure_detail", "sub_parts"
+            "failure_code", "failure_detail", "sub_parts",
+            "figure_id", "image_sha256"
         }
         unknown_top = set(data.keys()) - allowed_top_keys
         if unknown_top:
@@ -547,6 +655,12 @@ class GeneratedQuestion:
         raw_failure_detail = data.get("failure_detail")
         failure_detail = _require_str(raw_failure_detail, "failure_detail") if raw_failure_detail is not None else None
 
+        raw_fig_id = data.get("figure_id")
+        figure_id = _require_str(raw_fig_id, "figure_id") if raw_fig_id is not None else None
+
+        raw_img_sha = data.get("image_sha256")
+        image_sha256 = _require_str(raw_img_sha, "image_sha256") if raw_img_sha is not None else None
+
         # Hydrate subparts strictly with defensive copying and precise legacy distinction
         has_subparts_key = "sub_parts" in data
         hydrated_subparts: List[SubPart] = []
@@ -575,7 +689,10 @@ class GeneratedQuestion:
                     "Explicitly empty sub_parts represents an incomplete structured question and cannot claim legacy exception."
                 )
 
-            allowed_sp_keys = {"label", "marks", "text", "topic", "solution", "marking_scheme"}
+            allowed_sp_keys = {
+                "label", "marks", "text", "topic", "solution", "marking_scheme",
+                "figure_id", "image_path", "figure_caption", "image_sha256"
+            }
             for i, sp_data in enumerate(raw_subparts):
                 if type(sp_data) is SubPart:
                     # Defensive copy to avoid mutating external references
@@ -623,6 +740,10 @@ class GeneratedQuestion:
                         topic=sp_topic,
                         solution=sp_sol,
                         marking_scheme=sp_scheme_validated,
+                        figure_id=sp_data.get("figure_id"),
+                        image_path=sp_data.get("image_path"),
+                        figure_caption=sp_data.get("figure_caption"),
+                        image_sha256=sp_data.get("image_sha256"),
                     ))
                 else:
                     raise TypeError(f"sub_parts[{i}] must be a dict or SubPart, got {type(sp_data).__name__}")
@@ -656,6 +777,8 @@ class GeneratedQuestion:
             failure_code=failure_code,
             failure_detail=failure_detail,
             sub_parts=hydrated_subparts,
+            figure_id=figure_id,
+            image_sha256=image_sha256,
         )
 
         # Complete Structural Validation upon Hydration via the common validation engine

@@ -22,6 +22,11 @@ except (ImportError, Exception):
 from v0_1.difficulty_policy import format_co_and_rbt
 
 
+class ExportIntegrityError(ValueError):
+    """Raised when physical export validation or authorization fails."""
+    pass
+
+
 def _set_cell_background(cell, hex_color: str):
     """Set background color of a table cell."""
     tc_pr = cell._tc.get_or_add_tcPr()
@@ -251,6 +256,7 @@ def add_formatted_content_to_cell(
     image_path: Optional[str] = None,
     caption: Optional[str] = None,
     table_data: Optional[Dict[str, Any]] = None,
+    workspace_root: Optional[Any] = None,
 ):
     """
     Renders text with inline Office Math (OMML) blocks where LaTeX math is detected.
@@ -283,20 +289,38 @@ def add_formatted_content_to_cell(
 
     resolved_img = None
     if image_path:
-        p = Path(image_path)
-        if p.is_file():
-            resolved_img = p
-        elif (Path.cwd() / image_path).is_file():
-            resolved_img = Path.cwd() / image_path
+        from core.contracts.document_artifact import resolve_image_path, validate_physical_image
+        try:
+            resolved_img = resolve_image_path(image_path, workspace_root=workspace_root)
+        except Exception as e:
+            raise ExportIntegrityError(f"Missing referenced visual asset: '{image_path}': {e}")
+
+        valid_img, img_err = validate_physical_image(resolved_img, workspace_root=workspace_root)
+        if not valid_img:
+            raise ExportIntegrityError(f"Corrupted or invalid referenced visual asset: '{image_path}': {img_err}")
 
     if resolved_img:
+        temp_png = None
+        img_to_embed = str(resolved_img)
         try:
+            if resolved_img.suffix.lower() == ".webp":
+                try:
+                    from PIL import Image
+                    import tempfile
+                    with Image.open(resolved_img) as im:
+                        tf = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+                        im.save(tf.name, format="PNG")
+                        img_to_embed = tf.name
+                        temp_png = tf.name
+                except Exception as _we:
+                    pass
+
             p_img = cell.add_paragraph()
             p_img.paragraph_format.space_before = Pt(4)
             p_img.paragraph_format.space_after = Pt(2)
             p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
             run_img = p_img.add_run()
-            run_img.add_picture(str(resolved_img), width=Inches(3.2))
+            run_img.add_picture(img_to_embed, width=Inches(3.2))
             if caption:
                 p_cap = cell.add_paragraph()
                 p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -305,7 +329,15 @@ def add_formatted_content_to_cell(
                 r_cap.font.size = Pt(8.5)
                 r_cap.font.italic = True
         except Exception as e:
-            print(f"[DOCX] Image embed error: {e}", flush=True)
+            if isinstance(e, ExportIntegrityError):
+                raise
+            raise ExportIntegrityError(f"Failed to embed visual asset into DOCX: {e}")
+        finally:
+            if temp_png and os.path.exists(temp_png):
+                try:
+                    os.remove(temp_png)
+                except Exception:
+                    pass
 
 
 def _clean_latex_math_for_doc(text: str) -> str:
@@ -358,12 +390,11 @@ def get_module_for_q(q: Dict[str, Any]) -> int:
         return 1
 
 
-class ExportIntegrityError(ValueError):
-    """Raised when physical export validation or authorization fails."""
-    pass
-
-
-def render_docx_document(paper_data: Dict[str, Any], output_path: Optional[str] = None) -> io.BytesIO:
+def render_docx_document(
+    paper_data: Dict[str, Any],
+    output_path: Optional[str] = None,
+    workspace_root: Optional[Any] = None,
+) -> io.BytesIO:
     """
     Renders a VTU formatted .docx document from a paper dictionary.
     Returns BytesIO object containing the docx binary, and optionally writes to output_path.
@@ -377,6 +408,13 @@ def render_docx_document(paper_data: Dict[str, Any], output_path: Optional[str] 
         sec.bottom_margin = Inches(0.75)
         sec.left_margin = Inches(0.75)
         sec.right_margin = Inches(0.75)
+
+    ws_root = (
+        workspace_root
+        or paper_data.get("workspace_root")
+        or (paper_data.get("metadata") or {}).get("workspace_root")
+        or (paper_data.get("config") or {}).get("workspace_root")
+    )
 
     # Extract metadata safely
     config = paper_data.get("config") or {}
@@ -581,7 +619,7 @@ def render_docx_document(paper_data: Dict[str, Any], output_path: Optional[str] 
                 cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
                 cells[1].paragraphs[0].add_run("-").alignment = WD_ALIGN_PARAGRAPH.CENTER
                 q_tbl = q.get("table") or q.get("table_data")
-                add_formatted_content_to_cell(cells[2], q_raw_text, image_path=q_img, caption=q_cap, table_data=q_tbl)
+                add_formatted_content_to_cell(cells[2], q_raw_text, image_path=q_img, caption=q_cap, table_data=q_tbl, workspace_root=ws_root)
                 cells[3].paragraphs[0].add_run(str(q_marks)).alignment = WD_ALIGN_PARAGRAPH.CENTER
                 cells[4].paragraphs[0].add_run(str(q_co)).alignment = WD_ALIGN_PARAGRAPH.CENTER
                 cells[5].paragraphs[0].add_run(str(q_rbt)).alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -590,12 +628,22 @@ def render_docx_document(paper_data: Dict[str, Any], output_path: Optional[str] 
                 for s_idx, sq in enumerate(sub_qs):
                     s_label = sq.get("label") or sq.get("sub_label") or (letters[s_idx] if s_idx < len(letters) else f"({s_idx+1})")
                     s_raw_text = sq.get("text") or sq.get("question_text") or ""
-                    s_img = sq.get("image_path") or sq.get("figure_path") or q.get("image_path") or q.get("figure_path")
-                    if not s_img and isinstance(sq.get("image"), dict):
-                        s_img = sq["image"].get("image_path") or sq["image"].get("figure_path") or sq["image"].get("url") or sq["image"].get("path")
-                    s_cap = sq.get("image_caption") or sq.get("figure_caption") or q.get("image_caption") or q.get("figure_caption")
-                    if not s_cap and isinstance(sq.get("image"), dict):
-                        s_cap = sq["image"].get("caption") or sq["image"].get("image_caption") or sq["image"].get("figure_caption")
+                    if len(sub_qs) > 1:
+                        # Multi-part question: strictly use subquestion asset; never bleed from parent q
+                        s_img = sq.get("image_path") or sq.get("figure_path")
+                        if not s_img and isinstance(sq.get("image"), dict):
+                            s_img = sq["image"].get("image_path") or sq["image"].get("figure_path") or sq["image"].get("url") or sq["image"].get("path")
+                        s_cap = sq.get("image_caption") or sq.get("figure_caption")
+                        if not s_cap and isinstance(sq.get("image"), dict):
+                            s_cap = sq["image"].get("caption") or sq["image"].get("image_caption") or sq["image"].get("figure_caption")
+                    else:
+                        # Single-part question: subpart may fall back to parent question asset
+                        s_img = sq.get("image_path") or sq.get("figure_path") or q.get("image_path") or q.get("figure_path")
+                        if not s_img and isinstance(sq.get("image"), dict):
+                            s_img = sq["image"].get("image_path") or sq["image"].get("figure_path") or sq["image"].get("url") or sq["image"].get("path")
+                        s_cap = sq.get("image_caption") or sq.get("figure_caption") or q.get("image_caption") or q.get("figure_caption")
+                        if not s_cap and isinstance(sq.get("image"), dict):
+                            s_cap = sq["image"].get("caption") or sq["image"].get("image_caption") or sq["image"].get("figure_caption")
                     s_marks = sq.get("marks") or (6 if s_idx == 0 else 4)
                     s_co_raw = sq.get("co") or f"CO{min(mod_idx, 5)}"
                     s_rbt_raw = sq.get("bloom") or sq.get("bloom_level") or sq.get("rbt") or "L2"
@@ -619,7 +667,7 @@ def render_docx_document(paper_data: Dict[str, Any], output_path: Optional[str] 
                     p1.add_run(f"({s_label})").bold = True
 
                     s_tbl = sq.get("table") or sq.get("table_data") or q.get("table") or q.get("table_data")
-                    add_formatted_content_to_cell(cells[2], s_raw_text, image_path=s_img, caption=s_cap, table_data=s_tbl)
+                    add_formatted_content_to_cell(cells[2], s_raw_text, image_path=s_img, caption=s_cap, table_data=s_tbl, workspace_root=ws_root)
                     
                     p3 = cells[3].paragraphs[0]
                     p3.alignment = WD_ALIGN_PARAGRAPH.CENTER

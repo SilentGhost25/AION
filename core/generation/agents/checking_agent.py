@@ -45,6 +45,7 @@ from .checking_contracts import (
 
 HARD_BLOCK_ENV_VAR = "AION_ENABLE_UNRESOLVED_HARD_BLOCK"
 DEFAULT_HARD_BLOCK = True
+BLOCK_REASON_MISSING_VISUAL_ASSET = "MISSING_VISUAL_ASSET"
 
 
 def _hard_block_enabled() -> bool:
@@ -151,6 +152,35 @@ class CheckingAgent(Agent):
         ):
             if DEGRADED_REASON_UNVERIFIED_EVALUATION not in degraded_reasons:
                 degraded_reasons.append(DEGRADED_REASON_UNVERIFIED_EVALUATION)
+
+        # Check 5b: Physical validation of referenced visual assets (Stage G2-D)
+        from core.contracts.document_artifact import validate_physical_image
+        ws_root = getattr(context, "workspace_dir", None)
+        if ws_root is None and hasattr(context, "request") and isinstance(context.request, dict):
+            ws_root = context.request.get("workspace_dir")
+        for q in getattr(context, "questions", []):
+            if not getattr(q, "is_unresolved", False):
+                has_image = bool(getattr(q, "references_image", False) or getattr(q, "image_path", None))
+                sub_parts = getattr(q, "sub_parts", []) or []
+                visual_sps = [sp for sp in sub_parts if getattr(sp, "image_path", None) or getattr(sp, "figure_id", None)]
+
+                if has_image or visual_sps:
+                    target_path = getattr(q, "image_path", None)
+                    target_hash = getattr(q, "image_sha256", None)
+                    if not target_path and visual_sps:
+                        target_path = getattr(visual_sps[0], "image_path", None)
+                        target_hash = getattr(visual_sps[0], "image_sha256", None)
+
+                    if target_path:
+                        valid_img, img_err = validate_physical_image(
+                            target_path,
+                            expected_sha256=target_hash,
+                            workspace_root=ws_root,
+                        )
+                        if not valid_img:
+                            if BLOCK_REASON_MISSING_VISUAL_ASSET not in blocked_reasons:
+                                blocked_reasons.append(BLOCK_REASON_MISSING_VISUAL_ASSET)
+                            blocked_reasons.append(f"{BLOCK_REASON_MISSING_VISUAL_ASSET}:{img_err}")
 
         # Check 6: Record subpart defects
         for sid, subparts in accounting_telemetry.get("subquestion_defects", {}).items():

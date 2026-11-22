@@ -701,6 +701,12 @@ class WritingAgent(Agent):
                 if sp_spec is not None:
                     sp.specification = sp_spec
 
+                if sp_plan.figure is not None:
+                    sp.figure_id = getattr(sp_plan.figure, "id", None) if not isinstance(sp_plan.figure, dict) else sp_plan.figure.get("id")
+                    sp.image_path = getattr(sp_plan.figure, "image_path", None) if not isinstance(sp_plan.figure, dict) else sp_plan.figure.get("image_path")
+                    sp.figure_caption = getattr(sp_plan.figure, "caption", None) if not isinstance(sp_plan.figure, dict) else sp_plan.figure.get("caption")
+                    sp.image_sha256 = getattr(sp_plan.figure, "image_sha256", None) if not isinstance(sp_plan.figure, dict) else sp_plan.figure.get("image_sha256")
+
                 subparts.append(sp)
                 subpart_attempts[sp_plan.label] = attempt
                 subpart_succeeded = True
@@ -734,6 +740,16 @@ class WritingAgent(Agent):
             figure_caption = get_figure_field(plan.figure, "caption")
             if plan.visual_required and any(self._references_figure(sp.text) for sp in subparts):
                 references_image = True
+
+        figure_id = None
+        image_sha256 = None
+        visual_sps = [sp for sp in subparts if getattr(sp, "figure_id", None)]
+        if visual_sps:
+            figure_id = visual_sps[0].figure_id
+            image_sha256 = visual_sps[0].image_sha256
+        elif plan.figure is not None:
+            figure_id = getattr(plan.figure, "id", None) if not isinstance(plan.figure, dict) else plan.figure.get("id")
+            image_sha256 = getattr(plan.figure, "image_sha256", None) if not isinstance(plan.figure, dict) else plan.figure.get("image_sha256")
 
         if len(subpart_diagram_requests) > 1:
             def _normalize_diagram_request(d: Any) -> Optional[tuple]:
@@ -809,6 +825,8 @@ class WritingAgent(Agent):
                 "subpart_diagram_requests": subpart_diagram_requests,
             },
             sub_parts=subparts,
+            figure_id=figure_id,
+            image_sha256=image_sha256,
         )
 
         # Synchronize projections
@@ -1022,6 +1040,8 @@ class WritingAgent(Agent):
         figure = plan.figure
         image_path = get_figure_field(figure, "image_path", None)
         caption = get_figure_field(figure, "caption", None)
+        fig_id = getattr(figure, "id", None) if not isinstance(figure, dict) else figure.get("id")
+        fig_hash = getattr(figure, "image_sha256", None) if not isinstance(figure, dict) else figure.get("image_sha256")
 
         q_text = self._clean_text(parsed.get("question_text", ""))
 
@@ -1064,6 +1084,8 @@ class WritingAgent(Agent):
                 "bloom_verb_used": parsed.get("bloom_verb_used", ""),
                 "prompt_length_chars": None,  # placeholder for future
             },
+            figure_id=fig_id,
+            image_sha256=fig_hash,
         )
 
 

@@ -104,6 +104,19 @@ def find_module_segment(module_segments: List[Any], module_idx: int) -> Optional
     return None
 
 
+_FIGURE_STOPWORDS = {
+    "the", "a", "an", "and", "or", "of", "to", "in", "for", "with", "on", "at",
+    "by", "from", "as", "is", "are", "was", "were", "be", "this", "that", "it",
+}
+
+
+def _tokenize_for_figure_matching(text: str) -> Set[str]:
+    if not text:
+        return set()
+    raw_tokens = re.findall(r"[a-z0-9]+", text.lower())
+    return {t for t in raw_tokens if len(t) >= 2 and t not in _FIGURE_STOPWORDS}
+
+
 class PlanningAgent(Agent):
     name = "planning"
 
@@ -341,6 +354,7 @@ class PlanningAgent(Agent):
                                 module_figures=module_figures,
                                 used_figures=used_figures,
                                 visual_slots_used=visual_slots_used,
+                                topic=topic_candidate,
                             )
 
                         try:
@@ -697,12 +711,16 @@ class PlanningAgent(Agent):
         module_figures: List[Any],
         used_figures: set,
         visual_slots_used: int,
+        topic: str = "",
     ):
         if bloom not in VISUAL_BLOOM_LEVELS:
             return False, None
 
         if visual_slots_used >= self.max_visual_slots_per_module:
             return False, None
+
+        topic_tokens = _tokenize_for_figure_matching(topic)
+        candidates = []
 
         for fig in module_figures:
             fig_id = getattr(fig, "id", None) if not isinstance(fig, dict) else fig.get("id")
@@ -711,9 +729,41 @@ class PlanningAgent(Agent):
             score = getattr(fig, "provenance_score", 1.0) if not isinstance(fig, dict) else fig.get("provenance_score", 1.0)
             if score < self.min_figure_quality:
                 continue
-            return True, fig
 
-        return False, None
+            caption = getattr(fig, "caption", "") if not isinstance(fig, dict) else fig.get("caption", "")
+            fig_page = getattr(fig, "page", 1) if not isinstance(fig, dict) else fig.get("page", 1)
+            caption_tokens = _tokenize_for_figure_matching(caption)
+
+            if topic_tokens:
+                overlap = len(topic_tokens & caption_tokens)
+                overlap_score = overlap / len(topic_tokens)
+            else:
+                overlap_score = 1.0 if not topic else 0.0
+
+            # Deterministic threshold: strictly > 0.15 required when topic is present
+            if topic and overlap_score <= 0.15:
+                continue
+
+            candidates.append({
+                "figure": fig,
+                "id": str(fig_id),
+                "overlap_score": overlap_score,
+                "provenance_score": score,
+                "page": fig_page,
+            })
+
+        if not candidates:
+            return False, None
+
+        # Deterministic tie-breaking:
+        # 1. Descending overlap_score
+        # 2. Descending provenance_score
+        # 3. Ascending page
+        # 4. Ascending id
+        candidates.sort(
+            key=lambda c: (-c["overlap_score"], -c["provenance_score"], c["page"], c["id"])
+        )
+        return True, candidates[0]["figure"]
 
     # -------------------------------------------------------------------------
     # Stage G2-C: Assessment Blueprint & Task Contracts

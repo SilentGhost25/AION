@@ -271,6 +271,16 @@ def to_legacy_shape(
 # -----------------------------------------------------------------------------
 
 
+def _clause_references_figure(text: str) -> bool:
+    if not text:
+        return False
+    lower = text.lower()
+    return bool(re.search(
+        r"\b(?:refer(?:ence)?\s+to\s+(?:the\s+)?(?:given\s+)?(?:figure|fig\.?|diagram)|shown\s+in\s+(?:the\s+)?(?:figure|fig\.?|diagram)|with\s+reference\s+to\s+(?:the\s+)?(?:given\s+)?(?:figure|fig\.?|diagram))\b",
+        lower,
+    ))
+
+
 def _clean_topic(concept: str) -> str:
     """Sanitize a topic string: strip bullets, relative clauses, leading participles, etc."""
     if not concept:
@@ -412,6 +422,52 @@ def _to_question_dict(q: GeneratedQuestion) -> dict:
         q_adaptation_failure_code = None
         q_adaptation_failure_detail = None
 
+        # Determine visual asset ownership across subparts (Stage G2-D)
+        subpart_visual_map: Dict[str, Dict[str, Any]] = {}
+        has_parent_image = bool(getattr(q, "references_image", False) or getattr(q, "image_path", None))
+        sub_parts_objs = getattr(q, "sub_parts", None) or []
+
+        # 1. Direct subpart object bindings (figure_id or image_path on SubPart)
+        for sp_obj in sub_parts_objs:
+            sp_lbl = getattr(sp_obj, "label", "").lower()
+            sp_img = getattr(sp_obj, "image_path", None)
+            sp_fid = getattr(sp_obj, "figure_id", None)
+            sp_cap = getattr(sp_obj, "figure_caption", None)
+            sp_sha = getattr(sp_obj, "image_sha256", None)
+            if sp_img or sp_fid:
+                subpart_visual_map[sp_lbl] = {
+                    "image_path": sp_img or getattr(q, "image_path", None),
+                    "figure_caption": sp_cap or getattr(q, "figure_caption", None),
+                    "figure_id": sp_fid or getattr(q, "figure_id", None),
+                    "image_sha256": sp_sha or getattr(q, "image_sha256", None),
+                }
+
+        # 2. Text reference / single-part fallback if not already mapped
+        if has_parent_image and not subpart_visual_map:
+            if len(partition) <= 1:
+                # Single part: unambiguous owner is the single subquestion
+                subpart_visual_map[get_subpart_label(0)] = {
+                    "image_path": getattr(q, "image_path", None),
+                    "figure_caption": getattr(q, "figure_caption", None),
+                    "figure_id": getattr(q, "figure_id", None),
+                    "image_sha256": getattr(q, "image_sha256", None),
+                }
+            else:
+                # Multi-part: check which clauses explicitly reference a figure
+                referencing_indices = [
+                    idx for idx, clause in enumerate(clauses)
+                    if _clause_references_figure(clause)
+                ]
+                if len(referencing_indices) == 1:
+                    owner_lbl = get_subpart_label(referencing_indices[0])
+                    subpart_visual_map[owner_lbl] = {
+                        "image_path": getattr(q, "image_path", None),
+                        "figure_caption": getattr(q, "figure_caption", None),
+                        "figure_id": getattr(q, "figure_id", None),
+                        "image_sha256": getattr(q, "image_sha256", None),
+                    }
+                # Else: ambiguous ownership (0 or >1 referencing subparts) -> DO NOT guess; leave unmapped
+
         for i in range(len(partition)):
             letter = get_subpart_label(i)
 
@@ -435,6 +491,13 @@ def _to_question_dict(q: GeneratedQuestion) -> dict:
                 sq_code = q_failure_code
                 sq_detail = q_failure_detail
 
+            vis_info = subpart_visual_map.get(letter)
+            sq_img = vis_info["image_path"] if vis_info else None
+            sq_cap = vis_info["figure_caption"] if vis_info else None
+            sq_fid = vis_info["figure_id"] if vis_info else None
+            sq_sha = vis_info["image_sha256"] if vis_info else None
+            sq_ref = bool(sq_img)
+
             sub_questions.append({
                 "letter": letter,
                 "label": letter,
@@ -448,6 +511,11 @@ def _to_question_dict(q: GeneratedQuestion) -> dict:
                 "failure_detail": sq_detail,
                 "adaptation_failure_code": None,
                 "adaptation_failure_detail": None,
+                "image_path": sq_img,
+                "figure_caption": sq_cap,
+                "figure_id": sq_fid,
+                "image_sha256": sq_sha,
+                "references_image": sq_ref,
             })
 
         # Run overlap detection strictly on clauses if multi-part
@@ -498,6 +566,9 @@ def _to_question_dict(q: GeneratedQuestion) -> dict:
         "subquestion_overlap": overlap_detected,
         "overlap_details": overlap_details,
     }
+
+
+legacy_question_from_generated = _to_question_dict
 
 
 def _module_title(artifact: Any, module_idx: int) -> str:

@@ -203,16 +203,27 @@ def extract_structured(pdf_path: Union[str, Path], sha: Optional[str] = None) ->
                             prov_score += 0.10
                     prov_score = min(1.0, round(prov_score, 2))
 
+                    image_sha = ""
+                    rel_img_path = ""
+                    if img_out_path.exists():
+                        try:
+                            rel_img_path = str(img_out_path.relative_to(ROOT)).replace("\\", "/")
+                        except Exception:
+                            rel_img_path = str(img_out_path).replace("\\", "/")
+                        with open(img_out_path, "rb") as _img_f:
+                            image_sha = hashlib.sha256(_img_f.read()).hexdigest()
+
                     figures.append(
                         FigureArtifact(
                             id=f"fig_{fig_counter}",
                             page=page_num,
                             bbox=tuple(bbox),
                             caption=caption,
-                            image_path=str(img_out_path.resolve()) if img_out_path.exists() else "",
+                            image_path=rel_img_path,
                             source_pdf_sha256=sha,
                             module_id=None,
                             provenance_score=prov_score,
+                            image_sha256=image_sha,
                         )
                     )
 
@@ -394,6 +405,7 @@ def extract_structured(pdf_path: Union[str, Path], sha: Optional[str] = None) ->
                         caption=fig.get("caption", ""),
                         image_path=fig.get("image_path", ""),
                         source_pdf_sha256=sha,
+                        image_sha256=str(fig.get("image_sha256", "")),
                     )
                 )
 
@@ -484,6 +496,7 @@ def merge_artifacts(artifacts: List[DocumentArtifact], subject: str = "") -> Doc
                     source_pdf_sha256=f.source_pdf_sha256,
                     module_id=f"module_{mod_idx}",
                     provenance_score=getattr(f, "provenance_score", 1.0),
+                    image_sha256=getattr(f, "image_sha256", ""),
                 )
             )
         for t in art.tables:
