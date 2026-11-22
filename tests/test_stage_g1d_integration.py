@@ -1,8 +1,8 @@
 """
-Integration and Acceptance Test Suite for Stage G1-D:
+Integration and Acceptance Test Suite for Stage G1-D & G1-D.1:
 End-to-End Integration and Acceptance across all six pipeline stages.
 
-Covers the ten required integration scenarios:
+Covers the component and full-pipeline integration scenarios:
 1. Single-part [10] question
 2. Two-part [6,4] question with different topics
 3. Two-part [5,5] question with independent solutions and marking schemes
@@ -13,6 +13,9 @@ Covers the ten required integration scenarios:
 8. Visual question using a dictionary-based figure
 9. Successful generation through actual DOCX export
 10. Failed generation propagated through the real orchestrator and CheckingAgent
+11. Stage G1-D.1: Genuine five-agent pipeline success (Planning -> Writing -> Evaluation -> Refinement -> Checking -> DOCX)
+12. Stage G1-D.1: Genuine pipeline failure propagation from real PlanningAgent to CheckingAgent blocking
+13. Stage G1-D.1: Refinement preservation: subpart labels, marks, partition, and total marks immutable across repair
 """
 
 import io
@@ -21,7 +24,9 @@ import pytest
 from typing import Any, Dict, List, Optional
 
 import docx
+from core.contracts.document_artifact import DocumentArtifact, TextBlock
 from core.contracts.paper_spec import PaperSpec
+from core.extraction.module_segmenter import ModuleSegment, SegmentationStrategy
 from core.generation.assessment_config import AssessmentConfig, AssessmentRegistry
 from core.generation.agents.base import AgentContext
 from core.generation.agents.agent_orchestrator import AgentOrchestrator
@@ -33,6 +38,7 @@ from core.generation.agents.checking_contracts import (
     STATUS_DEGRADED,
     STATUS_PASS,
 )
+from core.generation.agents.evaluation_contracts import AuditReport, SlotVerdict, BLOOM_MISMATCH
 from core.generation.agents.evaluation_agent import EvaluationAgent
 from core.generation.agents.generated_question import (
     GeneratedQuestion,
@@ -130,6 +136,35 @@ class MockVLMCaller:
             "references_image": True,
             "bloom_verb_used": "explain",
         })
+
+
+class MockKnowledgeGraph:
+    """Mock KnowledgeGraph providing module concepts and topology for PlanningAgent."""
+    def __init__(self, concepts_by_module: Optional[Dict[str, List[str]]] = None):
+        self._concepts = concepts_by_module or {
+            "module_1": ["Process Scheduling", "CPU Dispatching", "Context Switching", "Virtual Memory Paging"]
+        }
+
+    def has_module(self, module_id: str) -> bool:
+        return module_id in self._concepts
+
+    def get_module(self, module_id: str):
+        class _MG:
+            def __init__(self, concepts):
+                self._concepts = concepts
+            def top_concepts(self, n: int = 100):
+                return [(c, 1.0) for c in self._concepts[:n]]
+            def get_synonyms(self, topic):
+                return [f"{topic} Paradigm"]
+            def get_neighborhood(self, topic, max_depth=2, min_confidence=0.0):
+                return []
+        return _MG(self._concepts.get(module_id, []))
+
+    def get_synonyms(self, module_id: str, topic: str):
+        return [f"{topic} Paradigm"]
+
+    def get_concept_neighborhood(self, module_id: str, topic: str, max_depth=2):
+        return [f"{topic} Neighbor"]
 
 
 @pytest.fixture(autouse=True)
@@ -773,3 +808,264 @@ def test_scenario_10_failed_generation_propagates_through_orchestrator_and_check
     # Step 3: run_or_raise triggers PaperBlockedError
     with pytest.raises(PaperBlockedError):
         orchestrator.run_or_raise(ctx)
+
+
+# =============================================================================
+# Stage G1-D.1: Full Five-Agent Pipeline & Refinement Preservation Integration
+# =============================================================================
+
+
+def test_scenario_11_full_five_agent_pipeline_success_orchestrator_planning_to_export():
+    """
+    Scenario 11 (G1-D.1): Genuine complete 5-agent pipeline execution through AgentOrchestrator.
+    PlanningAgent -> WritingAgent -> EvaluationAgent -> RefinementAgent -> CheckingAgent -> DOCX.
+    Plans are generated authoritatively by PlanningAgent from registered config and valid evidence blocks.
+    """
+    spec = PaperSpec(exam_type="IAT1", module_count=1, questions_per_module=1, marks_per_question=10)
+    blocks = [
+        TextBlock(id="blk_1", text="Process scheduling selects candidate threads and controls CPU allocation.", page=1, block_role="BODY"),
+        TextBlock(id="blk_2", text="CPU dispatching handles low-level context switching between threads.", page=2, block_role="BODY"),
+    ]
+    artifact = DocumentArtifact(
+        source_pdf_sha256="test_sha_e2e",
+        source_pdf_path="operating_systems.pdf",
+        text_blocks=blocks,
+    )
+    seg = ModuleSegment(
+        module_id=1,
+        title="Module 1: Process and Memory Management",
+        page_start=1,
+        page_end=10,
+        confidence=0.98,
+        strategy_used=SegmentationStrategy.EXPLICIT_MODULE_HEADING,
+    )
+
+    ctx = AgentContext(
+        paper_spec=spec,
+        artifact=artifact,
+        knowledge_graph=MockKnowledgeGraph(),
+    )
+    ctx.module_segments = [seg]
+    ctx.request = {
+        "scheme_id": "VTU_2022_NEP",
+        "course_type": "AEC_GENERAL_THEORY",
+        "assessment_type": "CIE_IAT",
+        "blueprint_id": "VTU_AEC_ANNEXURE_II",
+    }
+
+    # Model returns compliant responses matching assigned Bloom verbs (L1 band: state, list)
+    resp_a = {
+        "text": "State the core process scheduling principles and define execution states.",
+        "solution": "Process scheduling states include ready, running, and waiting.",
+        "marking_scheme": [{"criterion": "Scheduling principles", "marks": 5}],
+        "bloom_verb_used": "state",
+    }
+    resp_b = {
+        "text": "List the CPU dispatching mechanics and define context switching latency.",
+        "solution": "Dispatcher provides CPU control and saves program counter.",
+        "marking_scheme": [{"criterion": "Dispatching mechanics", "marks": 5}],
+        "bloom_verb_used": "list",
+    }
+
+    planner = PlanningAgent()
+    writer = WritingAgent(llm_caller=MockLLMCaller(responses=[resp_a, resp_b]), enable_irt=False)
+    evaluator = EvaluationAgent()
+    refiner = RefinementAgent()
+    checker = CheckingAgent()
+
+    orchestrator = AgentOrchestrator(
+        planning_agent=planner,
+        writing_agent=writer,
+        checking_agent=checker,
+        evaluation_agent=evaluator,
+        refinement_agent=refiner,
+    )
+
+    # Execute complete orchestrator pipeline
+    result = orchestrator.run(ctx)
+
+    # 1. Pipeline execution status
+    assert result.success is True
+    assert result.paper_blocked is False
+    assert result.qa_report.status in (STATUS_PASS, STATUS_DEGRADED)
+    assert len(result.qa_report.unresolved_slots) == 0
+    assert len(result.qa_report.blocked_reasons) == 0
+
+    # 2. Planning verification: real plans generated by PlanningAgent
+    assert len(result.plans) == 1
+    plan = result.plans[0]
+    assert plan.status == PlanStatus.PLANNED
+    assert plan.partition == [5, 5]
+    assert plan.total_marks == 10
+    assert len(plan.sub_part_plans) == 2
+    assert plan.sub_part_plans[0].label == "a" and plan.sub_part_plans[0].marks == 5
+    assert plan.sub_part_plans[1].label == "b" and plan.sub_part_plans[1].marks == 5
+    assert len(plan.sub_part_plans[0].evidence_blocks) > 0
+    assert len(plan.sub_part_plans[1].evidence_blocks) > 0
+
+    # 3. Question structure and refinement preservation
+    assert len(result.questions) == 1
+    q = result.questions[0]
+    assert len(q.sub_parts) == 2
+    assert [sp.label for sp in q.sub_parts] == ["a", "b"]
+    assert [sp.marks for sp in q.sub_parts] == [5, 5]
+    assert list(q.partition) == [5, 5]
+    assert q.marks == 10
+
+    # 4. Downstream export integration through actual DOCX generation
+    paper_parts, full_paper = to_legacy_shape(result, ctx)
+    assert len(paper_parts) == 1
+    assert len(full_paper) == 1
+    assert len(full_paper[0]["sub_questions"]) == 2
+
+    paper_dict = {
+        "title": "Operating Systems Assessment",
+        "subject": "Operating Systems",
+        "subject_code": "21CS42",
+        "exam_type": "IAT1",
+        "department": "Computer Science & Engineering",
+        "semester": "IV Semester",
+        "max_marks": 10,
+        "modules": paper_parts,
+    }
+    docx_io = render_docx_document(paper_dict)
+    docx_bytes = docx_io.getvalue()
+
+    assert docx_bytes.startswith(b"PK\x03\x04")
+    assert len(docx_bytes) > 8000
+
+    doc = docx.Document(io.BytesIO(docx_bytes))
+    paragraphs_text = "\n".join(p.text for p in doc.paragraphs)
+    assert "VISVESVARAYA TECHNOLOGICAL UNIVERSITY" in paragraphs_text
+    table_text = "\n".join(cell.text for t in doc.tables for row in t.rows for cell in row.cells)
+    assert "process scheduling" in table_text.lower()
+    assert "cpu dispatching" in table_text.lower()
+
+
+def test_scenario_12_full_pipeline_failure_propagation_planning_to_checker_blocking():
+    """
+    Scenario 12 (G1-D.1): Complete pipeline failure propagation from real PlanningAgent to CheckingAgent.
+    Real PlanningAgent plans the slot -> WritingAgent fails -> AgentOrchestrator tracks unresolved slot ->
+    CheckingAgent hard-blocks the paper -> run_or_raise raises PaperBlockedError.
+    """
+    spec = PaperSpec(exam_type="IAT1", module_count=1, questions_per_module=1, marks_per_question=10)
+    blocks = [
+        TextBlock(id="blk_1", text="Process scheduling controls CPU allocation to threads.", page=1, block_role="BODY"),
+    ]
+    artifact = DocumentArtifact(source_pdf_sha256="test_sha", source_pdf_path="os.pdf", text_blocks=blocks)
+    seg = ModuleSegment(
+        module_id=1,
+        title="Module 1",
+        page_start=1,
+        page_end=10,
+        confidence=0.95,
+        strategy_used=SegmentationStrategy.EXPLICIT_MODULE_HEADING,
+    )
+
+    ctx = AgentContext(
+        paper_spec=spec,
+        artifact=artifact,
+        knowledge_graph=MockKnowledgeGraph(),
+    )
+    ctx.module_segments = [seg]
+    ctx.request = {
+        "scheme_id": "VTU_2022_NEP",
+        "course_type": "AEC_GENERAL_THEORY",
+        "assessment_type": "CIE_IAT",
+        "blueprint_id": "VTU_AEC_ANNEXURE_II",
+    }
+
+    # Model consistently returns invalid JSON
+    failing_llm = MockLLMCaller(responses=["garbage 1", "garbage 2", "garbage 3"])
+    planner = PlanningAgent()
+    writer = WritingAgent(llm_caller=failing_llm, enable_irt=False)
+    checker = CheckingAgent()
+
+    orchestrator = AgentOrchestrator(
+        planning_agent=planner,
+        writing_agent=writer,
+        checking_agent=checker,
+    )
+
+    result = orchestrator.run(ctx)
+    assert result.success is True
+    assert result.paper_blocked is True
+    assert result.qa_report.status == STATUS_BLOCKED
+    assert "module_1_Q1" in result.qa_report.unresolved_slots
+    assert BLOCK_REASON_UNRESOLVED_SLOTS in result.qa_report.blocked_reasons
+
+    with pytest.raises(PaperBlockedError):
+        orchestrator.run_or_raise(ctx)
+
+
+def test_scenario_13_refinement_preservation_subpart_labels_marks_and_partitions_immutable_on_repair():
+    """
+    Scenario 13 (G1-D.1): Refinement preservation contract.
+    When RefinementAgent repairs a question flagged by EvaluationAgent, the subpart labels,
+    marks, partition, and total marks must remain strictly immutable.
+    """
+    class MockRepairLLM:
+        def call(self, prompt, schema=None, seed=None):
+            import json
+            return json.dumps({
+                "question_text": "State precisely the concepts of topic A and topic B.",
+                "solution": "Refined comprehensive solution for topic A and B.",
+                "marking_scheme": [
+                    {"criterion": "Topic A explanation", "marks": 6},
+                    {"criterion": "Topic B explanation", "marks": 4},
+                ],
+                "change_summary": "Updated question text and rubric criteria phrasing.",
+            })
+
+    orig_q = GeneratedQuestion(
+        slot_id="module_1_Q1",
+        module_id="module_1",
+        global_q_idx=1,
+        question_text="Explain topic A and topic B in detail.",
+        solution="Original draft solution",
+        marking_scheme=[
+            {"criterion": "Topic A", "marks": 6},
+            {"criterion": "Topic B", "marks": 4},
+        ],
+        marks=10,
+        partition=[6, 4],
+        sub_parts=[
+            SubPart(label="a", marks=6, text="Explain topic A in detail.", topic="Topic A", solution="Sol A", marking_scheme=[{"criterion": "Crit A", "marks": 6}]),
+            SubPart(label="b", marks=4, text="Explain topic B in detail.", topic="Topic B", solution="Sol B", marking_scheme=[{"criterion": "Crit B", "marks": 4}]),
+        ],
+    )
+
+    verdict = SlotVerdict(
+        slot_id="module_1_Q1",
+        verdict="fail",
+        source="local",
+        reason_code=BLOOM_MISMATCH,
+        detail="Bloom verb mismatch: question uses explain instead of state",
+        suggested_fix="Change verb to state",
+    )
+    audit_report = AuditReport(verdicts=[verdict])
+    ctx = AgentContext(questions=[orig_q], audit_report=audit_report)
+
+    refiner = RefinementAgent(llm_caller=MockRepairLLM())
+    res = refiner.run(ctx)
+    assert res.success is True
+    assert len(ctx.questions) == 1
+
+    repaired_q = ctx.questions[0]
+
+    # Verify that repair modified the question text as intended
+    assert "State precisely" in repaired_q.question_text
+
+    # Strict Refinement Preservation Invariants:
+    # 1. Subpart count is preserved
+    assert len(repaired_q.sub_parts) == len(orig_q.sub_parts)
+    # 2. Subpart labels are preserved
+    assert [sp.label for sp in repaired_q.sub_parts] == [sp.label for sp in orig_q.sub_parts] == ["a", "b"]
+    # 3. Subpart marks are preserved
+    assert [sp.marks for sp in repaired_q.sub_parts] == [sp.marks for sp in orig_q.sub_parts] == [6, 4]
+    # 4. Partition is preserved
+    assert list(repaired_q.partition) == list(orig_q.partition) == [6, 4]
+    # 5. Total marks are preserved
+    assert repaired_q.marks == orig_q.marks == 10
+    # 6. Marks conservation
+    assert sum(sp.marks for sp in repaired_q.sub_parts) == repaired_q.marks
