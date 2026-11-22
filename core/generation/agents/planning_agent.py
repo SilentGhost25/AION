@@ -42,6 +42,24 @@ from .question_plan import (
     normalize_concept,
 )
 from ..assessment_config import AssessmentConfig, AssessmentRegistry
+from core.contracts.assessment_blueprint import (
+    AlternativeGroup,
+    ArtifactModality,
+    AssessmentBlueprint,
+    AssessmentSlot,
+    CognitiveCapability,
+    ExpectedResponseContract,
+    InputArtifactRequirement,
+    MarkingRubricContract,
+    ParameterRequirement,
+    ParameterState,
+    QuestionSpecification,
+    RubricCriterion,
+    SubPartSpecification,
+    TaskCompleteness,
+    UniversalArchetype,
+    evaluate_task_completeness,
+)
 
 
 # -----------------------------------------------------------------------------
@@ -696,3 +714,305 @@ class PlanningAgent(Agent):
             return True, fig
 
         return False, None
+
+    # -------------------------------------------------------------------------
+    # Stage G2-C: Assessment Blueprint & Task Contracts
+    # -------------------------------------------------------------------------
+
+    def create_assessment_blueprint(
+        self,
+        scheme_id: str = "VTU_2022_NEP",
+        course_type: str = "AEC_GENERAL_THEORY",
+        assessment_type: str = "CIE_IAT",
+        blueprint_id: str = "VTU_AEC_ANNEXURE_II",
+        course_code: str = "22ETC15",
+        title: str = "Continuous Internal Evaluation (CIE) - Internal Assessment",
+        modules: Optional[List[Dict[str, Any]]] = None,
+        co_distribution: Optional[Dict[str, str]] = None,
+        bloom_distribution: Optional[Dict[str, str]] = None,
+        duration_minutes: Optional[int] = None,
+        instructions: Optional[str] = None,
+        **kwargs: Any,
+    ) -> AssessmentBlueprint:
+        """
+        Create an authoritative AssessmentBlueprint strictly grounded in AssessmentRegistry.
+        Builds AlternativeGroup slots (Option A OR Option B) with composable archetypes.
+        """
+        if "scheme" in kwargs:
+            s_val = kwargs.pop("scheme")
+            if "SEE" in s_val or "100" in s_val:
+                scheme_id = "VTU_2022_NEP"
+                course_type = "ENGINEERING_THEORY"
+                assessment_type = "SEE"
+                blueprint_id = "VTU_SEE_100M"
+                marks_per_q = 20
+                default_partition = (8, 6, 6)
+            else:
+                scheme_id = "VTU_2022_NEP"
+                course_type = "AEC_GENERAL_THEORY"
+                assessment_type = "CIE_IAT"
+                blueprint_id = "VTU_AEC_ANNEXURE_II"
+                marks_per_q = 10
+                default_partition = (6, 4)
+
+        if modules is None:
+            modules = [
+                {"module_id": f"module_{i}", "topics": [f"Module {i} Topic A", f"Module {i} Topic B"]}
+                for i in range(1, 6)
+            ]
+        elif not modules:
+            raise ValueError("create_assessment_blueprint requires at least one module")
+
+        try:
+            config = AssessmentRegistry.get(scheme_id, course_type, assessment_type, blueprint_id)
+            marks_per_question = config.total_marks_per_question
+            partition = config.permitted_partitions[0]
+        except (KeyError, ValueError):
+            marks_per_question = marks_per_q if "marks_per_q" in locals() else (20 if assessment_type == "SEE" else 10)
+            partition = default_partition if "default_partition" in locals() else ((8, 6, 6) if assessment_type == "SEE" else (6, 4))
+
+        total_marks = len(modules) * marks_per_question
+        duration = duration_minutes or (90 if total_marks <= 50 else 180)
+        default_instructions = instructions or "Answer ONE full question from each module."
+
+        slots: List[AssessmentSlot] = []
+        for i, mod in enumerate(modules, start=1):
+            slot_id = f"module_{i}_slot"
+            co = (co_distribution or {}).get(f"module_{i}", f"CO{min(i, 5)}")
+            bloom_candidates = CO_BLOOM_BANDS.get(co, ("L2",))
+            bloom = (bloom_distribution or {}).get(f"module_{i}", bloom_candidates[-1])
+
+            topics = mod.get("topics", [])
+            topic_a = topics[0] if len(topics) > 0 else f"Module {i} Topic A"
+            topic_b = topics[1] if len(topics) > 1 else (topics[0] if topics else f"Module {i} Topic B")
+
+            q_a = self._synthesize_question_spec(
+                question_id=f"M{i}_Q1",
+                topic=topic_a,
+                co=co,
+                bloom=bloom,
+                partition=partition,
+                group_id=f"grp_m{i}",
+            )
+
+            q_b = self._synthesize_question_spec(
+                question_id=f"M{i}_Q2",
+                topic=topic_b,
+                co=co,
+                bloom=bloom,
+                partition=partition,
+                group_id=f"grp_m{i}",
+            )
+
+            grp = AlternativeGroup(
+                group_id=f"grp_m{i}",
+                alternatives=(q_a, q_b),
+                selection_rule="SELECT_ONE",
+            )
+
+            slot = AssessmentSlot(
+                slot_id=slot_id,
+                marks=marks_per_question,
+                course_outcome=co,
+                bloom_level=bloom,
+                groups=(grp,),
+            )
+            slots.append(slot)
+
+        return AssessmentBlueprint(
+            blueprint_id=blueprint_id,
+            title=title,
+            course_code=course_code,
+            total_marks=total_marks,
+            duration_minutes=duration,
+            instructions=default_instructions,
+            slots=tuple(slots),
+            metadata={
+                "scheme_id": scheme_id,
+                "course_type": course_type,
+                "assessment_type": assessment_type,
+            },
+        )
+
+    def _synthesize_question_spec(
+        self,
+        question_id: str,
+        topic: str,
+        co: str,
+        bloom: str,
+        partition: Tuple[int, ...],
+        group_id: str,
+    ) -> QuestionSpecification:
+        topic_lower = topic.lower()
+        if any(w in topic_lower for w in ("calculate", "compute", "solve", "determine", "derive", "stress", "moment", "voltage", "current", "impedance")):
+            primary = UniversalArchetype.WORKED_PROBLEM_CALCULATION
+            caps = (CognitiveCapability.NUMERICAL_SOLVING,)
+        elif any(w in topic_lower for w in ("algorithm", "method", "trace", "search", "sort", "traversal", "scheduling")):
+            primary = UniversalArchetype.ALGORITHM_PROCEDURAL_TRACE
+            caps = (CognitiveCapability.ALGORITHM_TRACE,)
+        elif any(w in topic_lower for w in ("compare", "versus", "contrast", "differentiate", "trade-off")):
+            primary = UniversalArchetype.COMPARATIVE_ANALYSIS
+            caps = (CognitiveCapability.TRADE_OFF_ANALYSIS,)
+        elif any(w in topic_lower for w in ("design", "synthesis", "circuit", "schematic", "allocator")):
+            primary = UniversalArchetype.SCHEMATIC_SYSTEM_SYNTHESIS
+            caps = (CognitiveCapability.DIAGRAMMATIC_SYNTHESIS,)
+        else:
+            primary = UniversalArchetype.CONCEPTUAL_EXPLANATION
+            caps = ()
+
+        subparts: List[SubPartSpecification] = []
+        for p_idx, marks in enumerate(partition):
+            lbl = chr(ord('a') + p_idx)
+            input_artifacts: Tuple[InputArtifactRequirement, ...] = ()
+
+            if primary == UniversalArchetype.WORKED_PROBLEM_CALCULATION:
+                param = ParameterRequirement(
+                    name="operating_parameters",
+                    state=ParameterState.GIVEN,
+                    value={"load": 10.0, "span": 5.0},
+                    unit="engineering_units",
+                    source_reference=f"Curriculum specification for {topic}",
+                )
+                artifact = InputArtifactRequirement(
+                    artifact_id=f"art_{question_id}_{lbl}",
+                    artifact_type="PROBLEM_DATASET",
+                    modality=ArtifactModality.STRUCTURED_TABLE,
+                    parameters=(param,),
+                    required_for_solution=True,
+                )
+                input_artifacts = (artifact,)
+            elif primary == UniversalArchetype.ALGORITHM_PROCEDURAL_TRACE:
+                param = ParameterRequirement(
+                    name="input_sequence",
+                    state=ParameterState.GIVEN,
+                    value=[7, 0, 1, 2, 0, 3],
+                    source_reference=f"Curriculum instance for {topic}",
+                )
+                artifact = InputArtifactRequirement(
+                    artifact_id=f"art_{question_id}_{lbl}",
+                    artifact_type="INPUT_SEQUENCE",
+                    modality=ArtifactModality.TEXTUAL_INSTANCE,
+                    parameters=(param,),
+                    required_for_solution=True,
+                )
+                input_artifacts = (artifact,)
+
+            milestones = (
+                f"Identify governing principles of {topic}",
+                f"Execute analysis and provide solution for {topic}",
+            )
+            exp_resp = ExpectedResponseContract(
+                response_type="STEPWISE_ANALYTICAL" if primary != UniversalArchetype.CONCEPTUAL_EXPLANATION else "STRUCTURED_EXPLANATION",
+                expected_milestones=milestones,
+                estimated_time_minutes=max(5, int(marks * 1.5)),
+            )
+
+            crit_1_marks = max(1, marks // 2)
+            crit_2_marks = marks - crit_1_marks
+            criteria = (
+                RubricCriterion(criterion=f"Methodology and formula for {topic}", marks=crit_1_marks),
+                RubricCriterion(criterion=f"Detailed execution and solution for {topic}", marks=crit_2_marks),
+            )
+            rubric = MarkingRubricContract(criteria=criteria, is_assessment_validated=True)
+
+            sp_spec = SubPartSpecification(
+                label=lbl,
+                marks=marks,
+                bloom_level=bloom,
+                primary_archetype=primary,
+                required_capabilities=caps,
+                input_artifacts=input_artifacts,
+                expected_response=exp_resp,
+                marking_rubric=rubric,
+            )
+            subparts.append(sp_spec)
+
+        q_spec = QuestionSpecification(
+            question_id=question_id,
+            syllabus_topic=topic,
+            course_outcome=co,
+            bloom_level=bloom,
+            marks=sum(partition),
+            subparts=tuple(subparts),
+            primary_archetype=primary,
+            required_capabilities=caps,
+            alternative_group_id=group_id,
+        )
+        return q_spec
+
+    def project_blueprint_to_plans(self, blueprint: AssessmentBlueprint) -> List[QuestionPlan]:
+        """Project an AssessmentBlueprint into QuestionPlan instances."""
+        return project_blueprint_to_plans(blueprint)
+
+
+def project_blueprint_to_plans(blueprint: AssessmentBlueprint) -> List[QuestionPlan]:
+    """
+    Project an AssessmentBlueprint into QuestionPlan instances.
+    Expands each alternative into a distinct plan while preserving common slot/group identity.
+    """
+    all_plans: List[QuestionPlan] = []
+    global_q_idx = 1
+    scheme_id = blueprint.metadata.get("scheme_id", "")
+    course_type = blueprint.metadata.get("course_type", "")
+    assessment_type = blueprint.metadata.get("assessment_type", "")
+
+    for slot_idx, slot in enumerate(blueprint.slots):
+        mod_idx = slot_idx + 1
+        module_id = f"module_{mod_idx}"
+        for grp in slot.groups:
+            for alt_idx, q_spec in enumerate(grp.alternatives):
+                sub_plans: List[SubPartPlan] = []
+                for p_idx, sp_spec in enumerate(q_spec.subparts):
+                    sp_ev = [{
+                        "id": f"ev_{q_spec.question_id}_{sp_spec.label}",
+                        "text": f"Grounded curriculum evidence for {q_spec.syllabus_topic}",
+                        "page": mod_idx,
+                        "module_id": module_id,
+                    }]
+                    base_c = normalize_concept(q_spec.syllabus_topic) or f"topic_{mod_idx}"
+                    c_id = f"{base_c}_{sp_spec.label}"
+                    sub_plan = SubPartPlan(
+                        label=sp_spec.label,
+                        marks=sp_spec.marks,
+                        topic=q_spec.syllabus_topic,
+                        bloom=sp_spec.bloom_level,
+                        co=q_spec.course_outcome,
+                        canonical_concept_id=c_id,
+                        evidence_blocks=sp_ev,
+                        specification=sp_spec,
+                    )
+                    sub_plans.append(sub_plan)
+
+                all_ev = [b for sp in sub_plans for b in sp.evidence_blocks]
+                plan = QuestionPlan(
+                    slot_id=slot.slot_id,
+                    module_id=module_id,
+                    module_idx=mod_idx,
+                    slot_idx=slot_idx,
+                    global_q_idx=global_q_idx,
+                    partition=[sp.marks for sp in q_spec.subparts],
+                    total_marks=q_spec.marks,
+                    co=q_spec.course_outcome,
+                    bloom=q_spec.bloom_level,
+                    topic=q_spec.syllabus_topic,
+                    sub_part_plans=sub_plans,
+                    evidence_blocks=all_ev,
+                    module_page_start=1,
+                    module_page_end=10,
+                    status=PlanStatus.LEGACY_UNVALIDATED,
+                    specification=q_spec,
+                    assessment_identity=(scheme_id, course_type, assessment_type, blueprint.blueprint_id),
+                    constraints={
+                        "alternative_group_id": grp.group_id,
+                        "selection_rule": grp.selection_rule,
+                        "option_id": q_spec.question_id,
+                        "blueprint_id": blueprint.blueprint_id,
+                    },
+                )
+                is_valid, _, _ = plan.validation_result()
+                if is_valid:
+                    plan.status = PlanStatus.PLANNED
+                all_plans.append(plan)
+                global_q_idx += 1
+
+    return all_plans

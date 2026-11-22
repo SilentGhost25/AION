@@ -109,6 +109,7 @@ class SubPartPlan:
     evidence_blocks: List[Any] = field(default_factory=list)
     visual_required: bool = False
     figure: Optional[Any] = None
+    specification: Optional[Any] = None  # Stage G2-C: Optional[SubPartSpecification]
 
     def validate_fields(self) -> Tuple[bool, str]:
         """Validate internal data types, labels, marks, pedagogy, and syntax."""
@@ -263,6 +264,7 @@ class QuestionPlan:
     module_page_start: Optional[int] = None
     module_page_end: Optional[int] = None
     assessment_identity: Tuple[str, str, str, str] = ("", "", "", "") # (scheme_id, course_type, assessment_type, blueprint_id)
+    specification: Optional[Any] = None  # Stage G2-C: Optional[QuestionSpecification]
 
     def __post_init__(self) -> None:
         if self.status == PlanStatus.PLANNED:

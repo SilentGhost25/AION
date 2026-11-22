@@ -505,3 +505,130 @@ def build_subpart_prompt(
 
     return "\n\n".join(s for s in sections if s)
 
+
+def build_archetype_subpart_prompt(
+    plan,
+    sp_plan,
+    spec: Any,
+    *,
+    strict_json: bool = False,
+    difficulty_feedback: Optional[str] = None,
+    validation_feedback: Optional[str] = None,
+) -> str:
+    """
+    Compose a task-driven Writing Agent prompt for an individual SubPartPlan
+    governed by a SubPartSpecification contract.
+    """
+    sections = [
+        build_subpart_slot_contract(plan, sp_plan),
+    ]
+
+    # Archetype & Task Specification section
+    archetype_val = getattr(spec.primary_archetype, "value", str(spec.primary_archetype))
+    sec_archetypes = [getattr(sa, "value", str(sa)) for sa in (getattr(spec, "secondary_archetypes", ()) or ())]
+    capabilities = [getattr(rc, "value", str(rc)) for rc in (getattr(spec, "required_capabilities", ()) or ())]
+
+    task_spec_lines = [
+        "[ASSESSMENT TASK CONTRACT]",
+        f"Primary Archetype: {archetype_val}",
+    ]
+    if sec_archetypes:
+        task_spec_lines.append(f"Secondary Archetypes: {', '.join(sec_archetypes)}")
+    if capabilities:
+        task_spec_lines.append(f"Required Capabilities: {', '.join(capabilities)}")
+    sections.append("\n".join(task_spec_lines))
+
+    sections.append(build_subpart_topic_section(sp_plan))
+
+    # Input Problem Data Contract
+    input_artifacts = getattr(spec, "input_artifacts", ()) or ()
+    if input_artifacts:
+        input_lines = ["[INPUT PROBLEM DATA CONTRACT]"]
+        for art in input_artifacts:
+            input_lines.append(f"- Artifact ID: {art.artifact_id} ({art.artifact_type}, modality: {getattr(art.modality, 'value', art.modality)})")
+            if getattr(art, "parameters", None):
+                for p in art.parameters:
+                    p_state = getattr(p.state, "value", str(p.state))
+                    val_str = f" = {p.value!r}" if p.value is not None else ""
+                    unit_str = f" {p.unit}" if p.unit else ""
+                    input_lines.append(f"  * Parameter: {p.name} [{p_state}]{val_str}{unit_str}")
+                    if p_state == "GIVEN":
+                        input_lines.append(f"    MANDATORY: You MUST explicitly include this given value in the question text or table.")
+                    elif p_state == "STUDENT_SELECTED":
+                        input_lines.append(f"    CONSTRAINTS: Student must select under: {p.selection_constraints}")
+        sections.append("\n".join(input_lines))
+
+    # Expected Student Response Contract
+    exp_resp = getattr(spec, "expected_response", None)
+    if exp_resp:
+        resp_lines = [
+            "[EXPECTED STUDENT RESPONSE CONTRACT]",
+            f"Response Type: {exp_resp.response_type}",
+            f"Estimated Time: ~{exp_resp.estimated_time_minutes} minutes",
+        ]
+        if exp_resp.expected_milestones:
+            resp_lines.append("Expected Solution Milestones:")
+            for m in exp_resp.expected_milestones:
+                resp_lines.append(f"  * {m}")
+        if exp_resp.requested_artifacts:
+            resp_lines.append(f"Requested Student Artifacts to Draw/Synthesize: {', '.join(exp_resp.requested_artifacts)}")
+        sections.append("\n".join(resp_lines))
+
+    # Marking Rubric Contract
+    rubric = getattr(spec, "marking_rubric", None)
+    if rubric and getattr(rubric, "criteria", None):
+        rubric_lines = ["[MARKING RUBRIC ALLOCATION]"]
+        for c in rubric.criteria:
+            rubric_lines.append(f"  * {c.criterion}: {c.marks} marks")
+        rubric_lines.append(f"Total Subpart Marks: {rubric.total_marks}")
+        sections.append("\n".join(rubric_lines))
+
+    # Knowledge graph & evidence
+    kg_neighborhood = getattr(sp_plan, "concept_neighborhood", None) or getattr(plan, "concept_neighborhood", None)
+    kg = build_kg_section(kg_neighborhood)
+    if kg:
+        sections.append(kg)
+
+    merged_blocks = []
+    seen_keys = set()
+    sp_blocks = getattr(sp_plan, "evidence_blocks", None) or []
+    parent_blocks = getattr(plan, "evidence_blocks", None) or []
+    for b in list(sp_blocks) + list(parent_blocks):
+        b_id = getattr(b, "id", None) if not isinstance(b, dict) else b.get("id")
+        b_text = getattr(b, "text", "") if not isinstance(b, dict) else b.get("text", "")
+        dedup_key = b_id or (b_text[:80] if b_text else None)
+        if dedup_key and dedup_key in seen_keys:
+            continue
+        if dedup_key:
+            seen_keys.add(dedup_key)
+        merged_blocks.append(b)
+
+    ev = build_evidence_section(merged_blocks)
+    if ev:
+        sections.append(ev)
+
+    vis = build_subpart_visual_section(sp_plan)
+    if vis:
+        sections.append(vis)
+
+    sections.append(build_subpart_task_section(sp_plan, difficulty_feedback=difficulty_feedback))
+    sections.append(build_subpart_constraints_section(marks=sp_plan.marks))
+    sections.append(f"[OUTPUT JSON SCHEMA]\n{SUBPART_OUTPUT_SCHEMA_DESCRIPTION}")
+
+    if validation_feedback and str(validation_feedback).strip():
+        sections.append(
+            "[CORRECTIVE GUIDANCE FOR RETRY]\n"
+            f"Your previous attempt could not be accepted for the following reason:\n"
+            f"{str(validation_feedback).strip()}\n"
+            "Please correct this issue in your response while maintaining all other constraints."
+        )
+
+    if strict_json:
+        sections.append(
+            "[IMPORTANT]\n"
+            "Your previous response could not be parsed as JSON.\n"
+            "Return ONLY the JSON object. Do not include any other text."
+        )
+
+    return "\n\n".join(s for s in sections if s)
+

@@ -56,6 +56,7 @@ from .local_evaluators import (
 from .planning_agent import PlanStatus
 from .prompts import (
     BLOOM_VERBS,
+    build_archetype_subpart_prompt,
     build_difficulty_feedback,
     build_prompt,
     build_subpart_prompt,
@@ -544,13 +545,24 @@ class WritingAgent(Agent):
 
             for attempt in range(1, self._max_attempts + 1):
                 strict_json = attempt > 1
-                prompt = build_subpart_prompt(
-                    plan,
-                    sp_plan,
-                    strict_json=strict_json,
-                    difficulty_feedback=difficulty_feedback,
-                    validation_feedback=last_error if attempt > 1 else None,
-                )
+                sp_spec = getattr(sp_plan, "specification", None)
+                if sp_spec is not None:
+                    prompt = build_archetype_subpart_prompt(
+                        plan,
+                        sp_plan,
+                        sp_spec,
+                        strict_json=strict_json,
+                        difficulty_feedback=difficulty_feedback,
+                        validation_feedback=last_error if attempt > 1 else None,
+                    )
+                else:
+                    prompt = build_subpart_prompt(
+                        plan,
+                        sp_plan,
+                        strict_json=strict_json,
+                        difficulty_feedback=difficulty_feedback,
+                        validation_feedback=last_error if attempt > 1 else None,
+                    )
 
                 try:
                     if use_vlm:
