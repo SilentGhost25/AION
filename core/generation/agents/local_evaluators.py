@@ -32,12 +32,20 @@ from .evaluation_contracts import (
     SIBLING_INTERCONNECTED,
     SlotVerdict,
 )
+from core.validation.bloom_validator import (
+    BLOOM_VERB_LEVEL_MAP,
+    classify_verb,
+    get_all_canonical_verbs,
+    get_canonical_verbs,
+    is_exact_slot_compliant,
+)
 from .prompts import BLOOM_VERBS, IMAGE_REFERENCE_PHRASES
 
 
 # -----------------------------------------------------------------------------
 # Thresholds
 # -----------------------------------------------------------------------------
+
 
 
 MIN_QUESTION_CHARS = 20
@@ -90,22 +98,20 @@ SKIP_WORDS = frozenset({
     "from", "by", "during", "considering",
 })
 
-ALL_BLOOM_VERBS = frozenset(
-    v.lower() for verbs in BLOOM_VERBS.values() for v in verbs
-)
+ALL_BLOOM_VERBS = get_all_canonical_verbs()
 
+# Exact-level mapping: Adjacency tolerance is explicitly zero for authoritative VTU slot compliance
 BLOOM_ADJACENCY = {
     "L1": {"L1"},
     "L2": {"L2"},
-    "L3": {"L3", "L4"},
-    "L4": {"L4", "L5"},
-    "L5": {"L5", "L6"},
-    "L6": {"L5", "L6"},
+    "L3": {"L3"},
+    "L4": {"L4"},
+    "L5": {"L5"},
+    "L6": {"L6"},
 }
 
 BLOOM_LEVEL_EXTRAS = {
-    # Engineering practical design tasks are accepted at L3 application
-    "L3": {"design"},
+    # Adjacency and level extras removed for strict VTU compliance
 }
 
 
@@ -124,7 +130,7 @@ def _first_meaningful_word(text: str) -> str:
 
 
 def bloom_verb_evaluator(question) -> Optional[SlotVerdict]:
-    """First meaningful word must be a Bloom verb from this level or an adjacent one."""
+    """First meaningful word must be a canonical Bloom action verb exactly matching question.bloom."""
     first = _first_meaningful_word(question.question_text or "")
     if not first:
         return _fail(
@@ -132,18 +138,13 @@ def bloom_verb_evaluator(question) -> Optional[SlotVerdict]:
             "question text is empty or contains only stopwords",
         )
 
-    allowed_levels = BLOOM_ADJACENCY.get(question.bloom, {question.bloom})
-    allowed_verbs = set()
-    for level in allowed_levels:
-        allowed_verbs.update(BLOOM_VERBS.get(level, []))
-    allowed_verbs.update(BLOOM_LEVEL_EXTRAS.get(question.bloom, set()))
-
-    if first not in allowed_verbs:
-        canonical = BLOOM_VERBS.get(question.bloom, [])
+    exp_level = getattr(question, "bloom", "L2")
+    compliant, detected_level, reason = is_exact_slot_compliant(first, exp_level)
+    if not compliant:
+        canonical = sorted(BLOOM_VERB_LEVEL_MAP.get(exp_level, set()))
         return _fail(
             question, BLOOM_MISMATCH,
-            f"first meaningful word {first!r} not in approved verbs for "
-            f"{question.bloom} (or adjacent): {sorted(allowed_verbs)}",
+            reason or f"first meaningful word {first!r} does not match {exp_level}",
             fix=f"Start the question with one of: {', '.join(canonical)}",
         )
     return None
@@ -359,55 +360,160 @@ def topic_fragment_evaluator(question) -> Optional[SlotVerdict]:
     return None
 
 
-L1_L2_VERBS = frozenset({
-    "describe", "explain", "state", "list", "define", "outline",
-    "identify", "summarize", "mention", "what", "name",
-})
+class SemanticDemandOutcome:
+    PASS = "PASS"
+    FAIL = "FAIL"
+    INDETERMINATE = "INDETERMINATE"
 
-L3_VERBS = frozenset({
-    "calculate", "compute", "apply", "solve", "determine", "derive",
-    "illustrate", "demonstrate", "provide", "show", "construct",
-})
+
+L1_L2_VERBS = frozenset(
+    get_canonical_verbs("L1") | get_canonical_verbs("L2") | {"what", "mention"}
+)
+
+L3_VERBS = frozenset(
+    get_canonical_verbs("L3") | {"provide", "construct"}
+)
+
+
+def evaluate_cognitive_demand(text: str, target_bloom: str) -> Tuple[str, Optional[str]]:
+    """
+    Evaluate the intellectual/cognitive demand of a question or subpart text against target_bloom.
+    Returns (outcome, detail) where outcome is 'PASS', 'FAIL', or 'INDETERMINATE'.
+
+    Layer 2 Semantic Cognitive Demand:
+      - PASS: No detectable violation; structural/contextual evidence confirms target demand.
+      - FAIL: Concrete mismatch detected (definitional/procedural veneer, lower-order demand, etc.).
+      - INDETERMINATE: Opening verb belongs to target level, but question lacks explicit
+        criteria, context, or parameters to confirm target demand. Strictly fail-closed.
+    """
+    if not text or not text.strip():
+        return SemanticDemandOutcome.FAIL, "Question text is empty."
+
+    stripped = text.strip()
+    words = stripped.split()
+    if len(words) < 2:
+        return SemanticDemandOutcome.FAIL, "Question text is too short or incomplete."
+
+    target_bloom = target_bloom.upper() if target_bloom else "L2"
+    first = _first_meaningful_word(stripped)
+
+    # 1. Definitional Veneer Check across L2, L3, L4, L5, L6
+    if target_bloom in ("L2", "L3", "L4", "L5", "L6"):
+        veneer_patterns = [
+            (r"\b(?:analyze|analyse|evaluate|design|create|apply|calculate|determine|solve|explain|describe)\s+(?:the\s+)?definition\s+of\b",
+             "Definitional veneer: asking for a definition is recall (L1), not high-order cognitive demand."),
+            (r"\b(?:analyze|analyse|evaluate|design|create|apply)\s+what\s+(?:is|are)\b",
+             "Definitional veneer: 'what is' poses a definitional/recall task (L1/L2)."),
+            (r"\b(?:analyze|analyse|evaluate|design|create|apply)\s+what\s+\w+\s+means\b",
+             "Definitional veneer: asking what something means is conceptual recall (L1/L2)."),
+            (r"\b(?:analyze|analyse|evaluate|design|create|apply)\s+(?:the\s+)?meaning\s+of\b",
+             "Definitional veneer: asking for meaning is conceptual recall (L1/L2)."),
+            (r"\b(?:evaluate|assess)\s+the\s+role\s+of\b",
+             "Descriptive veneer: 'evaluate the role of' is descriptive (L2) rather than evaluative with criteria (L5)."),
+        ]
+        for pat, msg in veneer_patterns:
+            if re.search(pat, stripped, re.IGNORECASE):
+                return SemanticDemandOutcome.FAIL, f"Cognitive depth mismatch for {target_bloom}: {msg}"
+
+    # 2. Lower-order verb usage in higher-order slots (L4+)
+    if target_bloom in ("L4", "L5", "L6"):
+        if first in L1_L2_VERBS:
+            return SemanticDemandOutcome.FAIL, f"Question uses lower-order verb {first!r} (L1/L2) in a slot marked {target_bloom}."
+
+    # 3. Procedural calculation verb in evaluative/creative slots (L5+)
+    if target_bloom in ("L5", "L6"):
+        if first in L3_VERBS:
+            return SemanticDemandOutcome.FAIL, f"Question uses procedural verb {first!r} (L3) in slot marked {target_bloom}."
+        # Procedural veneer check: evaluating purely by calculating without judgment criteria
+        if re.search(r"\b(?:evaluate|assess|critique)\s+.*?\b(?:by\s+calculating|using\s+calculation)\b", stripped, re.IGNORECASE):
+            return SemanticDemandOutcome.FAIL, f"Procedural veneer: Question requests routine calculation rather than evaluative judgment for {target_bloom}."
+
+    lower_text = stripped.lower()
+
+    # 4. Level-specific positive indicator vs INDETERMINATE checks
+    if target_bloom == "L1":
+        # Check if question improperly embeds analytical comparison
+        if re.search(r"\b(?:trade-offs?|advantages\s+and\s+disadvantages|compare\s+and\s+contrast)\b", lower_text):
+            return SemanticDemandOutcome.FAIL, "Question requires analytical comparison (L4), which exceeds L1 recall demand."
+        return SemanticDemandOutcome.PASS, None
+
+    elif target_bloom == "L2":
+        # Check if question improperly embeds system design from scratch
+        if re.search(r"\b(?:design\s+a\s+(?:custom|complete)|implement\s+an\s+allocator)\b", lower_text):
+            return SemanticDemandOutcome.FAIL, "Question requires constructive design (L6), which exceeds L2 explanation demand."
+        return SemanticDemandOutcome.PASS, None
+
+    elif target_bloom == "L3":
+        # L3 Apply: requires concrete application context, numerical problem, algorithm, or data
+        has_numbers = bool(re.search(r"\d+", stripped))
+        has_givens = bool(re.search(
+            r"\b(?:given|using|for\s+the\s+(?:following|given)|formula\w*|algorithms?|ratio\w*|burst\w*|arrival\w*|frame\w*|quantum\w*|workload\w*|reference\s+string|schedul\w*|parameters?|values?|dataset|matrices|matrix|trace|hit\s+ratio|page\s+faults?|effective\s+(?:memory\s+)?access\s+time|turnaround|waiting\s+times?)\b",
+            lower_text
+        ))
+        if len(words) < 5 or not (has_numbers or has_givens):
+            return SemanticDemandOutcome.INDETERMINATE, "Question lacks concrete scenario givens, numerical parameters, or algorithm context required to verify L3 application."
+        return SemanticDemandOutcome.PASS, None
+
+    elif target_bloom == "L4":
+        # L4 Analyze: requires comparative, trade-off, structural decomposition, or relationship context
+        has_analysis_context = bool(re.search(
+            r"\b(?:between|compare|contrast|versus|vs\.?|trade-offs?|relationship|impacts?|degradation|difference|hazards?|conflicts?|internal|external|advantages\s+and\s+disadvantages|effects?|breakdown|policies|strategies|mechanisms?|algorithms?|protocols?|snooping|directory|penalt(?:y|ies)|hit\s+rates?|miss\s+rates?|latency|throughput|overhead|performance|efficiency|behavior|scaling|complexity|bounds?|race\s+conditions?|deadlocks?|concurrency|contention|synchronization|preemption|anomal(?:y|ies))\b",
+            lower_text
+        ))
+        if len(words) < 5 or not has_analysis_context:
+            return SemanticDemandOutcome.INDETERMINATE, "Question lacks explicit comparative dimensions, trade-offs, or structural relationships required for L4 analysis."
+        return SemanticDemandOutcome.PASS, None
+
+    elif target_bloom == "L5":
+        # L5 Evaluate: requires explicit criteria, standards, justification context, or trade-offs
+        has_eval_criteria = bool(re.search(
+            r"\b(?:against|criteria|trade-offs?|suitability|justify\s+why|assess\s+whether|merits|limitations|requirements?|when|under\s+(?:high|low|the)|safety-critical|effectiveness|architectural)\b",
+            lower_text
+        ))
+        if len(words) < 5 or not has_eval_criteria:
+            return SemanticDemandOutcome.INDETERMINATE, "Question lacks explicit evaluation criteria, trade-off context, or standard against which to judge for L5 evaluation."
+        return SemanticDemandOutcome.PASS, None
+
+    elif target_bloom == "L6":
+        # L6 Create: requires constraints, specifications, custom architecture, or requirements
+        has_create_context = bool(re.search(
+            r"\b(?:satisfying|constraints?|specifications?|requirements?|to\s+eliminate|within\s+o\(|custom|protocol|architecture|algorithm\s+to|scheme\s+to|model\s+for|system\s+for)\b",
+            lower_text
+        ))
+        if len(words) < 5 or not has_create_context:
+            return SemanticDemandOutcome.INDETERMINATE, "Question lacks explicit constraints, specifications, or system requirements required for L6 creation/design."
+        return SemanticDemandOutcome.PASS, None
+
+    return SemanticDemandOutcome.PASS, None
 
 
 def bloom_content_evaluator(question) -> Optional[SlotVerdict]:
-    """Ensure cognitive demand matches the assigned Bloom level."""
+    """Ensure cognitive demand matches the assigned Bloom level across all 6 levels."""
     bloom = getattr(question, "bloom", "L2")
     text = (getattr(question, "question_text", None) or getattr(question, "text", "") or "").strip()
     if not text:
         return None
 
-    veneer_patterns = [
-        (r"\bevaluate\s+the\s+role\s+of\b", "Evaluate the role of is descriptive (L2) rather than an evaluation with criteria (L5)."),
-        (r"\banalyze\s+what\s+is\b", "Analyze what is is definitional (L1/L2) rather than analytical (L4)."),
-        (r"\bevaluate\s+the\s+definition\b", "Evaluate the definition is definitional (L1) rather than evaluative (L5)."),
-    ]
-    if bloom in ("L4", "L5", "L6"):
-        for pattern, msg in veneer_patterns:
-            if re.search(pattern, text, re.IGNORECASE):
-                return _fail(
-                    question, BLOOM_DEPTH_MISMATCH,
-                    f"Cognitive depth mismatch for {bloom}: {msg}",
-                    fix="Frame the question to require comparative analysis, trade-off assessment, or critical judgment against explicit criteria.",
-                )
+    # Evaluate composite question text
+    outcome, reason = evaluate_cognitive_demand(text, bloom)
+    if outcome != SemanticDemandOutcome.PASS:
+        return _fail(
+            question, BLOOM_DEPTH_MISMATCH,
+            reason or f"Cognitive demand validation failed with outcome {outcome}",
+            fix=f"Align question framing to {bloom} cognitive requirements.",
+        )
 
+    # For multi-part questions, evaluate each subpart
     sub_parts = _extract_subparts(text)
-    if len(sub_parts) > 1 and bloom in ("L4", "L5", "L6"):
+    if len(sub_parts) > 1:
         for label, sub_text in sub_parts:
-            first = _first_meaningful_word(sub_text)
-            clean_subpart = label.strip("(). ").lower()
-            if first in L1_L2_VERBS:
+            sp_outcome, sp_reason = evaluate_cognitive_demand(sub_text, bloom)
+            if sp_outcome != SemanticDemandOutcome.PASS:
+                clean_subpart = label.strip("(). ").lower()
                 return _fail(
                     question, BLOOM_DEPTH_MISMATCH,
-                    f"Subpart {label} uses lower-order verb {first!r} (L1/L2) in a slot marked {bloom}.",
-                    fix=f"Align subpart {label} to {bloom} cognitive level (e.g., analyze, compare, evaluate, critique).",
-                    affected_subparts=(clean_subpart,),
-                )
-            if bloom in ("L5", "L6") and first in L3_VERBS:
-                return _fail(
-                    question, BLOOM_DEPTH_MISMATCH,
-                    f"Subpart {label} uses procedural verb {first!r} (L3) in a slot marked {bloom}.",
-                    fix=f"Elevate subpart {label} to require evaluation, critique, or synthesis.",
+                    f"Subpart {label}: {sp_reason}",
+                    fix=f"Align subpart {label} to {bloom} cognitive requirements.",
                     affected_subparts=(clean_subpart,),
                 )
 

@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional, Tuple
 
 if TYPE_CHECKING:
     from core.contracts.question_slot import QuestionSlot
@@ -20,6 +20,75 @@ BLOOM_TO_OP = {
     "L1":"RECALL","L2":"EXPLAIN","L3":"APPLY",
     "L4":"ANALYZE","L5":"EVALUATE","L6":"CREATE",
 }
+
+# -----------------------------------------------------------------------------
+# Canonical Helpers for Generation and Validation Layers
+# -----------------------------------------------------------------------------
+
+
+def get_canonical_verbs(level: str) -> frozenset[str]:
+    """Return the canonical set of approved Bloom action verbs for the given level."""
+    return frozenset(BLOOM_VERB_LEVEL_MAP.get(level.upper(), set()))
+
+
+def get_all_canonical_verbs() -> frozenset[str]:
+    """Return all canonical Bloom action verbs across all 6 levels."""
+    return frozenset(v for verbs in BLOOM_VERB_LEVEL_MAP.values() for v in verbs)
+
+
+def classify_verb(verb: str) -> Optional[str]:
+    """
+    Classify a single verb into its canonical Bloom level ('L1'..'L6').
+    Handles case-insensitivity, British/American variants, and trailing punctuation.
+    Returns None if the verb is unclassified or not a canonical Bloom action verb.
+    """
+    if not verb:
+        return None
+    clean = verb.strip().rstrip(".,:;!?").lower()
+    equivalents = {
+        "analyse": "analyze",
+        "summarise": "summarize",
+        "recognise": "recognize",
+        "categorise": "categorize",
+    }
+    clean = equivalents.get(clean, clean)
+    for level, verbs in BLOOM_VERB_LEVEL_MAP.items():
+        if clean in verbs:
+            return level
+    return None
+
+
+def is_exact_slot_compliant(verb: str, expected_level: str) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Determine exact slot compliance:
+    Returns (is_compliant, detected_level, failure_reason).
+    Adjacency tolerance is explicitly zero: detected_level must exactly match expected_level.
+    """
+    detected = classify_verb(verb)
+    exp = expected_level.upper() if expected_level else "L2"
+    if detected is None:
+        allowed = sorted(BLOOM_VERB_LEVEL_MAP.get(exp, set()))
+        return (
+            False,
+            None,
+            f"Verb {verb!r} is not a recognized canonical Bloom action verb. "
+            f"Must start with an approved {exp} verb: {', '.join(allowed)}.",
+        )
+    if detected != exp:
+        allowed = sorted(BLOOM_VERB_LEVEL_MAP.get(exp, set()))
+        category_note = ""
+        if detected in ("L1", "L2") and exp in ("L4", "L5", "L6"):
+            category_note = " (lower-order verb)"
+        elif detected == "L3" and exp in ("L5", "L6"):
+            category_note = " (procedural verb)"
+        return (
+            False,
+            detected,
+            f"Verb {verb!r} is classified as {detected}{category_note}, not in approved verbs for {exp}. "
+            f"Exact slot compliance required. Allowed {exp} verbs: {', '.join(allowed)}.",
+        )
+    return True, detected, None
+
 
 # Verbs whose presence suggests a higher Bloom level than requested
 EVALUATION_MARKERS = {

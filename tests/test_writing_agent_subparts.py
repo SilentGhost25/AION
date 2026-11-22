@@ -328,9 +328,9 @@ def test_07_multipart_6_4_marks_labeled_projections():
         "marking_scheme": [{"criterion": "Algorithms", "marks": 6}],
     }
     resp_b = {
-        "text": "Calculate page faults for the given reference string.",
+        "text": "Describe page fault handling for the given reference string.",
         "solution": "Total page faults = 9.",
-        "marking_scheme": [{"criterion": "Calculation", "marks": 4}],
+        "marking_scheme": [{"criterion": "Description", "marks": 4}],
     }
     llm = MockLLMCaller(responses=[resp_a, resp_b])
     agent = WritingAgent(llm_caller=llm, enable_irt=False)
@@ -338,7 +338,7 @@ def test_07_multipart_6_4_marks_labeled_projections():
 
     assert gq.is_multi_part
     assert len(gq.sub_parts) == 2
-    assert gq.question_text == "(a) Explain page replacement algorithms.\n\n(b) Calculate page faults for the given reference string."
+    assert gq.question_text == "(a) Explain page replacement algorithms.\n\n(b) Describe page fault handling for the given reference string."
     assert gq.question_text.startswith("(a)")
     assert "\n\n(b)" in gq.question_text
 

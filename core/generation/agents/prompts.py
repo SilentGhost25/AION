@@ -16,25 +16,19 @@ Design notes:
 # UNTESTED — run quickstart.py on server first
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
+
+from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
 
 
 # -----------------------------------------------------------------------------
-# Bloom verb lists
+# Canonical Bloom verb lists (derived directly from core.validation.bloom_validator)
 # -----------------------------------------------------------------------------
 
 
-BLOOM_VERBS = {
-    "L1": ["define", "list", "state", "identify", "recall", "name"],
-    "L2": ["explain", "describe", "summarize", "classify",
-           "interpret", "illustrate", "outline"],
-    "L3": ["apply", "calculate", "solve", "compute", "demonstrate",
-           "implement", "show"],
-    "L4": ["analyze", "analyse", "compare", "contrast", "differentiate",
-           "examine", "investigate"],
-    "L5": ["evaluate", "assess", "justify", "critique", "judge", "defend"],
-    "L6": ["design", "create", "formulate", "develop", "construct",
-           "propose", "synthesize"],
+BLOOM_VERBS: Dict[str, List[str]] = {
+    lvl: sorted(list(verbs))
+    for lvl, verbs in sorted(BLOOM_VERB_LEVEL_MAP.items())
 }
 
 

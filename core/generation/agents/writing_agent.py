@@ -33,6 +33,13 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
 
 # UNTESTED — run quickstart.py on server first
 from core.evaluation.irt_calibrator import IRTCalibrator, DifficultyEstimate
+from core.validation.bloom_validator import (
+    BLOOM_VERB_LEVEL_MAP,
+    classify_verb,
+    get_all_canonical_verbs,
+    get_canonical_verbs,
+    is_exact_slot_compliant,
+)
 from .base import Agent, AgentContext, AgentResult
 from .generated_question import (
     GeneratedQuestion,
@@ -43,10 +50,8 @@ from .generated_question import (
 from .local_evaluators import (
     _first_meaningful_word,
     ALL_BLOOM_VERBS,
-    BLOOM_ADJACENCY,
-    BLOOM_LEVEL_EXTRAS,
-    L1_L2_VERBS,
-    L3_VERBS,
+    evaluate_cognitive_demand,
+    SemanticDemandOutcome,
 )
 from .planning_agent import PlanStatus
 from .prompts import (
@@ -420,53 +425,32 @@ class WritingAgent(Agent):
     def _validate_subpart_bloom(self, text_raw: str, bloom: str, marks: int, label: str = "a") -> Optional[str]:
         """
         Validate opening Bloom verb and cognitive demand alignment for an individual subpart.
-        Re-uses canonical Bloom taxonomy rules from local_evaluators.
+        Enforces:
+          Layer 1 & 3: Exact canonical slot compliance (no adjacency tolerance).
+          Layer 2: Semantic cognitive demand (PASS / FAIL / INDETERMINATE with fail-closed policy).
         """
         if not bloom:
             bloom = "L2"
+        bloom = bloom.upper()
 
         first = _first_meaningful_word(text_raw)
         if not first:
             return "subpart text is empty or contains only stopwords"
 
-        valid_bloom_verbs = set(ALL_BLOOM_VERBS) | {"discuss"}
-        if first not in valid_bloom_verbs:
+        # Layer 1 & 3: Exact Slot Compliance via Canonical Classifier
+        compliant, detected_lvl, slot_reason = is_exact_slot_compliant(first, bloom)
+        if not compliant:
+            return slot_reason
+
+        # Layer 2: Semantic Cognitive Demand Classification
+        outcome, demand_reason = evaluate_cognitive_demand(text_raw, bloom)
+        if outcome == SemanticDemandOutcome.FAIL:
+            return f"Cognitive demand failure for {bloom}: {demand_reason}"
+        if outcome == SemanticDemandOutcome.INDETERMINATE:
             return (
-                f"opening verb {first!r} is not a recognized Bloom taxonomy action verb. "
-                f"Must open directly with an approved Bloom verb."
+                f"Cognitive demand is indeterminate for {bloom}: {demand_reason} "
+                f"Please frame the subpart with explicit scenario context, criteria, or constraints."
             )
-
-        # Cognitive demand checks (aligned with bloom_content_evaluator in local_evaluators)
-        if bloom in ("L4", "L5", "L6"):
-            veneer_patterns = [
-                (r"\bevaluate\s+the\s+role\s+of\b", "Evaluate the role of is descriptive (L2) rather than evaluative (L5)."),
-                (r"\banalyze\s+what\s+is\b", "Analyze what is is definitional (L1/L2) rather than analytical (L4)."),
-                (r"\bevaluate\s+the\s+definition\b", "Evaluate the definition is definitional (L1) rather than evaluative (L5)."),
-            ]
-            for pattern, msg in veneer_patterns:
-                if re.search(pattern, text_raw, re.IGNORECASE):
-                    return f"Cognitive depth mismatch for {bloom}: {msg}"
-
-            if first in L1_L2_VERBS:
-                return f"Subpart uses lower-order verb {first!r} (L1/L2) in slot marked {bloom}."
-            if bloom in ("L5", "L6") and first in L3_VERBS:
-                return f"Subpart uses procedural verb {first!r} (L3) in slot marked {bloom}."
-
-        # Primary subpart (a) determines question-level opening verb checked by bloom_verb_evaluator
-        if label == "a":
-            allowed_levels = BLOOM_ADJACENCY.get(bloom, {bloom})
-            allowed_verbs = set()
-            for lvl in allowed_levels:
-                allowed_verbs.update(BLOOM_VERBS.get(lvl, []))
-            allowed_verbs.update(BLOOM_LEVEL_EXTRAS.get(bloom, set()))
-
-            if first not in allowed_verbs:
-                canonical = BLOOM_VERBS.get(bloom, [])
-                return (
-                    f"first meaningful word {first!r} not in approved verbs for "
-                    f"{bloom} (or adjacent): {sorted(allowed_verbs)}. "
-                    f"Must start with an approved Bloom verb such as: {', '.join(canonical[:5])}"
-                )
 
         return None
 
