@@ -433,6 +433,9 @@ def build_subpart_constraints_section(marks: int) -> str:
         "  - FORBIDDEN PHRASES: Do NOT include preamble phrases such as 'Based on the provided evidence',\n"
         "    'Based on the evidence provided', 'Apply the following', or 'Refer to the text'.\n"
         "  - Open directly with the target Bloom action verb or scenario context.\n"
+        "  - SIBLING INDEPENDENCE: Do NOT reference other sub-parts (e.g. 'with reference to part (a)', 'using your answer from part (a)') and do NOT start with referring pronouns ('It', 'This', 'These', 'They').\n"
+        "  - NO FORMATTING ARTIFACTS: Do NOT include bullet markers (•, ▪, →, ◆, ■) or unparsed placeholders ({TOPIC}, [TOPIC]).\n"
+        "  - COMPLETE CLAUSES: Do NOT end the question text mid-clause or with trailing punctuation like ',' or ';'.\n"
         "  - Keep under 60 words. State the scenario or context concisely, then pose the task.\n"
         "  - Do not reveal the answer in the question text.\n"
         "  - If the topic is mathematical or numerical, provide concrete givens.\n"
@@ -449,6 +452,7 @@ def build_subpart_prompt(
     *,
     strict_json: bool = False,
     difficulty_feedback: Optional[str] = None,
+    validation_feedback: Optional[str] = None,
 ) -> str:
     """
     Compose the Writing Agent prompt for an individual SubPartPlan.
@@ -463,8 +467,22 @@ def build_subpart_prompt(
     if kg:
         sections.append(kg)
 
-    evidence_blocks = getattr(sp_plan, "evidence_blocks", None) or getattr(plan, "evidence_blocks", None)
-    ev = build_evidence_section(evidence_blocks)
+    # Merge subpart and parent evidence blocks, preserving provenance and deduplicating
+    merged_blocks = []
+    seen_keys = set()
+    sp_blocks = getattr(sp_plan, "evidence_blocks", None) or []
+    parent_blocks = getattr(plan, "evidence_blocks", None) or []
+    for b in list(sp_blocks) + list(parent_blocks):
+        b_id = getattr(b, "id", None) if not isinstance(b, dict) else b.get("id")
+        b_text = getattr(b, "text", "") if not isinstance(b, dict) else b.get("text", "")
+        dedup_key = b_id or (b_text[:80] if b_text else None)
+        if dedup_key and dedup_key in seen_keys:
+            continue
+        if dedup_key:
+            seen_keys.add(dedup_key)
+        merged_blocks.append(b)
+
+    ev = build_evidence_section(merged_blocks)
     if ev:
         sections.append(ev)
 
@@ -475,6 +493,14 @@ def build_subpart_prompt(
     sections.append(build_subpart_task_section(sp_plan, difficulty_feedback=difficulty_feedback))
     sections.append(build_subpart_constraints_section(marks=sp_plan.marks))
     sections.append(f"[OUTPUT JSON SCHEMA]\n{SUBPART_OUTPUT_SCHEMA_DESCRIPTION}")
+
+    if validation_feedback and str(validation_feedback).strip():
+        sections.append(
+            "[CORRECTIVE GUIDANCE FOR RETRY]\n"
+            f"Your previous attempt could not be accepted for the following reason:\n"
+            f"{str(validation_feedback).strip()}\n"
+            "Please correct this issue in your response while maintaining all other constraints."
+        )
 
     if strict_json:
         sections.append(

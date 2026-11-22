@@ -475,7 +475,17 @@ def test_13_subpart_labels_match_plan_authoritatively():
 def test_14_co_and_bloom_preserved_in_prompt_and_parent():
     """Test 14: Verify CO/Bloom constraints in prompt formatting and parent GeneratedQuestion."""
     plan = create_planned_question([5, 5], co="CO2", bloom="L3")
-    llm = MockLLMCaller()
+    resp_a = {
+        "text": "Apply CPU scheduling algorithms to compute waiting times.",
+        "solution": "FCFS and SJF scheduling algorithms allocate CPU burst.",
+        "marking_scheme": [{"criterion": "Application", "marks": 5}],
+    }
+    resp_b = {
+        "text": "Calculate turnaround times for the given workload.",
+        "solution": "Turnaround time = completion time - arrival time.",
+        "marking_scheme": [{"criterion": "Calculation", "marks": 5}],
+    }
+    llm = MockLLMCaller(responses=[resp_a, resp_b])
     agent = WritingAgent(llm_caller=llm, enable_irt=False)
     gq, attempts = agent._generate_one(plan)
 
@@ -520,7 +530,7 @@ def test_16_criteria_count_1_to_4_accepted():
     plan = create_planned_question([5, 5])
     # Subpart a: 1 criterion of 5 marks
     resp_1_crit = {
-        "text": "Define system call.",
+        "text": "Describe system call interface.",
         "solution": "System call is interface between process and OS.",
         "marking_scheme": [{"criterion": "Definition", "marks": 5}],
     }
@@ -1272,7 +1282,7 @@ def test_44_identical_diagram_requests_across_subparts_accepted():
         },
     }
     resp_b = {
-        "text": "Discuss system architecture data flow.",
+        "text": "Describe system architecture data flow.",
         "solution": "Data flow transfers words across synchronous bus.",
         "marking_scheme": [{"criterion": "Explanation", "marks": 5}],
         "diagram_request": {
@@ -1308,7 +1318,7 @@ def test_45_diagram_request_with_nested_unhashable_structures_normalized_safely(
         },
     }
     resp_b = {
-        "text": "Discuss cache organization levels.",
+        "text": "Describe cache organization levels.",
         "solution": "Cache organization uses direct and set-associative mappings.",
         "marking_scheme": [{"criterion": "Explanation", "marks": 5}],
         "diagram_request": {
@@ -1337,4 +1347,345 @@ def test_45_diagram_request_with_nested_unhashable_structures_normalized_safely(
     with pytest.raises(GenerationFailed) as excinfo:
         agent2._generate_one(plan)
     assert excinfo.value.code == "UNSUPPORTED_MULTIPLE_VISUALS"
+
+
+# =============================================================================
+# Group 9: Stage G2 WritingAgent Correctness (Tests 46–58)
+# =============================================================================
+
+def test_46_bloom_verb_mismatch_triggers_retry_with_corrective_guidance():
+    """Test 46: Subpart opening with non-Bloom or mismatched verb triggers retry with corrective feedback."""
+    plan = create_planned_question([5, 5], co="CO3", bloom="L4")
+    # Subpart a: Attempt 1 uses non-Bloom verb
+    resp_invalid = {
+        "text": "Discuss cache memory architectures.",
+        "solution": "Cache memory operates in L1, L2, L3 levels.",
+        "marking_scheme": [{"criterion": "Cache architecture", "marks": 5}],
+    }
+    # Subpart a: Attempt 2 uses approved L4 verb 'analyze'
+    resp_valid_a = {
+        "text": "Analyze cache memory miss penalties and hit rates.",
+        "solution": "Miss penalty is calculated using memory latency.",
+        "marking_scheme": [{"criterion": "Analysis", "marks": 5}],
+    }
+    # Subpart b: Valid L4 verb 'compare'
+    resp_valid_b = {
+        "text": "Compare direct-mapped and set-associative cache placement policies.",
+        "solution": "Set-associative reduces conflict misses at hardware cost.",
+        "marking_scheme": [{"criterion": "Comparison", "marks": 5}],
+    }
+
+    llm = MockLLMCaller(responses=[resp_invalid, resp_valid_a, resp_valid_b])
+    agent = WritingAgent(llm_caller=llm, enable_irt=False)
+    gq, attempts = agent._generate_one(plan)
+
+    # Subpart a required 2 attempts; subpart b required 1
+    assert gq.telemetry["subpart_attempts"]["a"] == 2
+    assert gq.telemetry["subpart_attempts"]["b"] == 1
+    assert attempts == 2
+
+    # Verify attempt 2 prompt contained [CORRECTIVE GUIDANCE FOR RETRY] with the bloom error
+    assert len(llm.calls) == 3
+    retry_prompt = llm.calls[1]["prompt"]
+    assert "[CORRECTIVE GUIDANCE FOR RETRY]" in retry_prompt
+    assert "not in approved verbs for L4" in retry_prompt or "not a recognized Bloom" in retry_prompt
+
+
+def test_47_bloom_verb_retry_exhaustion_fails_closed():
+    """Test 47: Persistent Bloom verb mismatch across max attempts fails closed without partial question."""
+    plan = create_planned_question([10], blueprint_id="BP_10M", co="CO3", bloom="L4")
+    # Persistent invalid verb across all 3 attempts
+    resp_invalid = {
+        "text": "Summarize virtual memory operation.",  # L2 verb in L4 slot
+        "solution": "Virtual memory maps virtual to physical addresses.",
+        "marking_scheme": [{"criterion": "Summary", "marks": 10}],
+    }
+    llm = MockLLMCaller(responses=[resp_invalid, resp_invalid, resp_invalid])
+    agent = WritingAgent(llm_caller=llm, enable_irt=False)
+
+    with pytest.raises(GenerationFailed) as excinfo:
+        agent._generate_one(plan)
+
+    assert excinfo.value.code == "SUBPART_GENERATION_FAILED"
+    assert "lower-order verb" in excinfo.value.detail or "not in approved verbs" in excinfo.value.detail
+
+
+def test_48_cognitive_depth_veneer_evaluate_role_of_rejected():
+    """Test 48: Cognitive veneer phrase 'evaluate the role of' is rejected in L5 subpart and retried."""
+    plan = create_planned_question([10], blueprint_id="BP_10M", co="CO4", bloom="L5")
+    resp_veneer = {
+        "text": "Evaluate the role of demand paging in modern operating systems.",
+        "solution": "Demand paging reduces memory footprint.",
+        "marking_scheme": [{"criterion": "Evaluation", "marks": 10}],
+    }
+    resp_valid = {
+        "text": "Evaluate the trade-offs between page replacement policies under high thrashing.",
+        "solution": "Working-set model balances memory allocation and page-fault frequency.",
+        "marking_scheme": [{"criterion": "Evaluation against criteria", "marks": 10}],
+    }
+    llm = MockLLMCaller(responses=[resp_veneer, resp_valid])
+    agent = WritingAgent(llm_caller=llm, enable_irt=False)
+    gq, attempts = agent._generate_one(plan)
+
+    assert gq.telemetry["subpart_attempts"]["a"] == 2
+    retry_prompt = llm.calls[1]["prompt"]
+    assert "Cognitive depth mismatch for L5" in retry_prompt
+
+
+def test_49_cognitive_depth_veneer_analyze_what_is_rejected():
+    """Test 49: Cognitive veneer phrase 'analyze what is' is rejected in L4 subpart and retried."""
+    plan = create_planned_question([10], blueprint_id="BP_10M", co="CO3", bloom="L4")
+    resp_veneer = {
+        "text": "Analyze what is a Translation Lookaside Buffer in memory hardware.",
+        "solution": "TLB is a fast hardware cache for page table entries.",
+        "marking_scheme": [{"criterion": "TLB concept", "marks": 10}],
+    }
+    resp_valid = {
+        "text": "Analyze the impact of TLB reach on multi-level paging performance.",
+        "solution": "Increasing page size improves TLB coverage but increases fragmentation.",
+        "marking_scheme": [{"criterion": "Analysis of trade-offs", "marks": 10}],
+    }
+    llm = MockLLMCaller(responses=[resp_veneer, resp_valid])
+    agent = WritingAgent(llm_caller=llm, enable_irt=False)
+    gq, attempts = agent._generate_one(plan)
+
+    assert gq.telemetry["subpart_attempts"]["a"] == 2
+    retry_prompt = llm.calls[1]["prompt"]
+    assert "Cognitive depth mismatch for L4" in retry_prompt
+
+
+def test_50_lower_order_verb_rejected_in_l4_slot():
+    """Test 50: Lower-order verb (L1/L2 e.g. explain) is rejected in L4 slot and retried."""
+    plan = create_planned_question([5, 5], co="CO3", bloom="L4")
+    resp_l2 = {
+        "text": "Explain process synchronization primitives.",
+        "solution": "Semaphores and mutexes provide mutual exclusion.",
+        "marking_scheme": [{"criterion": "Explanation", "marks": 5}],
+    }
+    resp_l4_a = {
+        "text": "Analyze race conditions in preemptive kernel scheduling.",
+        "solution": "Concurrent access to kernel shared structures requires locking.",
+        "marking_scheme": [{"criterion": "Analysis", "marks": 5}],
+    }
+    resp_l4_b = {
+        "text": "Compare spinlocks and sleep-locks in multi-core operating systems.",
+        "solution": "Spinlocks avoid context-switch overhead for short hold times.",
+        "marking_scheme": [{"criterion": "Comparison", "marks": 5}],
+    }
+    llm = MockLLMCaller(responses=[resp_l2, resp_l4_a, resp_l4_b])
+    agent = WritingAgent(llm_caller=llm, enable_irt=False)
+    gq, attempts = agent._generate_one(plan)
+
+    assert gq.telemetry["subpart_attempts"]["a"] == 2
+    assert "lower-order verb" in llm.calls[1]["prompt"]
+
+
+def test_51_procedural_verb_rejected_in_l5_slot():
+    """Test 51: Procedural verb (L3 e.g. calculate) is rejected in L5 slot and retried."""
+    plan = create_planned_question([10], blueprint_id="BP_10M", co="CO4", bloom="L5")
+    resp_l3 = {
+        "text": "Calculate the effective memory access time for 2-level paging.",
+        "solution": "EMAT = hit_rate * (TLB + Mem) + miss_rate * (TLB + 2*Mem).",
+        "marking_scheme": [{"criterion": "Calculation", "marks": 10}],
+    }
+    resp_l5 = {
+        "text": "Evaluate the architectural suitability of inverted page tables for 64-bit systems.",
+        "solution": "Inverted page tables bound table size to physical memory but slow down lookups.",
+        "marking_scheme": [{"criterion": "Evaluation", "marks": 10}],
+    }
+    llm = MockLLMCaller(responses=[resp_l3, resp_l5])
+    agent = WritingAgent(llm_caller=llm, enable_irt=False)
+    gq, attempts = agent._generate_one(plan)
+
+    assert gq.telemetry["subpart_attempts"]["a"] == 2
+    assert "procedural verb" in llm.calls[1]["prompt"]
+
+
+def test_52_positive_acceptance_higher_order_verbs():
+    """Test 52: Higher-order verbs ('analyze', 'compare', 'critique', 'evaluate') are accepted without retry."""
+    plan = create_planned_question([5, 5], co="CO3", bloom="L4")
+    resp_a = {
+        "text": "Analyze deadlock detection algorithms in resource allocation graphs.",
+        "solution": "Cycle detection in RAG identifies deadlock in single-unit resources.",
+        "marking_scheme": [{"criterion": "Analysis", "marks": 5}],
+    }
+    resp_b = {
+        "text": "Compare Banker algorithm with deadlock prevention strategies.",
+        "solution": "Banker algorithm avoids deadlocks dynamically but requires known maximum claims.",
+        "marking_scheme": [{"criterion": "Comparison", "marks": 5}],
+    }
+    llm = MockLLMCaller(responses=[resp_a, resp_b])
+    agent = WritingAgent(llm_caller=llm, enable_irt=False)
+    gq, attempts = agent._generate_one(plan)
+
+    assert attempts == 1
+    assert len(llm.calls) == 2
+    assert gq.telemetry["subpart_attempts"]["a"] == 1
+    assert gq.telemetry["subpart_attempts"]["b"] == 1
+
+
+def test_53_sibling_chaining_reference_triggers_retry():
+    """Test 53: Subpart (b) referencing part (a) explicitly triggers retry and gets corrected."""
+    plan = create_planned_question([5, 5])
+    resp_a = {
+        "text": "Explain the concept of virtual memory and paging.",
+        "solution": "Virtual memory maps virtual addresses to physical pages.",
+        "marking_scheme": [{"criterion": "Paging concept", "marks": 5}],
+    }
+    resp_b_chained = {
+        "text": "With reference to part (a), explain the page fault frequency.",
+        "solution": "Fault frequency = faults / references.",
+        "marking_scheme": [{"criterion": "Explanation", "marks": 5}],
+    }
+    resp_b_independent = {
+        "text": "Explain the page fault frequency for a process executing under localized demand paging.",
+        "solution": "Fault frequency = faults / references.",
+        "marking_scheme": [{"criterion": "Explanation", "marks": 5}],
+    }
+    llm = MockLLMCaller(responses=[resp_a, resp_b_chained, resp_b_independent])
+    agent = WritingAgent(llm_caller=llm, enable_irt=False)
+    gq, attempts = agent._generate_one(plan)
+
+    assert gq.telemetry["subpart_attempts"]["a"] == 1
+    assert gq.telemetry["subpart_attempts"]["b"] == 2
+    assert "Sibling chaining detected" in llm.calls[2]["prompt"]
+
+
+def test_54_referring_pronoun_starter_triggers_retry():
+    """Test 54: Subpart (b) opening with referring pronoun ('It', 'This') triggers retry."""
+    plan = create_planned_question([5, 5])
+    resp_a = {
+        "text": "Describe the round-robin CPU scheduling algorithm.",
+        "solution": "Round-robin assigns time slices to ready processes circularly.",
+        "marking_scheme": [{"criterion": "Round-robin", "marks": 5}],
+    }
+    resp_b_pronoun = {
+        "text": "It requires a time quantum. Explain how quantum length affects overhead.",
+        "solution": "Small quantum increases context-switch overhead.",
+        "marking_scheme": [{"criterion": "Quantum analysis", "marks": 5}],
+    }
+    resp_b_clean = {
+        "text": "Explain how the length of the time quantum affects context-switch overhead.",
+        "solution": "Small quantum increases overhead; large quantum degrades responsiveness.",
+        "marking_scheme": [{"criterion": "Quantum analysis", "marks": 5}],
+    }
+    llm = MockLLMCaller(responses=[resp_a, resp_b_pronoun, resp_b_clean])
+    agent = WritingAgent(llm_caller=llm, enable_irt=False)
+    gq, attempts = agent._generate_one(plan)
+
+    assert gq.telemetry["subpart_attempts"]["a"] == 1
+    assert gq.telemetry["subpart_attempts"]["b"] == 2
+    assert "starts with referring pronoun" in llm.calls[2]["prompt"]
+
+
+def test_55_sibling_retry_exhaustion_fails_entire_slot_closed():
+    """Test 55: Persistent sibling chaining across retries fails closed without returning partial part (a)."""
+    plan = create_planned_question([5, 5])
+    resp_a = {
+        "text": "Explain the concept of virtual memory.",
+        "solution": "Virtual memory maps addresses.",
+        "marking_scheme": [{"criterion": "VM", "marks": 5}],
+    }
+    resp_b_chained = {
+        "text": "Using your answer from part (a), explain page size.",
+        "solution": "Page size is 4KB.",
+        "marking_scheme": [{"criterion": "Size", "marks": 5}],
+    }
+    llm = MockLLMCaller(responses=[resp_a, resp_b_chained, resp_b_chained, resp_b_chained])
+    agent = WritingAgent(llm_caller=llm, enable_irt=False)
+
+    with pytest.raises(GenerationFailed) as excinfo:
+        agent._generate_one(plan)
+
+    assert excinfo.value.code == "SUBPART_GENERATION_FAILED"
+    assert "Sibling chaining detected" in excinfo.value.detail
+
+
+def test_56_successful_sibling_preserved_across_retries():
+    """Test 56: When subpart (b) retries and succeeds, subpart (a) is preserved without re-calling the LLM."""
+    plan = create_planned_question([5, 5])
+    resp_a = {
+        "text": "Explain process control blocks and their structure.",
+        "solution": "PCB stores PID, registers, PC, and memory bounds.",
+        "marking_scheme": [{"criterion": "PCB", "marks": 5}],
+    }
+    resp_b_bad = {
+        "text": "• Explain thread scheduling in user space.",  # Forbidden bullet artifact
+        "solution": "User threads are multiplexed on kernel threads.",
+        "marking_scheme": [{"criterion": "Threads", "marks": 5}],
+    }
+    resp_b_good = {
+        "text": "Explain thread scheduling in user space.",
+        "solution": "User threads are multiplexed on kernel threads.",
+        "marking_scheme": [{"criterion": "Threads", "marks": 5}],
+    }
+    llm = MockLLMCaller(responses=[resp_a, resp_b_bad, resp_b_good])
+    agent = WritingAgent(llm_caller=llm, enable_irt=False)
+    gq, attempts = agent._generate_one(plan)
+
+    # Exactly 3 calls: 1 for a, 2 for b
+    assert len(llm.calls) == 3
+    assert gq.sub_parts[0].text == "Explain process control blocks and their structure."
+    assert gq.sub_parts[1].text == "Explain thread scheduling in user space."
+
+
+def test_57_raw_formatting_artifacts_rejected_before_cleaning():
+    """Test 57: Bullet markers, placeholders, and trailing punctuation rejected before cleaning."""
+    plan = create_planned_question([10], blueprint_id="BP_10M")
+    # Attempt 1: Bullet marker
+    resp_bullet = {
+        "text": "• Explain the difference between paging and segmentation.",
+        "solution": "Paging is fixed size; segmentation is variable size.",
+        "marking_scheme": [{"criterion": "Comparison", "marks": 10}],
+    }
+    # Attempt 2: Template placeholder
+    resp_placeholder = {
+        "text": "Explain {TOPIC} and its memory architecture.",
+        "solution": "Architecture uses segmented paging.",
+        "marking_scheme": [{"criterion": "Comparison", "marks": 10}],
+    }
+    # Attempt 3: Trailing comma
+    resp_trailing = {
+        "text": "Explain the difference between paging and segmentation,",
+        "solution": "Paging is fixed size; segmentation is variable size.",
+        "marking_scheme": [{"criterion": "Comparison", "marks": 10}],
+    }
+    llm = MockLLMCaller(responses=[resp_bullet, resp_placeholder, resp_trailing])
+    agent = WritingAgent(llm_caller=llm, enable_irt=False)
+
+    with pytest.raises(GenerationFailed) as excinfo:
+        agent._generate_one(plan)
+
+    assert excinfo.value.code == "SUBPART_GENERATION_FAILED"
+    # Verify the corrective feedback tracked the error
+    assert "trailing punctuation" in excinfo.value.detail
+
+
+def test_58_evidence_provenance_aggregation_parent_and_subparts():
+    """Test 58: Evidence summary aggregates from child subpart blocks and parent blocks with deduplication."""
+    class DummyBlock:
+        def __init__(self, id: str, text: str):
+            self.id = id
+            self.text = text
+
+    plan = create_planned_question([5, 5])
+    # Subpart a has evidence block 1
+    plan.sub_part_plans[0].evidence_blocks = [DummyBlock("blk_1", "Page replacement algorithms minimize page faults.")]
+    # Subpart b has evidence block 2
+    plan.sub_part_plans[1].evidence_blocks = [DummyBlock("blk_2", "Working-set strategy monitors process locality.")]
+    # Parent plan has evidence block 1 (duplicate) and block 3
+    plan.evidence_blocks = [
+        DummyBlock("blk_1", "Page replacement algorithms minimize page faults."),
+        DummyBlock("blk_3", "Thrashing occurs when total working set exceeds physical frames."),
+    ]
+
+    llm = MockLLMCaller()
+    agent = WritingAgent(llm_caller=llm, enable_irt=False)
+    gq, attempts = agent._generate_one(plan)
+
+    # Evidence summary must contain text from blk_1, blk_2, and blk_3 without duplicating blk_1
+    assert "Page replacement algorithms minimize page faults." in gq.evidence_summary
+    assert "Working-set strategy monitors process locality." in gq.evidence_summary
+    assert "Thrashing occurs when total working set exceeds physical frames." in gq.evidence_summary
+    assert gq.evidence_summary.count("Page replacement algorithms minimize page faults.") == 1
 

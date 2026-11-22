@@ -14,7 +14,12 @@ and decides whether to escalate.
 Does NOT:
     - Call the API (that is the Refinement Agent's / orchestrator's job)
     - Repair invalid questions (that is the Refinement Agent)
-    - Enforce Bloom verb-at-start (that is the Evaluation Agent)
+
+Enforces at generation time:
+    - Subpart Bloom verb alignment and cognitive depth
+    - Multi-part sibling independence
+    - Raw text artifact and template fragment rejection
+    - Multi-level evidence provenance aggregation
 """
 
 from __future__ import annotations
@@ -35,8 +40,17 @@ from .generated_question import (
     SubPart,
     WritingAgentOutput,
 )
+from .local_evaluators import (
+    _first_meaningful_word,
+    ALL_BLOOM_VERBS,
+    BLOOM_ADJACENCY,
+    BLOOM_LEVEL_EXTRAS,
+    L1_L2_VERBS,
+    L3_VERBS,
+)
 from .planning_agent import PlanStatus
 from .prompts import (
+    BLOOM_VERBS,
     build_difficulty_feedback,
     build_prompt,
     build_subpart_prompt,
@@ -381,6 +395,114 @@ class WritingAgent(Agent):
             detail=f"Unknown plan status {plan_status!r} for slot {getattr(plan, 'slot_id', 'unknown')}",
         )
 
+    def _validate_subpart_raw_artifacts(self, text_raw: str) -> Optional[str]:
+        """Validate raw model response text for forbidden bullet markers, template placeholders, and truncation."""
+        forbidden_bullets = ("•", "▪", "→", "◆", "■")
+        for b in forbidden_bullets:
+            if b in text_raw:
+                return f"subpart text contains forbidden formatting artifact: bullet marker {b!r}"
+
+        # Unparsed template placeholders like {TOPIC}, [TOPIC], {CONCEPT}, etc.
+        placeholder_match = re.search(r"\{[A-Z_]{2,}\}|\[[A-Z_]{2,}\]", text_raw)
+        if placeholder_match:
+            return f"subpart text contains unparsed template placeholder: {placeholder_match.group(0)!r}"
+
+        # Mid-clause ending / trailing punctuation
+        stripped = text_raw.strip()
+        if stripped.endswith((",", ";", "-")):
+            return f"subpart text ends mid-clause with trailing punctuation: {stripped[-1]!r}"
+
+        if len(stripped.split()) < 2:
+            return "subpart text is too short or incomplete"
+
+        return None
+
+    def _validate_subpart_bloom(self, text_raw: str, bloom: str, marks: int, label: str = "a") -> Optional[str]:
+        """
+        Validate opening Bloom verb and cognitive demand alignment for an individual subpart.
+        Re-uses canonical Bloom taxonomy rules from local_evaluators.
+        """
+        if not bloom:
+            bloom = "L2"
+
+        first = _first_meaningful_word(text_raw)
+        if not first:
+            return "subpart text is empty or contains only stopwords"
+
+        valid_bloom_verbs = set(ALL_BLOOM_VERBS) | {"discuss"}
+        if first not in valid_bloom_verbs:
+            return (
+                f"opening verb {first!r} is not a recognized Bloom taxonomy action verb. "
+                f"Must open directly with an approved Bloom verb."
+            )
+
+        # Cognitive demand checks (aligned with bloom_content_evaluator in local_evaluators)
+        if bloom in ("L4", "L5", "L6"):
+            veneer_patterns = [
+                (r"\bevaluate\s+the\s+role\s+of\b", "Evaluate the role of is descriptive (L2) rather than evaluative (L5)."),
+                (r"\banalyze\s+what\s+is\b", "Analyze what is is definitional (L1/L2) rather than analytical (L4)."),
+                (r"\bevaluate\s+the\s+definition\b", "Evaluate the definition is definitional (L1) rather than evaluative (L5)."),
+            ]
+            for pattern, msg in veneer_patterns:
+                if re.search(pattern, text_raw, re.IGNORECASE):
+                    return f"Cognitive depth mismatch for {bloom}: {msg}"
+
+            if first in L1_L2_VERBS:
+                return f"Subpart uses lower-order verb {first!r} (L1/L2) in slot marked {bloom}."
+            if bloom in ("L5", "L6") and first in L3_VERBS:
+                return f"Subpart uses procedural verb {first!r} (L3) in slot marked {bloom}."
+
+        # Primary subpart (a) determines question-level opening verb checked by bloom_verb_evaluator
+        if label == "a":
+            allowed_levels = BLOOM_ADJACENCY.get(bloom, {bloom})
+            allowed_verbs = set()
+            for lvl in allowed_levels:
+                allowed_verbs.update(BLOOM_VERBS.get(lvl, []))
+            allowed_verbs.update(BLOOM_LEVEL_EXTRAS.get(bloom, set()))
+
+            if first not in allowed_verbs:
+                canonical = BLOOM_VERBS.get(bloom, [])
+                return (
+                    f"first meaningful word {first!r} not in approved verbs for "
+                    f"{bloom} (or adjacent): {sorted(allowed_verbs)}. "
+                    f"Must start with an approved Bloom verb such as: {', '.join(canonical[:5])}"
+                )
+
+        return None
+
+    def _validate_subpart_independence(self, text_raw: str, label: str, prior_subparts: List[SubPart]) -> Optional[str]:
+        """
+        Validate multi-part sibling independence: subsequent subparts must not chain to
+        earlier subparts or begin with referring pronouns.
+        """
+        if not prior_subparts:
+            return None
+
+        chain_patterns = [
+            (r"\bwith\s+reference\s+to\s+(?:part\s+\(?[a-zA-Z]\)?|\([a-zA-Z]\))", "explicit chaining to previous part"),
+            (r"\bin\s+(?:the\s+)?context\s+of\s+(?:part\s+\(?[a-zA-Z]\)?|\([a-zA-Z]\))", "contextual dependency on previous part"),
+            (r"\busing\s+(?:your|the)\s+answer\s+(?:from|to)\s+(?:part\s+\(?[a-zA-Z]\)?|\([a-zA-Z]\)|above)", "dependency on previous part's answer"),
+            (r"\bextend(?:ing)?\s+(?:the\s+)?(?:above|part\s*\(?[a-zA-Z]\)?)", "extends previous part instead of testing distinct topic"),
+            (r"\bcontinuing\s+from\s+(?:part\s*\(?[a-zA-Z]\)?|above)", "continuity chaining from previous part"),
+            (r"\bcompare\s+(?:this\s+)?to\s+(?:your|the)\s+answer\b", "references previous answer"),
+            (r"\bhow\s+does\s+(?:this|that)\s+compare\b", "relies on comparison with previous part"),
+            (r"\bsubsequent\s+to\s+(?:the\s+)?above\b", "sequential dependency on previous part"),
+            (r"\bbased\s+on\s+the\s+result\s+of\b", "result dependency on previous part"),
+        ]
+
+        for pattern, desc in chain_patterns:
+            if re.search(pattern, text_raw, re.IGNORECASE):
+                return f"Sibling chaining detected in subpart ({label}): {desc}"
+
+        clean_leading = re.sub(r"^\s*\(?[a-zA-Z0-9ivxIVX]+\)?[.:]\s*", "", text_raw).strip()
+        first_token = (clean_leading.split()[0].rstrip(".,:;!?").lower()) if clean_leading.split() else ""
+        first_meaningful = _first_meaningful_word(clean_leading)
+        referring_pronouns = {"it", "this", "that", "these", "those", "they", "them", "such"}
+        if first_token in referring_pronouns or first_meaningful in referring_pronouns:
+            return f"Subpart ({label}) starts with referring pronoun {first_token or first_meaningful!r} rather than an independent concept or verb"
+
+        return None
+
     def _generate_structured_subparts(
         self,
         plan,
@@ -443,6 +565,7 @@ class WritingAgent(Agent):
                     sp_plan,
                     strict_json=strict_json,
                     difficulty_feedback=difficulty_feedback,
+                    validation_feedback=last_error if attempt > 1 else None,
                 )
 
                 try:
@@ -519,6 +642,25 @@ class WritingAgent(Agent):
                     last_error = f"marking_scheme criteria sum ({scheme_sum}) != subpart marks ({sp_plan.marks})"
                     continue
 
+                # --- TRACK A / STAGE G2 VALIDATION ---
+                # 1. Raw text formatting artifacts & template fragments (MUST run BEFORE cleaning)
+                raw_err = self._validate_subpart_raw_artifacts(text_raw)
+                if raw_err:
+                    last_error = raw_err
+                    continue
+
+                # 2. Bloom verb and cognitive depth alignment
+                bloom_err = self._validate_subpart_bloom(text_raw, getattr(sp_plan, "bloom", "L2"), sp_plan.marks, label=sp_plan.label)
+                if bloom_err:
+                    last_error = bloom_err
+                    continue
+
+                # 3. Sibling independence (must not chain to previous subparts)
+                indep_err = self._validate_subpart_independence(text_raw, sp_plan.label, subparts)
+                if indep_err:
+                    last_error = indep_err
+                    continue
+
                 # Clean subpart text (strip preamble and any accidental leading label)
                 clean_t = self._clean_text(text_raw)
                 # Strip leading subpart label like "(a)", "a.", "a)" if model included it
@@ -554,6 +696,10 @@ class WritingAgent(Agent):
                     subpart_diagram_requests[sp_plan.label] = parsed.get("diagram_request")
                 if parsed.get("bloom_verb_used"):
                     subpart_bloom_verbs[sp_plan.label] = parsed.get("bloom_verb_used")
+                else:
+                    first_v = _first_meaningful_word(clean_t)
+                    if first_v:
+                        subpart_bloom_verbs[sp_plan.label] = first_v
 
                 subparts.append(sp)
                 subpart_attempts[sp_plan.label] = attempt
@@ -829,10 +975,30 @@ class WritingAgent(Agent):
         return q_text
 
     def _build_evidence_summary(self, plan) -> str:
-        """Build evidence summary from plan's evidence blocks or fallback."""
+        """Build evidence summary from plan's and subparts' evidence blocks or fallback."""
+        all_blocks = []
+        seen_keys = set()
+
+        for sp in getattr(plan, "sub_part_plans", None) or []:
+            for block in getattr(sp, "evidence_blocks", None) or []:
+                b_id = getattr(block, "id", None) if not isinstance(block, dict) else block.get("id")
+                b_text = getattr(block, "text", "") if not isinstance(block, dict) else block.get("text", "")
+                k = b_id or (b_text[:80] if b_text else None)
+                if k and k not in seen_keys:
+                    seen_keys.add(k)
+                    all_blocks.append(block)
+
+        for block in getattr(plan, "evidence_blocks", None) or []:
+            b_id = getattr(block, "id", None) if not isinstance(block, dict) else block.get("id")
+            b_text = getattr(block, "text", "") if not isinstance(block, dict) else block.get("text", "")
+            k = b_id or (b_text[:80] if b_text else None)
+            if k and k not in seen_keys:
+                seen_keys.add(k)
+                all_blocks.append(block)
+
         evidence_texts = []
-        for block in (getattr(plan, "evidence_blocks", None) or [])[:5]:
-            text = getattr(block, "text", "")
+        for block in all_blocks[:5]:
+            text = getattr(block, "text", "") if not isinstance(block, dict) else block.get("text", "")
             if text:
                 evidence_texts.append(text[:500])
         evidence_summary = " ".join(evidence_texts)[:2500]
