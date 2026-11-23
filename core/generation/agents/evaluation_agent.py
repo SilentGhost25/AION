@@ -91,8 +91,14 @@ class EvaluationAgent(Agent):
         # Phase 1: local evaluations
         verdicts: List[SlotVerdict] = []
         candidates = []
+        plans_by_slot = {
+            p.slot_id: p
+            for p in (getattr(context, "plans", []) or [])
+            if getattr(p, "slot_id", None)
+        }
         for q in questions:
-            local_failure = run_local_evaluators(q)
+            plan = plans_by_slot.get(q.slot_id)
+            local_failure = run_local_evaluators(q, plan=plan)
             if local_failure is not None:
                 verdicts.append(local_failure)
             else:
@@ -149,9 +155,10 @@ class EvaluationAgent(Agent):
             elapsed_seconds=round(elapsed, 3),
             telemetry={
                 "questions_evaluated": len(questions),
-                "local_failures": len([v for v in verdicts if v.source == "local"]),
+                "local_failures": len([v for v in verdicts if v.source == "local" and v.failed]),
                 "api_evaluated": len([v for v in verdicts if v.source == "api"]),
                 "unverified": len([v for v in verdicts if v.verdict == "unverified"]),
+                "subpart_failures": len([v for v in verdicts if getattr(v, "affected_subparts", ())] ),
             },
         )
 

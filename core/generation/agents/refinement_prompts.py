@@ -14,7 +14,8 @@ any content that was correct.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Tuple
+import re
 
 
 MAX_ORIGINAL_QUESTION = 1000
@@ -91,10 +92,14 @@ def build_repair_prompt(
     detail: str,
     suggested_fix: Optional[str],
     *,
+    affected_subparts: Optional[Tuple[str, ...]] = None,
     strict_json: bool = False,
 ) -> str:
     """
-    Compose the repair prompt for a single question.
+    Compose the repair prompt for a question.
+    When a single subpart is affected, generates an isolated subpart repair prompt
+    with preserved sibling subparts marked strictly read-only.
+    When whole question or no subparts exist, generates full question repair prompt.
 
     strict_json: if True, adds a stronger directive to return only JSON.
     """
@@ -103,6 +108,76 @@ def build_repair_prompt(
         "Fix the flagged issue without changing other content.",
     )
 
+    # Check if this can be isolated to a single subpart
+    target_label = None
+    if getattr(question, "sub_parts", None):
+        if affected_subparts and len(affected_subparts) == 1:
+            target_label = affected_subparts[0].lower()
+        elif not affected_subparts:
+            m = re.findall(r"SubPart\s*\(([a-z])\)", detail, re.IGNORECASE)
+            if len(m) == 1:
+                target_label = m[0].lower()
+
+    if target_label and getattr(question, "sub_parts", None):
+        target_sp = next((sp for sp in question.sub_parts if sp.label.lower() == target_label), None)
+        if target_sp is not None:
+            siblings = [
+                f"({sp.label}) [{sp.marks} marks] {sp.text}"
+                for sp in question.sub_parts
+                if sp.label.lower() != target_label
+            ]
+            siblings_display = "\n\n".join(siblings) if siblings else "None"
+
+            sections = [
+                "[SUBPART REPAIR TASK]",
+                f"Target subpart: ({target_label})",
+                f"Assigned marks: {target_sp.marks}",
+                f"Topic: {target_sp.topic or question.topic}",
+                f"Reason code: {reason_code}",
+                f"Evaluator's detail: {detail}",
+            ]
+
+            if suggested_fix:
+                sections.append(f"Suggested fix: {suggested_fix}")
+
+            sections.extend([
+                "",
+                "[REPAIR INSTRUCTIONS]",
+                guidance,
+                f"1. Repair ONLY subpart ({target_label}).",
+                f"2. The criteria in 'marking_scheme' MUST sum exactly to {target_sp.marks} marks.",
+                f"3. Return self-contained question text for subpart ({target_label}) WITHOUT any leading label marker like '({target_label})'.",
+                "4. Do NOT duplicate, alter, re-phrase, or cross-reference the preserved sibling subparts shown below.",
+                "",
+                "[PRESERVED SIBLING SUBPARTS (READ-ONLY - DO NOT MODIFY OR DUPLICATE)]",
+                siblings_display,
+                "",
+                f"[CURRENT SUBPART ({target_label})]",
+                f"Text: {_truncate(target_sp.text, MAX_ORIGINAL_QUESTION)}",
+                f"Solution: {_truncate(target_sp.solution, MAX_ORIGINAL_SOLUTION)}",
+                f"Marks: {target_sp.marks}",
+                "",
+                "[OUTPUT SCHEMA]",
+                """{
+  "label": "%s",
+  "text": "string — corrected self-contained question text for subpart (%s)",
+  "solution": "string — corrected model answer for subpart (%s)",
+  "marking_scheme": [
+    {"criterion": "string", "marks": integer}
+  ],
+  "change_summary": "string — brief note on what was changed"
+}""" % (target_label, target_label, target_label),
+            ])
+
+            if strict_json:
+                sections.append(
+                    "\n[IMPORTANT]\n"
+                    "Return ONLY the JSON object. Do not include any commentary."
+                )
+
+            return "\n".join(sections)
+
+    # Full question repair path
     marks_display = (
         " + ".join(str(m) for m in question.partition)
         if question.partition else str(question.marks)

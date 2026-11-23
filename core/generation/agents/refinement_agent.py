@@ -27,7 +27,7 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
 from .base import Agent, AgentContext, AgentResult
 from .deterministic_repairs import try_deterministic_repair
 from .evaluation_contracts import AuditReport, SlotVerdict
-from .generated_question import GeneratedQuestion
+from .generated_question import GeneratedQuestion, SubPart
 from .refinement_contracts import (
     TIER_DETERMINISTIC,
     TIER_LLM,
@@ -122,6 +122,73 @@ def _aggregate_unresolved_metadata(
 # -----------------------------------------------------------------------------
 # Agent
 # -----------------------------------------------------------------------------
+
+
+def _validate_and_normalize_marking_scheme(
+    raw_scheme: Any,
+    expected_marks: int,
+) -> Optional[List[Dict[str, Any]]]:
+    """
+    Strictly validate and normalize marking scheme criteria:
+    - Must be a non-empty list of dicts.
+    - Each dict must have a non-empty 'criterion' or 'description' string.
+    - Each dict must have a 'marks' field that is a positive integer,
+      or a float/string representing an exact positive integer (e.g., 2.0 or "2").
+    - Booleans and non-integral numbers are rejected.
+    - Sum of marks across all criteria must strictly equal expected_marks.
+    - Returns normalized list of criteria with integer marks, or None if invalid.
+    - Strictly rejects substantive mark changes; NEVER rescales drifted marks.
+    """
+    if not isinstance(raw_scheme, list) or not raw_scheme or expected_marks <= 0:
+        return None
+
+    normalized: List[Dict[str, Any]] = []
+    total = 0
+
+    for item in raw_scheme:
+        if not isinstance(item, dict):
+            return None
+        desc = item.get("criterion") or item.get("description")
+        if not desc or not str(desc).strip():
+            return None
+
+        raw_marks = item.get("marks")
+        if isinstance(raw_marks, bool) or raw_marks is None:
+            return None
+
+        # Accept positive integer or exact integer float/str representation
+        if isinstance(raw_marks, int):
+            m_val = raw_marks
+        elif isinstance(raw_marks, float):
+            if not raw_marks.is_integer():
+                return None
+            m_val = int(raw_marks)
+        elif isinstance(raw_marks, str):
+            s = raw_marks.strip()
+            try:
+                f_val = float(s)
+                if not f_val.is_integer():
+                    return None
+                m_val = int(f_val)
+            except ValueError:
+                return None
+        else:
+            return None
+
+        if m_val <= 0:
+            return None
+
+        crit_dict = dict(item)
+        crit_dict["criterion"] = str(desc).strip()
+        crit_dict["marks"] = m_val
+        normalized.append(crit_dict)
+        total += m_val
+
+    if total != expected_marks:
+        # Strictly reject substantive mark changes; no rescaling
+        return None
+
+    return normalized
 
 
 class RefinementAgent(Agent):
@@ -389,11 +456,13 @@ class RefinementAgent(Agent):
                 None,
             )
 
+        affected_subparts = getattr(verdict, "affected_subparts", ())
         llm_repaired = self._try_llm_repair(
             question=original,
             reason_code=reason_code,
             detail=detail,
             suggested_fix=suggested_fix,
+            affected_subparts=affected_subparts,
         )
         if llm_repaired is not None:
             return (
@@ -425,13 +494,22 @@ class RefinementAgent(Agent):
         reason_code: str,
         detail: str,
         suggested_fix: Optional[str],
+        affected_subparts: Tuple[str, ...] = (),
     ) -> Optional[GeneratedQuestion]:
+        is_subpart_repair = bool(
+            getattr(question, "sub_parts", None)
+            and (
+                len(affected_subparts) == 1
+                or len(re.findall(r"SubPart\s*\(([a-z])\)", detail, re.IGNORECASE)) == 1
+            )
+        )
         for attempt in range(1, self._max_attempts + 1):
             prompt = build_repair_prompt(
                 question=question,
                 reason_code=reason_code,
                 detail=detail,
                 suggested_fix=suggested_fix,
+                affected_subparts=affected_subparts,
                 strict_json=(attempt > 1),
             )
             try:
@@ -443,11 +521,21 @@ class RefinementAgent(Agent):
             parsed = self._parse_json(raw)
             if parsed is None:
                 continue
-            missing = [k for k in REQUIRED_REPAIR_KEYS if k not in parsed]
-            if missing:
-                continue
 
-            return self._build_repaired(question, parsed)
+            if is_subpart_repair:
+                has_text = "text" in parsed or "question_text" in parsed
+                has_sol = "solution" in parsed
+                has_scheme = "marking_scheme" in parsed
+                if not (has_text and has_sol and has_scheme):
+                    continue
+            else:
+                missing = [k for k in REQUIRED_REPAIR_KEYS if k not in parsed]
+                if missing and "sub_parts" not in parsed:
+                    continue
+
+            repaired = self._build_repaired(question, parsed, affected_subparts=affected_subparts)
+            if repaired is not None:
+                return repaired
         return None
 
     def _parse_json(self, raw: Any) -> Optional[dict]:
@@ -471,16 +559,162 @@ class RefinementAgent(Agent):
             return None
 
     def _build_repaired(
-        self, original: GeneratedQuestion, parsed: dict
-    ) -> GeneratedQuestion:
+        self,
+        original: GeneratedQuestion,
+        parsed: dict,
+        affected_subparts: Tuple[str, ...] = (),
+    ) -> Optional[GeneratedQuestion]:
         q = copy.deepcopy(original)
+
+        # 1. Target SubPart isolation
+        if q.sub_parts:
+            target_label = None
+            if affected_subparts and len(affected_subparts) == 1:
+                target_label = affected_subparts[0].lower()
+            elif "label" in parsed:
+                target_label = str(parsed["label"]).strip().lower()
+            else:
+                m = re.findall(r"SubPart\s*\(([a-z])\)", str(parsed.get("detail", "")), re.IGNORECASE)
+                if len(m) == 1:
+                    target_label = m[0].lower()
+
+            if target_label:
+                target_sp = next((sp for sp in q.sub_parts if sp.label.lower() == target_label), None)
+                if target_sp is not None:
+                    # Reject substantive marks change if attempted in response
+                    if "marks" in parsed:
+                        try:
+                            if int(parsed["marks"]) != target_sp.marks:
+                                return None
+                        except (ValueError, TypeError):
+                            return None
+
+                    new_text = str(parsed.get("text") or parsed.get("question_text", target_sp.text)).strip()
+                    # Strip leading redundant label like "(b) " if model prepended it
+                    redundant_pattern = rf"^\s*\(?\s*{re.escape(target_label)}\s*[\)\.\:\-]\s*|^\s*\(\s*{re.escape(target_label)}\s*\)\s*"
+                    new_text = re.sub(redundant_pattern, "", new_text, count=1, flags=re.IGNORECASE).strip()
+                    if not new_text:
+                        return None
+
+                    new_solution = str(parsed.get("solution", target_sp.solution)).strip()
+                    raw_scheme = list(parsed.get("marking_scheme", target_sp.marking_scheme))
+
+                    # Strict criteria validation and marks conservation:
+                    # Accept permitted numerical normalization, reject substantive discrepancies
+                    new_scheme = _validate_and_normalize_marking_scheme(raw_scheme, target_sp.marks)
+                    if new_scheme is None:
+                        return None
+
+                    # Sibling subparts remain bit-for-bit unchanged; update target only
+                    target_sp.text = new_text
+                    target_sp.solution = new_solution
+                    target_sp.marking_scheme = new_scheme
+
+                    valid, err = target_sp.validate()
+                    if not valid:
+                        return None
+
+                    q.sync_materialized_projections()
+                    consistent, err = q.verify_projection_consistency()
+                    if not consistent:
+                        return None
+
+                    q.telemetry = dict(q.telemetry or {})
+                    q.telemetry["repair_change_summary"] = str(
+                        parsed.get("change_summary", "")
+                    )[:300]
+                    return q
+
+            # Full multi-part replacement if sub_parts provided in response
+            if "sub_parts" in parsed and isinstance(parsed["sub_parts"], list):
+                raw_sps = parsed["sub_parts"]
+                if len(raw_sps) != len(q.sub_parts):
+                    return None
+                new_subparts = []
+                for i, raw_sp in enumerate(raw_sps):
+                    orig_sp = q.sub_parts[i]
+                    sp_label = str(raw_sp.get("label", orig_sp.label)).strip().lower()
+                    if "marks" in raw_sp:
+                        try:
+                            sp_marks = int(raw_sp["marks"])
+                            if sp_marks != orig_sp.marks:
+                                return None
+                        except (ValueError, TypeError):
+                            return None
+                    else:
+                        sp_marks = orig_sp.marks
+
+                    sp_text = str(raw_sp.get("text", orig_sp.text)).strip()
+                    sp_sol = str(raw_sp.get("solution", orig_sp.solution)).strip()
+                    raw_scheme = list(raw_sp.get("marking_scheme", orig_sp.marking_scheme))
+
+                    sp_scheme = _validate_and_normalize_marking_scheme(raw_scheme, orig_sp.marks)
+                    if sp_scheme is None:
+                        return None
+
+                    sp_obj = SubPart(
+                        label=sp_label,
+                        marks=sp_marks,
+                        text=sp_text,
+                        topic=orig_sp.topic,
+                        solution=sp_sol,
+                        marking_scheme=sp_scheme,
+                        figure_id=orig_sp.figure_id,
+                        image_path=orig_sp.image_path,
+                        figure_caption=orig_sp.figure_caption,
+                        image_sha256=orig_sp.image_sha256,
+                    )
+                    valid, err = sp_obj.validate()
+                    if not valid:
+                        return None
+                    new_subparts.append(sp_obj)
+
+                q.sub_parts = new_subparts
+                q.sync_materialized_projections()
+                consistent, err = q.verify_projection_consistency()
+                if not consistent:
+                    return None
+                q.telemetry = dict(q.telemetry or {})
+                q.telemetry["repair_change_summary"] = str(
+                    parsed.get("change_summary", "")
+                )[:300]
+                return q
+
+        # 2. Legacy single-part replacement
+        if "marks" in parsed:
+            try:
+                if int(parsed["marks"]) != original.marks:
+                    return None
+            except (ValueError, TypeError):
+                return None
+
         q.question_text = str(parsed.get("question_text", original.question_text)).strip()
         q.solution = str(parsed.get("solution", original.solution)).strip()
-        q.marking_scheme = list(parsed.get("marking_scheme", original.marking_scheme))
+        raw_scheme = list(parsed.get("marking_scheme", original.marking_scheme))
+        if raw_scheme or original.marking_scheme or "marking_scheme" in parsed:
+            norm_scheme = _validate_and_normalize_marking_scheme(raw_scheme, original.marks)
+            if norm_scheme is None:
+                return None
+            q.marking_scheme = norm_scheme
+        else:
+            q.marking_scheme = []
+
         q.diagram_request = parsed.get("diagram_request", original.diagram_request)
         q.references_image = bool(
             parsed.get("references_image", original.references_image)
         )
+        if q.sub_parts and len(q.sub_parts) == 1 and not q.is_multi_part:
+            q.sub_parts[0].text = q.question_text
+            q.sub_parts[0].solution = q.solution
+            q.sub_parts[0].marking_scheme = q.marking_scheme
+            valid, err = q.sub_parts[0].validate()
+            if not valid:
+                return None
+            q.sync_materialized_projections()
+            consistent, _ = q.verify_projection_consistency()
+            if not consistent:
+                return None
+
         # Update telemetry
         q.telemetry = dict(q.telemetry or {})
         q.telemetry["repair_change_summary"] = str(

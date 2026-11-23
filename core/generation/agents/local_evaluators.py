@@ -30,6 +30,7 @@ from .evaluation_contracts import (
     SCENARIO_CONTRADICTION,
     SIBLING_DUPLICATE,
     SIBLING_INTERCONNECTED,
+    UNVERIFIED,
     SlotVerdict,
 )
 from core.validation.bloom_validator import (
@@ -46,6 +47,13 @@ from .prompts import BLOOM_VERBS, IMAGE_REFERENCE_PHRASES
 # Thresholds
 # -----------------------------------------------------------------------------
 
+
+
+class CorrespondenceOutcome:
+    PASS = "PASS"
+    FAIL = "FAIL"
+    INDETERMINATE = "INDETERMINATE"
+    LEGACY = "LEGACY"
 
 
 MIN_QUESTION_CHARS = 20
@@ -129,9 +137,122 @@ def _first_meaningful_word(text: str) -> str:
     return clean_words[0]
 
 
-def bloom_verb_evaluator(question) -> Optional[SlotVerdict]:
-    """First meaningful word must be a canonical Bloom action verb exactly matching question.bloom."""
-    first = _first_meaningful_word(question.question_text or "")
+def resolve_subpart_plan_correspondence(
+    question: Any, plan: Any
+) -> Tuple[str, Dict[str, Tuple[Any, Any]], Optional[SlotVerdict]]:
+    """
+    Establish authoritative correspondence between question.sub_parts and plan.sub_part_plans.
+    Handles:
+      - Duplicate labels in either collection.
+      - Missing plan entries.
+      - Extra generated subparts.
+      - Case normalization.
+      - Missing or ambiguous slot IDs.
+    Returns:
+      (status, mapping, error_verdict)
+      status: "PASS" | "FAIL" | "INDETERMINATE" | "LEGACY"
+      mapping: {norm_label: (sp, sp_plan)}
+      error_verdict: SlotVerdict if status in ("FAIL", "INDETERMINATE"), else None
+    """
+    if plan is None or not getattr(plan, "sub_part_plans", None):
+        return "LEGACY", {}, None
+
+    # Check slot_id correspondence
+    q_slot = getattr(question, "slot_id", None)
+    p_slot = getattr(plan, "slot_id", None)
+    if not q_slot or not p_slot or q_slot != p_slot:
+        return "INDETERMINATE", {}, SlotVerdict(
+            slot_id=q_slot or "unknown",
+            verdict="unverified",
+            source="local",
+            reason_code=UNVERIFIED,
+            detail=f"slot_id correspondence ambiguous: question slot {q_slot!r} vs plan slot {p_slot!r}",
+        )
+
+    q_subparts = getattr(question, "sub_parts", None) or []
+    p_subpart_plans = getattr(plan, "sub_part_plans", None) or []
+
+    # Check for duplicate labels in plan
+    p_labels = [getattr(sp_p, "label", "").strip().lower() for sp_p in p_subpart_plans]
+    if len(p_labels) != len(set(p_labels)):
+        dups = sorted(list(set(l for l in p_labels if p_labels.count(l) > 1)))
+        return "INDETERMINATE", {}, SlotVerdict(
+            slot_id=q_slot,
+            verdict="unverified",
+            source="local",
+            reason_code=UNVERIFIED,
+            detail=f"duplicate subpart labels in plan for slot {p_slot}: {dups}",
+        )
+
+    # Check for duplicate labels in question
+    q_labels = [getattr(sp, "label", "").strip().lower() for sp in q_subparts]
+    if len(q_labels) != len(set(q_labels)):
+        dups = sorted(list(set(l for l in q_labels if q_labels.count(l) > 1)))
+        return "FAIL", {}, _fail(
+            question,
+            MULTI_PART_STRUCTURE_MISMATCH,
+            f"duplicate subpart labels in generated question: {dups}",
+            affected_subparts=tuple(dups),
+        )
+
+    # Check for missing or extra subparts
+    set_q = set(q_labels)
+    set_p = set(p_labels)
+    if set_q != set_p:
+        missing_in_q = sorted(list(set_p - set_q))
+        extra_in_q = sorted(list(set_q - set_p))
+        err_msg = []
+        if missing_in_q:
+            err_msg.append(f"missing planned subparts {missing_in_q}")
+        if extra_in_q:
+            err_msg.append(f"unexpected extra subparts {extra_in_q}")
+        return "FAIL", {}, _fail(
+            question,
+            MULTI_PART_STRUCTURE_MISMATCH,
+            f"Subpart correspondence violation: {'; '.join(err_msg)}",
+            affected_subparts=tuple(missing_in_q or extra_in_q),
+        )
+
+    # Map by normalized label
+    p_by_label = {getattr(sp_p, "label", "").strip().lower(): sp_p for sp_p in p_subpart_plans}
+    mapping = {}
+    for sp in q_subparts:
+        lbl = getattr(sp, "label", "").strip().lower()
+        mapping[lbl] = (sp, p_by_label[lbl])
+
+    return "PASS", mapping, None
+
+
+def bloom_verb_evaluator(question, plan=None) -> Optional[SlotVerdict]:
+    """First meaningful word must be a canonical Bloom action verb exactly matching target Bloom level."""
+    # SubPart-governed path
+    if getattr(question, "sub_parts", None) and plan is not None:
+        status, mapping, err_verdict = resolve_subpart_plan_correspondence(question, plan)
+        if err_verdict is not None:
+            return err_verdict
+        if status == "PASS":
+            for label, (sp, sp_plan) in mapping.items():
+                first = _first_meaningful_word(getattr(sp, "text", "") or "")
+                if not first:
+                    return _fail(
+                        question, BLOOM_MISMATCH,
+                        f"SubPart ({label}) text is empty or contains only stopwords",
+                        affected_subparts=(label,),
+                    )
+                target_bloom = getattr(sp_plan, "bloom", None) or getattr(question, "bloom", "L2")
+                compliant, detected_level, reason = is_exact_slot_compliant(first, target_bloom)
+                if not compliant:
+                    canonical = sorted(BLOOM_VERB_LEVEL_MAP.get(target_bloom, set()))
+                    return _fail(
+                        question, BLOOM_MISMATCH,
+                        f"SubPart ({label}) opening verb {first!r} does not match target {target_bloom}: {reason}",
+                        fix=f"Start SubPart ({label}) with one of: {', '.join(canonical)}",
+                        affected_subparts=(label,),
+                    )
+            return None
+
+    # Legacy / Single-part fallback (when plan is None or question has no subparts)
+    first = _first_meaningful_word(getattr(question, "question_text", "") or "")
     if not first:
         return _fail(
             question, BLOOM_MISMATCH,
@@ -208,8 +329,55 @@ def figure_consistency_evaluator(question) -> Optional[SlotVerdict]:
     return None
 
 
-def question_length_evaluator(question) -> Optional[SlotVerdict]:
-    n = len(question.question_text.strip())
+def question_length_evaluator(question, plan=None) -> Optional[SlotVerdict]:
+    """
+    Validate question length under explicit VTU assessment length policy.
+    - SubParts: <= 600 chars (for marks <= 6), <= 800 chars (for marks > 6).
+    - Composite: max(1200, sum(subpart_limits)).
+    - Legacy / Single-part: MIN = 20, MAX = 1200 chars.
+    """
+    sub_parts = getattr(question, "sub_parts", None) or []
+    if sub_parts and len(sub_parts) > 1:
+        comp_max = max(MAX_QUESTION_CHARS, sum(600 if getattr(sp, "marks", 5) <= 6 else 800 for sp in sub_parts))
+        comp_len = len((getattr(question, "question_text", "") or "").strip())
+        if comp_len < MIN_QUESTION_CHARS:
+            return _fail(
+                question, QUESTION_TOO_SHORT,
+                f"composite question is {comp_len} chars, minimum {MIN_QUESTION_CHARS}",
+                fix="Expand the question to be self-contained",
+            )
+        if comp_len > comp_max:
+            return _fail(
+                question, QUESTION_TOO_LONG,
+                f"composite question is {comp_len} chars, maximum {comp_max}",
+                fix="Shorten the question text",
+            )
+        for sp in sub_parts:
+            lbl = getattr(sp, "label", "unknown")
+            sp_marks = getattr(sp, "marks", 5)
+            sp_max = 600 if sp_marks <= 6 else 800
+            # Strip outer label markers and trailing marks annotations to measure actual intended content consistently
+            sp_raw = getattr(sp, "text", "") or ""
+            sp_clean = re.sub(r"^\s*\(?[a-zA-Z0-9ivxIVX]+\)?[.:)]?\s*", "", sp_raw)
+            sp_clean = re.sub(r"\s*\[\s*\d+\s*(?:marks?|m)?\s*\]\s*$|\s*\(\s*\d+\s*(?:marks?|m)?\s*\)\s*$", "", sp_clean, flags=re.IGNORECASE).strip()
+            if len(sp_clean) < MIN_QUESTION_CHARS:
+                return _fail(
+                    question, QUESTION_TOO_SHORT,
+                    f"SubPart ({lbl}) content is {len(sp_clean)} chars, minimum {MIN_QUESTION_CHARS}",
+                    fix=f"Expand SubPart ({lbl}) to be self-contained",
+                    affected_subparts=(lbl,),
+                )
+            if len(sp_clean) > sp_max:
+                return _fail(
+                    question, QUESTION_TOO_LONG,
+                    f"SubPart ({lbl}) content is {len(sp_clean)} chars, maximum {sp_max} for {sp_marks} marks",
+                    fix=f"Shorten SubPart ({lbl}) text",
+                    affected_subparts=(lbl,),
+                )
+        return None
+
+    # Single-part / Legacy evaluation
+    n = len((getattr(question, "question_text", "") or "").strip())
     if n < MIN_QUESTION_CHARS:
         return _fail(
             question, QUESTION_TOO_SHORT,
@@ -246,23 +414,63 @@ def solution_evaluator(question) -> Optional[SlotVerdict]:
 _PART_LABEL = re.compile(r"\(?([ivx]+|[a-z]|\d+)\)\s", re.IGNORECASE)
 
 
-def multi_part_structure_evaluator(question) -> Optional[SlotVerdict]:
+def multi_part_structure_evaluator(question, plan=None) -> Optional[SlotVerdict]:
     """
-    If the question is multi-part (partition has >1 elements), the text
-    should contain sub-part labels. If single-part, it should not.
+    Validate multi-part structural integrity:
+    - Multi-part question must have >= 2 subparts with matching labels and conserved marks.
+    - Single-part question must not have subpart labels.
     """
-    is_multi = question.is_multi_part
-    has_labels = len(_PART_LABEL.findall(question.question_text)) >= 2
+    sub_parts = getattr(question, "sub_parts", None) or []
+    is_multi = getattr(question, "is_multi_part", False)
+
+    if sub_parts:
+        if is_multi:
+            if len(sub_parts) < 2:
+                return _fail(
+                    question, MULTI_PART_STRUCTURE_MISMATCH,
+                    f"partition {getattr(question, 'partition', [])} implies sub-parts but only {len(sub_parts)} found",
+                    fix="Structure the question with explicit (a)/(b) sub-parts",
+                )
+            labels = [getattr(sp, "label", "").strip().lower() for sp in sub_parts]
+            # Check duplicate labels
+            if len(labels) != len(set(labels)):
+                dups = sorted(list(set(l for l in labels if labels.count(l) > 1)))
+                return _fail(
+                    question, MULTI_PART_STRUCTURE_MISMATCH,
+                    f"duplicate subpart labels: {dups}",
+                    affected_subparts=tuple(dups),
+                )
+            # Check marks conservation across subparts
+            subpart_marks_sum = sum(getattr(sp, "marks", 0) for sp in sub_parts)
+            q_marks = getattr(question, "marks", 0)
+            if subpart_marks_sum != q_marks:
+                return _fail(
+                    question, MULTI_PART_STRUCTURE_MISMATCH,
+                    f"subpart marks sum ({subpart_marks_sum}) != question marks ({q_marks})",
+                    fix="Ensure subpart marks sum to question marks",
+                )
+        else:
+            if len(sub_parts) > 1:
+                return _fail(
+                    question, MULTI_PART_STRUCTURE_MISMATCH,
+                    "single-part slot contains multiple subparts",
+                    fix="Consolidate into single question",
+                )
+        return None
+
+    # Legacy regex-based evaluation when sub_parts list is absent
+    q_text = getattr(question, "question_text", "") or ""
+    has_labels = len(_PART_LABEL.findall(q_text)) >= 2
     if is_multi and not has_labels:
         return _fail(
             question, MULTI_PART_STRUCTURE_MISMATCH,
-            f"partition {question.partition} implies sub-parts but none found in text",
+            f"partition {getattr(question, 'partition', [])} implies sub-parts but none found in text",
             fix="Structure the question with explicit (i)/(ii) or (a)/(b) sub-parts",
         )
     if not is_multi and has_labels:
         return _fail(
             question, MULTI_PART_STRUCTURE_MISMATCH,
-            f"single-part slot but text contains sub-part labels",
+            "single-part slot but text contains sub-part labels",
             fix="Remove sub-part labels",
         )
     return None
@@ -487,8 +695,28 @@ def evaluate_cognitive_demand(text: str, target_bloom: str) -> Tuple[str, Option
     return SemanticDemandOutcome.PASS, None
 
 
-def bloom_content_evaluator(question) -> Optional[SlotVerdict]:
+def bloom_content_evaluator(question, plan=None) -> Optional[SlotVerdict]:
     """Ensure cognitive demand matches the assigned Bloom level across all 6 levels."""
+    sub_parts = getattr(question, "sub_parts", None) or []
+    if sub_parts and plan is not None:
+        status, mapping, err_verdict = resolve_subpart_plan_correspondence(question, plan)
+        if err_verdict is not None:
+            return err_verdict
+        if status == "PASS":
+            for label, (sp, sp_plan) in mapping.items():
+                sp_text = getattr(sp, "text", "") or ""
+                target_bloom = getattr(sp_plan, "bloom", None) or getattr(question, "bloom", "L2")
+                sp_outcome, sp_reason = evaluate_cognitive_demand(sp_text, target_bloom)
+                if sp_outcome != SemanticDemandOutcome.PASS:
+                    return _fail(
+                        question, BLOOM_DEPTH_MISMATCH,
+                        f"SubPart ({label}): {sp_reason}",
+                        fix=f"Align SubPart ({label}) to {target_bloom} cognitive requirements.",
+                        affected_subparts=(label,),
+                    )
+            return None
+
+    # Legacy fallback
     bloom = getattr(question, "bloom", "L2")
     text = (getattr(question, "question_text", None) or getattr(question, "text", "") or "").strip()
     if not text:
@@ -503,10 +731,10 @@ def bloom_content_evaluator(question) -> Optional[SlotVerdict]:
             fix=f"Align question framing to {bloom} cognitive requirements.",
         )
 
-    # For multi-part questions, evaluate each subpart
-    sub_parts = _extract_subparts(text)
-    if len(sub_parts) > 1:
-        for label, sub_text in sub_parts:
+    # For multi-part questions without plan, evaluate each subpart against question.bloom
+    extracted_parts = _extract_subparts(text)
+    if len(extracted_parts) > 1:
+        for label, sub_text in extracted_parts:
             sp_outcome, sp_reason = evaluate_cognitive_demand(sub_text, bloom)
             if sp_outcome != SemanticDemandOutcome.PASS:
                 clean_subpart = label.strip("(). ").lower()
@@ -617,12 +845,16 @@ LOCAL_EVALUATORS: List[LocalEvaluator] = [
 ]
 
 
-def run_local_evaluators(question) -> Optional[SlotVerdict]:
+def run_local_evaluators(question, plan=None) -> Optional[SlotVerdict]:
     """
     Run all local evaluators in order. Return the first failure, or None.
+    Passes plan to subpart-aware evaluators while preserving single-arg signature for legacy callers.
     """
     for evaluator in LOCAL_EVALUATORS:
-        verdict = evaluator(question)
+        try:
+            verdict = evaluator(question, plan=plan)
+        except TypeError:
+            verdict = evaluator(question)
         if verdict is not None:
             return verdict
     return None
