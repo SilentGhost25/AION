@@ -503,6 +503,11 @@ class RefinementAgent(Agent):
                 or len(re.findall(r"SubPart\s*\(([a-z])\)", detail, re.IGNORECASE)) == 1
             )
         )
+        is_multi = bool(
+            getattr(question, "is_multi_part", False)
+            or (getattr(question, "sub_parts", None) and len(question.sub_parts) > 1)
+        )
+
         for attempt in range(1, self._max_attempts + 1):
             prompt = build_repair_prompt(
                 question=question,
@@ -512,6 +517,26 @@ class RefinementAgent(Agent):
                 affected_subparts=affected_subparts,
                 strict_json=(attempt > 1),
             )
+            if is_multi and not is_subpart_repair:
+                target_str = ", ".join(f"({s})" for s in affected_subparts) if affected_subparts else "all subparts"
+                prompt += (
+                    f"\n\n[STRUCTURED MULTI-SUBPART FORMAT REQUIRED]\n"
+                    f"This question has {len(question.sub_parts)} subparts. You MUST return a JSON object with a 'sub_parts' list "
+                    f"targeting {target_str}.\n"
+                    f"Schema:\n"
+                    f'{{\n'
+                    f'  "sub_parts": [\n'
+                    f'    {{\n'
+                    f'      "label": "a",\n'
+                    f'      "text": "corrected text for subpart (a)",\n'
+                    f'      "solution": "corrected solution for subpart (a)",\n'
+                    f'      "marking_scheme": [{{"criterion": "...", "marks": integer}}]\n'
+                    f'    }}\n'
+                    f'  ],\n'
+                    f'  "change_summary": "brief note on changes"\n'
+                    f'}}'
+                )
+
             try:
                 raw = self._llm.call(prompt, schema=None, seed=self._seed)
             except Exception as e:
@@ -523,10 +548,15 @@ class RefinementAgent(Agent):
                 continue
 
             if is_subpart_repair:
+                has_structured_subparts = "sub_parts" in parsed and isinstance(parsed["sub_parts"], list)
                 has_text = "text" in parsed or "question_text" in parsed
                 has_sol = "solution" in parsed
                 has_scheme = "marking_scheme" in parsed
-                if not (has_text and has_sol and has_scheme):
+                if not has_structured_subparts and not (has_text and has_sol and has_scheme):
+                    continue
+            elif is_multi:
+                # Multi-part question must provide structured sub_parts per G5-A policy
+                if "sub_parts" not in parsed or not isinstance(parsed["sub_parts"], list):
                     continue
             else:
                 missing = [k for k in REQUIRED_REPAIR_KEYS if k not in parsed]
@@ -564,101 +594,106 @@ class RefinementAgent(Agent):
         parsed: dict,
         affected_subparts: Tuple[str, ...] = (),
     ) -> Optional[GeneratedQuestion]:
-        q = copy.deepcopy(original)
+        is_multi = bool(
+            getattr(original, "is_multi_part", False)
+            or (getattr(original, "sub_parts", None) and len(original.sub_parts) > 1)
+        )
 
-        # 1. Target SubPart isolation
-        if q.sub_parts:
-            target_label = None
-            if affected_subparts and len(affected_subparts) == 1:
-                target_label = affected_subparts[0].lower()
-            elif "label" in parsed:
-                target_label = str(parsed["label"]).strip().lower()
+        # -------------------------------------------------------------
+        # 1. Multi-part Question Repair (Structured Candidates Only)
+        # -------------------------------------------------------------
+        if is_multi and original.sub_parts:
+            existing_labels = [sp.label.lower() for sp in original.sub_parts]
+            existing_set = set(existing_labels)
+
+            # Determine target subpart labels
+            if affected_subparts:
+                target_labels = {str(s).strip().lower() for s in affected_subparts if str(s).strip()}
+                if not target_labels.issubset(existing_set):
+                    return None
             else:
                 m = re.findall(r"SubPart\s*\(([a-z])\)", str(parsed.get("detail", "")), re.IGNORECASE)
-                if len(m) == 1:
-                    target_label = m[0].lower()
+                if len(m) == 1 and m[0].lower() in existing_set:
+                    target_labels = {m[0].lower()}
+                elif "label" in parsed and str(parsed["label"]).strip().lower() in existing_set:
+                    target_labels = {str(parsed["label"]).strip().lower()}
+                else:
+                    target_labels = set(existing_set)
 
-            if target_label:
-                target_sp = next((sp for sp in q.sub_parts if sp.label.lower() == target_label), None)
-                if target_sp is not None:
-                    # Reject substantive marks change if attempted in response
-                    if "marks" in parsed:
+            # Extract raw replacements dictionary by label
+            rep_by_label: Dict[str, dict] = {}
+            if "sub_parts" in parsed and isinstance(parsed["sub_parts"], list):
+                raw_list = parsed["sub_parts"]
+                seen_labels = set()
+                for item in raw_list:
+                    if not isinstance(item, dict):
+                        return None
+                    lbl = str(item.get("label", "")).strip().lower()
+                    if not lbl or lbl in seen_labels:
+                        return None
+                    seen_labels.add(lbl)
+                    rep_by_label[lbl] = item
+            elif len(target_labels) == 1:
+                single_lbl = list(target_labels)[0]
+                if "label" in parsed and str(parsed["label"]).strip().lower() != single_lbl:
+                    return None
+                rep_by_label[single_lbl] = parsed
+            else:
+                # Monolithic response for multi-target question -> REJECT per G5-A policy
+                return None
+
+            # Completeness check: EVERY intended target must have a replacement
+            if not target_labels.issubset(set(rep_by_label.keys())):
+                return None
+
+            # Untargeted siblings check: untargeted siblings must NOT be modified
+            untargeted = existing_set - target_labels
+            for u_lbl in untargeted:
+                if u_lbl in rep_by_label:
+                    u_item = rep_by_label[u_lbl]
+                    u_orig = next(sp for sp in original.sub_parts if sp.label.lower() == u_lbl)
+                    if "marks" in u_item:
                         try:
-                            if int(parsed["marks"]) != target_sp.marks:
+                            if int(u_item["marks"]) != u_orig.marks:
+                                return None
+                        except (ValueError, TypeError):
+                            return None
+                    new_u_text = str(u_item.get("text") or u_item.get("question_text", u_orig.text)).strip()
+                    if new_u_text != u_orig.text.strip():
+                        return None
+
+            # Build candidate subparts without mutating original
+            candidate_subparts: List[SubPart] = []
+            for orig_sp in original.sub_parts:
+                lbl = orig_sp.label.lower()
+                if lbl in target_labels:
+                    raw_sp = rep_by_label[lbl]
+                    if "marks" in raw_sp:
+                        try:
+                            if int(raw_sp["marks"]) != orig_sp.marks:
                                 return None
                         except (ValueError, TypeError):
                             return None
 
-                    new_text = str(parsed.get("text") or parsed.get("question_text", target_sp.text)).strip()
-                    # Strip leading redundant label like "(b) " if model prepended it
-                    redundant_pattern = rf"^\s*\(?\s*{re.escape(target_label)}\s*[\)\.\:\-]\s*|^\s*\(\s*{re.escape(target_label)}\s*\)\s*"
+                    new_text = str(raw_sp.get("text") or raw_sp.get("question_text", orig_sp.text)).strip()
+                    redundant_pattern = rf"^\s*\(?\s*{re.escape(lbl)}\s*[\)\.\:\-]\s*|^\s*\(\s*{re.escape(lbl)}\s*\)\s*"
                     new_text = re.sub(redundant_pattern, "", new_text, count=1, flags=re.IGNORECASE).strip()
                     if not new_text:
                         return None
 
-                    new_solution = str(parsed.get("solution", target_sp.solution)).strip()
-                    raw_scheme = list(parsed.get("marking_scheme", target_sp.marking_scheme))
-
-                    # Strict criteria validation and marks conservation:
-                    # Accept permitted numerical normalization, reject substantive discrepancies
-                    new_scheme = _validate_and_normalize_marking_scheme(raw_scheme, target_sp.marks)
+                    new_solution = str(raw_sp.get("solution", orig_sp.solution)).strip()
+                    raw_scheme = list(raw_sp.get("marking_scheme", orig_sp.marking_scheme))
+                    new_scheme = _validate_and_normalize_marking_scheme(raw_scheme, orig_sp.marks)
                     if new_scheme is None:
                         return None
 
-                    # Sibling subparts remain bit-for-bit unchanged; update target only
-                    target_sp.text = new_text
-                    target_sp.solution = new_solution
-                    target_sp.marking_scheme = new_scheme
-
-                    valid, err = target_sp.validate()
-                    if not valid:
-                        return None
-
-                    q.sync_materialized_projections()
-                    consistent, err = q.verify_projection_consistency()
-                    if not consistent:
-                        return None
-
-                    q.telemetry = dict(q.telemetry or {})
-                    q.telemetry["repair_change_summary"] = str(
-                        parsed.get("change_summary", "")
-                    )[:300]
-                    return q
-
-            # Full multi-part replacement if sub_parts provided in response
-            if "sub_parts" in parsed and isinstance(parsed["sub_parts"], list):
-                raw_sps = parsed["sub_parts"]
-                if len(raw_sps) != len(q.sub_parts):
-                    return None
-                new_subparts = []
-                for i, raw_sp in enumerate(raw_sps):
-                    orig_sp = q.sub_parts[i]
-                    sp_label = str(raw_sp.get("label", orig_sp.label)).strip().lower()
-                    if "marks" in raw_sp:
-                        try:
-                            sp_marks = int(raw_sp["marks"])
-                            if sp_marks != orig_sp.marks:
-                                return None
-                        except (ValueError, TypeError):
-                            return None
-                    else:
-                        sp_marks = orig_sp.marks
-
-                    sp_text = str(raw_sp.get("text", orig_sp.text)).strip()
-                    sp_sol = str(raw_sp.get("solution", orig_sp.solution)).strip()
-                    raw_scheme = list(raw_sp.get("marking_scheme", orig_sp.marking_scheme))
-
-                    sp_scheme = _validate_and_normalize_marking_scheme(raw_scheme, orig_sp.marks)
-                    if sp_scheme is None:
-                        return None
-
-                    sp_obj = SubPart(
-                        label=sp_label,
-                        marks=sp_marks,
-                        text=sp_text,
+                    cand_sp = SubPart(
+                        label=orig_sp.label,
+                        marks=orig_sp.marks,
+                        text=new_text,
                         topic=orig_sp.topic,
-                        solution=sp_sol,
-                        marking_scheme=sp_scheme,
+                        solution=new_solution,
+                        marking_scheme=new_scheme,
                         figure_id=orig_sp.figure_id,
                         image_path=orig_sp.image_path,
                         figure_caption=orig_sp.figure_caption,
@@ -666,23 +701,33 @@ class RefinementAgent(Agent):
                         bloom=getattr(orig_sp, "bloom", "") or "",
                         co=getattr(orig_sp, "co", "") or "",
                     )
-                    valid, err = sp_obj.validate()
+                    valid, err = cand_sp.validate()
                     if not valid:
                         return None
-                    new_subparts.append(sp_obj)
+                    candidate_subparts.append(cand_sp)
+                else:
+                    candidate_subparts.append(copy.deepcopy(orig_sp))
 
-                q.sub_parts = new_subparts
-                q.sync_materialized_projections()
-                consistent, err = q.verify_projection_consistency()
-                if not consistent:
-                    return None
-                q.telemetry = dict(q.telemetry or {})
-                q.telemetry["repair_change_summary"] = str(
-                    parsed.get("change_summary", "")
-                )[:300]
-                return q
+            # Build Candidate Question
+            cand_q = copy.deepcopy(original)
+            cand_q.sub_parts = candidate_subparts
+            cand_q.sync_materialized_projections()
+            consistent, err = cand_q.verify_projection_consistency()
+            if not consistent:
+                return None
 
-        # 2. Legacy single-part replacement
+            cand_q.telemetry = dict(cand_q.telemetry or {})
+            cand_q.telemetry["repair_change_summary"] = str(
+                parsed.get("change_summary", "")
+            )[:300]
+            return cand_q
+
+        # -------------------------------------------------------------
+        # 2. Single-part Question Repair
+        # -------------------------------------------------------------
+        if is_multi:
+            return None
+
         if "marks" in parsed:
             try:
                 if int(parsed["marks"]) != original.marks:
@@ -690,39 +735,44 @@ class RefinementAgent(Agent):
             except (ValueError, TypeError):
                 return None
 
-        q.question_text = str(parsed.get("question_text", original.question_text)).strip()
-        q.solution = str(parsed.get("solution", original.solution)).strip()
+        cand_text = str(parsed.get("question_text", original.question_text)).strip()
+        cand_sol = str(parsed.get("solution", original.solution)).strip()
         raw_scheme = list(parsed.get("marking_scheme", original.marking_scheme))
         if raw_scheme or original.marking_scheme or "marking_scheme" in parsed:
             norm_scheme = _validate_and_normalize_marking_scheme(raw_scheme, original.marks)
             if norm_scheme is None:
                 return None
-            q.marking_scheme = norm_scheme
         else:
-            q.marking_scheme = []
+            norm_scheme = []
 
-        q.diagram_request = parsed.get("diagram_request", original.diagram_request)
-        q.references_image = bool(
+        cand_q = copy.deepcopy(original)
+        cand_q.question_text = cand_text
+        cand_q.solution = cand_sol
+        cand_q.marking_scheme = norm_scheme
+        cand_q.diagram_request = parsed.get("diagram_request", original.diagram_request)
+        cand_q.references_image = bool(
             parsed.get("references_image", original.references_image)
         )
-        if q.sub_parts and len(q.sub_parts) == 1 and not q.is_multi_part:
-            q.sub_parts[0].text = q.question_text
-            q.sub_parts[0].solution = q.solution
-            q.sub_parts[0].marking_scheme = q.marking_scheme
-            valid, err = q.sub_parts[0].validate()
+
+        if cand_q.sub_parts and len(cand_q.sub_parts) == 1:
+            cand_sp = copy.deepcopy(cand_q.sub_parts[0])
+            cand_sp.text = cand_text
+            cand_sp.solution = cand_sol
+            cand_sp.marking_scheme = norm_scheme
+            valid, err = cand_sp.validate()
             if not valid:
                 return None
-            q.sync_materialized_projections()
-            consistent, _ = q.verify_projection_consistency()
+            cand_q.sub_parts = [cand_sp]
+            cand_q.sync_materialized_projections()
+            consistent, _ = cand_q.verify_projection_consistency()
             if not consistent:
                 return None
 
-        # Update telemetry
-        q.telemetry = dict(q.telemetry or {})
-        q.telemetry["repair_change_summary"] = str(
+        cand_q.telemetry = dict(cand_q.telemetry or {})
+        cand_q.telemetry["repair_change_summary"] = str(
             parsed.get("change_summary", "")
         )[:300]
-        return q
+        return cand_q
 
     def _is_numerical(self, question: GeneratedQuestion) -> bool:
         text = (question.question_text or "") + " " + (question.solution or "")

@@ -186,23 +186,6 @@ def _extract_subpart_structure(text: str, n_parts: int) -> SubpartExtractionResu
     return SubpartExtractionResult(stem=stem, clauses=tuple(clauses), success=True, raw_text=text)
 
 
-def _extract_subpart_texts(text: str, n_parts: int) -> List[str]:
-    """Backward compatibility wrapper around _extract_subpart_structure."""
-    res = _extract_subpart_structure(text, n_parts)
-    if res.success and res.clauses:
-        stem = res.stem
-        clauses = list(res.clauses)
-        if stem:
-            clauses[0] = f"{stem} {clauses[0]}".strip()
-        return clauses
-    return [text]
-
-
-def _strip_shared_prefix(sub_texts: list, min_words: int = 6) -> list:
-    """Backward compatibility wrapper."""
-    return list(sub_texts)
-
-
 # -----------------------------------------------------------------------------
 # Public API
 # -----------------------------------------------------------------------------
@@ -281,23 +264,67 @@ def _clause_references_figure(text: str) -> bool:
     ))
 
 
-def _clean_topic(concept: str) -> str:
-    """Sanitize a topic string: strip bullets, relative clauses, leading participles, etc."""
-    if not concept:
-        return "the core module concept"
-    t = str(concept).strip()
-    t = re.sub(r"^[▪•→◆■\*\-\d\.\)\s]+", "", t).strip()
-    t = re.sub(r"[▪•→◆■]+", " ", t).strip()
-    t = re.split(r",\s*(?:where|which|that|who|when)\b", t, flags=re.IGNORECASE)[0].strip()
-    t = t.rstrip(",;:.- ")
-    t = re.sub(r"^(?:executed\s+by|where|which|that|by|when|and|or|for|during|using)\s+", "", t, flags=re.IGNORECASE).strip()
-    t = re.sub(r"\s+in\s+detail$", "", t, flags=re.IGNORECASE).strip()
-    if t.lower().startswith("the "):
-        t = t[4:].strip()
-    if not t or len(t) < 3:
-        return "the core principles"
-    return t
+def _resolve_mq_index(q: GeneratedQuestion) -> int:
+    idx = getattr(q, "global_q_idx", None)
+    if isinstance(idx, int) and idx > 0:
+        return idx
+    slot_id = getattr(q, "slot_id", "") or ""
+    m = re.search(r"Q(\d+)", slot_id, re.IGNORECASE)
+    if m:
+        val = int(m.group(1))
+        if val > 0:
+            return val
+    raise ValueError(
+        f"Unable to resolve valid question numbering (mq_index) for slot_id='{slot_id}', "
+        f"global_q_idx={idx}. Numbering contract requires an explicit positive integer index."
+    )
 
+
+def _to_bloom_int(b: Any) -> int:
+    if isinstance(b, int):
+        if 1 <= b <= 6:
+            return b
+        raise ValueError(f"Bloom integer level {b} outside valid VTU range 1..6.")
+    digits = re.findall(r"\d+", str(b))
+    if digits:
+        val = int(digits[0])
+        if 1 <= val <= 6:
+            return val
+    raise ValueError(f"Cannot parse valid Bloom level from '{b}'.")
+
+
+BLOOM_NAMES: Dict[int, str] = {
+    1: "Remember",
+    2: "Understand",
+    3: "Apply",
+    4: "Analyse",
+    5: "Evaluate",
+    6: "Create",
+}
+
+
+def get_bloom_level_name(level: int) -> str:
+    return BLOOM_NAMES.get(level, "Understand")
+
+
+def _resolve_bloom_presentation(q: GeneratedQuestion, sub_questions: List[dict]) -> Tuple[int, str]:
+    sub_blooms = []
+    for sq in sub_questions:
+        b_val = sq.get("bloom")
+        if b_val:
+            try:
+                sub_blooms.append(_to_bloom_int(b_val))
+            except ValueError:
+                pass
+    if sub_blooms:
+        level = max(sub_blooms)
+    else:
+        q_bloom = getattr(q, "bloom", None)
+        if not q_bloom:
+            raise ValueError(f"Slot '{getattr(q, 'slot_id', '?')}' has no bloom level defined.")
+        level = _to_bloom_int(q_bloom)
+    name = get_bloom_level_name(level)
+    return level, name
 
 def _to_question_dict(q: GeneratedQuestion) -> dict:
     """Convert one GeneratedQuestion to the legacy question dict with synthesized subquestions."""
@@ -723,10 +750,16 @@ def _to_question_dict(q: GeneratedQuestion) -> dict:
     if q_adaptation_failure_code:
         telemetry["adaptation_failure_code"] = q_adaptation_failure_code
 
+    mq_index = _resolve_mq_index(q)
+    bloom_level, bloom_name = _resolve_bloom_presentation(q, sub_questions)
+
     return {
         "slot_id": q.slot_id,
         "module_id": q.module_id,
         "global_q_idx": q.global_q_idx,
+        "mq_index": mq_index,
+        "bloom_level": bloom_level,
+        "bloom_name": bloom_name,
         "text": q.question_text,
         "question_text": q.question_text,
         "stem": stem,

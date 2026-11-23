@@ -1008,6 +1008,20 @@ def test_scenario_13_refinement_preservation_subpart_labels_marks_and_partitions
         def call(self, prompt, schema=None, seed=None):
             import json
             return json.dumps({
+                "sub_parts": [
+                    {
+                        "label": "a",
+                        "text": "State precisely the concepts of topic A.",
+                        "solution": "Sol A",
+                        "marking_scheme": [{"criterion": "Crit A", "marks": 6}],
+                    },
+                    {
+                        "label": "b",
+                        "text": "State precisely the concepts of topic B.",
+                        "solution": "Sol B",
+                        "marking_scheme": [{"criterion": "Crit B", "marks": 4}],
+                    },
+                ],
                 "question_text": "State precisely the concepts of topic A and topic B.",
                 "solution": "Refined comprehensive solution for topic A and B.",
                 "marking_scheme": [

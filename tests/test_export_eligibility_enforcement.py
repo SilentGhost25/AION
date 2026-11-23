@@ -42,13 +42,33 @@ class DummyPlan:
     slot_id: Any
 
 
+TOPICS_10 = [
+    ("Design a lexical analyzer to recognize keywords and identifiers using deterministic finite automata.", "Lexical analyzer tokenizes input stream..."),
+    ("Construct transition tables for nondeterministic finite automata accepting regular patterns.", "Transition table maps states and inputs..."),
+    ("Construct a predictive parsing table for the specified LL(1) context-free grammar.", "Parsing table entries computed using First and Follow sets..."),
+    ("Demonstrate canonical collection of LR(0) items for bottom-up syntax analysis.", "Canonical collection constructed using closure and goto operations..."),
+    ("Evaluate type checking rules and construct annotated parse trees for arithmetic expressions.", "Type checking validates operator operands compatibility..."),
+    ("Formulate syntax directed translation schemes to evaluate postfix expressions during parsing.", "SDTS defines semantic actions associated with grammar productions..."),
+    ("Translate conditional source statements into quadruple representations of three-address code.", "Three address code consists of at most one operator and three addresses..."),
+    ("Generate control flow graphs and identify dominator trees from intermediate code.", "Control flow graph partitions instructions into basic blocks..."),
+    ("Apply basic block leader identification and common subexpression elimination algorithms.", "Basic blocks identified starting with leader statements..."),
+    ("Perform loop invariant code motion and strength reduction on nested induction variables.", "Loop optimization moves loop-independent computations outside loop header..."),
+]
+
+
 def make_clean_question(
     slot_id: str,
     module_id: str = "module_1",
     global_q_idx: int = 1,
-    question_text: str = "Explain the architecture of a transformer model.",
-    solution: str = "The transformer model consists of an encoder and a decoder stack...",
+    question_text: str = None,
+    solution: str = None,
 ) -> GeneratedQuestion:
+    idx = max(0, min(9, global_q_idx - 1))
+    default_text, default_sol = TOPICS_10[idx]
+    if question_text is None:
+        question_text = default_text
+    if solution is None:
+        solution = default_sol
     return GeneratedQuestion(
         slot_id=slot_id,
         module_id=module_id,

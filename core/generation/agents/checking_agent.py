@@ -219,6 +219,18 @@ class CheckingAgent(Agent):
         for sid, subparts in accounting_telemetry.get("subquestion_defects", {}).items():
             degraded_reasons.append(f"SUBPART_UNRESOLVED:{sid}:{','.join(subparts)}")
 
+        # Check 7: Whole-paper cross-module deduplication audit (Stage G5-C)
+        from .overlap_detector import audit_cross_module_duplicates
+        cross_module_duplicates = audit_cross_module_duplicates(context.questions or [])
+        if cross_module_duplicates:
+            for dup in cross_module_duplicates:
+                if dup["severity"] == "question_level":
+                    reason = f"CROSS_MODULE_QUESTION_DUPLICATE:{dup['slot_a']}_vs_{dup['slot_b']}"
+                else:
+                    reason = f"CROSS_MODULE_SUBPART_DUPLICATE:{dup['slot_a']}({dup.get('subpart_a', '?')})_vs_{dup['slot_b']}({dup.get('subpart_b', '?')})"
+                if reason not in degraded_reasons:
+                    degraded_reasons.append(reason)
+
         # Compute final status
         if blocked_reasons:
             status = STATUS_BLOCKED
@@ -240,6 +252,7 @@ class CheckingAgent(Agent):
             "hard_block_enabled": _hard_block_enabled(),
             "accounting": accounting_telemetry,
             "all_accounting_defects": all_accounting_defects,
+            "cross_module_duplicates": cross_module_duplicates,
         }
 
         report = QAReport(
