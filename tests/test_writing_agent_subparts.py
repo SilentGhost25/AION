@@ -500,9 +500,9 @@ def test_14_co_and_bloom_preserved_in_prompt_and_parent():
     assert gq.bloom == "L3"
     assert gq.co == "CO2"
 
-    # SubPart dataclass itself does NOT have bloom or co fields
-    assert not hasattr(gq.sub_parts[0], "bloom")
-    assert not hasattr(gq.sub_parts[0], "co")
+    # Stage G4 Track B: SubPart dataclass now preserves bloom and co fields
+    assert hasattr(gq.sub_parts[0], "bloom")
+    assert hasattr(gq.sub_parts[0], "co")
 
 
 def test_15_unknown_bloom_level_rejected_with_value_error():

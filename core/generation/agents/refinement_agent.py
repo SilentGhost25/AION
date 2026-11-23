@@ -663,6 +663,8 @@ class RefinementAgent(Agent):
                         image_path=orig_sp.image_path,
                         figure_caption=orig_sp.figure_caption,
                         image_sha256=orig_sp.image_sha256,
+                        bloom=getattr(orig_sp, "bloom", "") or "",
+                        co=getattr(orig_sp, "co", "") or "",
                     )
                     valid, err = sp_obj.validate()
                     if not valid:

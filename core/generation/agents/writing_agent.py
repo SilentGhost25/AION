@@ -682,6 +682,8 @@ class WritingAgent(Agent):
                         topic=sp_plan.topic or "",
                         solution=clean_sol,
                         marking_scheme=scheme_raw,
+                        bloom=getattr(sp_plan, "bloom", "") or "",
+                        co=getattr(sp_plan, "co", "") or "",
                     )
                 except Exception as exc:
                     last_error = f"SubPart construction failed: {exc}"

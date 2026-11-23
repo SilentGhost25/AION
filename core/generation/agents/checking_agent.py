@@ -153,34 +153,67 @@ class CheckingAgent(Agent):
             if DEGRADED_REASON_UNVERIFIED_EVALUATION not in degraded_reasons:
                 degraded_reasons.append(DEGRADED_REASON_UNVERIFIED_EVALUATION)
 
-        # Check 5b: Physical validation of referenced visual assets (Stage G2-D)
+        # Check 5b: Physical validation of referenced visual assets (Stage G2-D, hardened in Stage G4-C)
         from core.contracts.document_artifact import validate_physical_image
+        from core.generation.agents.prompts import IMAGE_REFERENCE_PHRASES
         ws_root = getattr(context, "workspace_dir", None)
         if ws_root is None and hasattr(context, "request") and isinstance(context.request, dict):
             ws_root = context.request.get("workspace_dir")
         for q in getattr(context, "questions", []):
             if not getattr(q, "is_unresolved", False):
-                has_image = bool(getattr(q, "references_image", False) or getattr(q, "image_path", None))
                 sub_parts = getattr(q, "sub_parts", []) or []
-                visual_sps = [sp for sp in sub_parts if getattr(sp, "image_path", None) or getattr(sp, "figure_id", None)]
 
-                if has_image or visual_sps:
-                    target_path = getattr(q, "image_path", None)
-                    target_hash = getattr(q, "image_sha256", None)
-                    if not target_path and visual_sps:
-                        target_path = getattr(visual_sps[0], "image_path", None)
-                        target_hash = getattr(visual_sps[0], "image_sha256", None)
+                # 1. Validate parent-level referenced image if parent indicates visual reference
+                parent_refs_image = getattr(q, "references_image", False)
+                p_path = getattr(q, "image_path", None)
+                p_hash = getattr(q, "image_sha256", None)
+                parent_text = getattr(q, "question_text", "") or ""
+                parent_text_ref = any(phrase in parent_text.lower() for phrase in IMAGE_REFERENCE_PHRASES) if not sub_parts else False
 
-                    if target_path:
+                if parent_refs_image or p_path or parent_text_ref:
+                    if not p_path:
+                        if BLOCK_REASON_MISSING_VISUAL_ASSET not in blocked_reasons:
+                            blocked_reasons.append(BLOCK_REASON_MISSING_VISUAL_ASSET)
+                        blocked_reasons.append(f"{BLOCK_REASON_MISSING_VISUAL_ASSET}:parent:missing_path")
+                    else:
                         valid_img, img_err = validate_physical_image(
-                            target_path,
-                            expected_sha256=target_hash,
+                            p_path,
+                            expected_sha256=p_hash,
                             workspace_root=ws_root,
                         )
                         if not valid_img:
                             if BLOCK_REASON_MISSING_VISUAL_ASSET not in blocked_reasons:
                                 blocked_reasons.append(BLOCK_REASON_MISSING_VISUAL_ASSET)
-                            blocked_reasons.append(f"{BLOCK_REASON_MISSING_VISUAL_ASSET}:{img_err}")
+                            blocked_reasons.append(f"{BLOCK_REASON_MISSING_VISUAL_ASSET}:parent:{img_err}")
+
+                # 2. Validate every visual-bearing subpart independently (NON-SUPPRESSION)
+                for sp in sub_parts:
+                    sp_path = getattr(sp, "image_path", None)
+                    sp_hash = getattr(sp, "image_sha256", None)
+                    sp_fid = getattr(sp, "figure_id", None)
+                    sp_text = getattr(sp, "text", "") or ""
+                    sp_text_ref = any(phrase in sp_text.lower() for phrase in IMAGE_REFERENCE_PHRASES)
+                    sp_label = getattr(sp, "label", "?")
+
+                    if sp_path or sp_fid or sp_text_ref:
+                        if not sp_path and sp_fid:
+                            if BLOCK_REASON_MISSING_VISUAL_ASSET not in blocked_reasons:
+                                blocked_reasons.append(BLOCK_REASON_MISSING_VISUAL_ASSET)
+                            blocked_reasons.append(f"{BLOCK_REASON_MISSING_VISUAL_ASSET}:subpart_{sp_label}:missing_path_for_figure_{sp_fid}")
+                        elif not sp_path and sp_text_ref:
+                            if BLOCK_REASON_MISSING_VISUAL_ASSET not in blocked_reasons:
+                                blocked_reasons.append(BLOCK_REASON_MISSING_VISUAL_ASSET)
+                            blocked_reasons.append(f"{BLOCK_REASON_MISSING_VISUAL_ASSET}:subpart_{sp_label}:text_references_figure_without_asset")
+                        elif sp_path:
+                            valid_img, img_err = validate_physical_image(
+                                sp_path,
+                                expected_sha256=sp_hash,
+                                workspace_root=ws_root,
+                            )
+                            if not valid_img:
+                                if BLOCK_REASON_MISSING_VISUAL_ASSET not in blocked_reasons:
+                                    blocked_reasons.append(BLOCK_REASON_MISSING_VISUAL_ASSET)
+                                blocked_reasons.append(f"{BLOCK_REASON_MISSING_VISUAL_ASSET}:subpart_{sp_label}:{img_err}")
 
         # Check 6: Record subpart defects
         for sid, subparts in accounting_telemetry.get("subquestion_defects", {}).items():

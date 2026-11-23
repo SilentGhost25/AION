@@ -85,6 +85,8 @@ class SubPart:
     image_path: Optional[str] = None                        # Visual asset path (Stage G2-D)
     figure_caption: Optional[str] = None                    # Figure caption (Stage G2-D)
     image_sha256: Optional[str] = None                      # Cryptographic hash (Stage G2-D)
+    bloom: str = ""                                         # Planned Bloom level for this subpart (Stage G4, e.g. "L2", "L3")
+    co: str = ""                                            # Planned Course Outcome for this subpart (Stage G4, e.g. "CO1", "CO2")
 
     def validate(self) -> Tuple[bool, str]:
         """
@@ -102,6 +104,10 @@ class SubPart:
             return False, f"SubPart.solution must be exact str, got {type(self.solution).__name__}"
         if type(self.marking_scheme) is not list:
             return False, f"SubPart.marking_scheme must be exact list, got {type(self.marking_scheme).__name__}"
+        if type(self.bloom) is not str:
+            return False, f"SubPart.bloom must be exact str, got {type(self.bloom).__name__}"
+        if type(self.co) is not str:
+            return False, f"SubPart.co must be exact str, got {type(self.co).__name__}"
 
         # Strict label check: single lowercase ASCII character 'a' through 'z'
         # Rejects uppercase ('A'), whitespace-padded (' a '), multi-char ('aa'), digits, non-ascii
@@ -281,8 +287,10 @@ class GeneratedQuestion:
         if sub_parts is not None:
             _require_exact_type(sub_parts, list, "sub_parts")
             self.sub_parts = list(sub_parts)
+            self._has_structured_subparts = True
         else:
             self.sub_parts = []
+            self._has_structured_subparts = False
         self._figure_id = figure_id
         self._image_sha256 = image_sha256
         self.__post_init__()
@@ -291,7 +299,7 @@ class GeneratedQuestion:
     def figure_id(self) -> Optional[str]:
         if getattr(self, "_figure_id", None) is not None:
             return self._figure_id
-        for sp in self.sub_parts:
+        for sp in (self.sub_parts or []):
             f_id = getattr(sp, "figure_id", None) if not isinstance(sp, dict) else sp.get("figure_id")
             if f_id:
                 return f_id
@@ -305,7 +313,7 @@ class GeneratedQuestion:
     def image_sha256(self) -> Optional[str]:
         if getattr(self, "_image_sha256", None) is not None:
             return self._image_sha256
-        for sp in self.sub_parts:
+        for sp in (self.sub_parts or []):
             h = getattr(sp, "image_sha256", None) if not isinstance(sp, dict) else sp.get("image_sha256")
             if h:
                 return h
@@ -317,10 +325,11 @@ class GeneratedQuestion:
 
     def __post_init__(self) -> None:
         """Validate container and item types for subparts."""
-        _require_exact_type(self.sub_parts, list, "sub_parts")
-        for i, sp in enumerate(self.sub_parts):
-            if type(sp) is not SubPart:
-                raise TypeError(f"sub_parts[{i}] must be exact SubPart, got {type(sp).__name__}")
+        if self.sub_parts is not None:
+            _require_exact_type(self.sub_parts, list, "sub_parts")
+            for i, sp in enumerate(self.sub_parts):
+                if type(sp) is not SubPart:
+                    raise TypeError(f"sub_parts[{i}] must be exact SubPart, got {type(sp).__name__}")
 
     @property
     def first_word(self) -> str:
@@ -491,19 +500,20 @@ class GeneratedQuestion:
                 return False, f"Sum of partition {self.partition} ({sum(self.partition)}) != total marks ({self.marks})"
 
         # 5. Subparts container validation (guards post-init mutations)
-        if type(self.sub_parts) is not list:
-            return False, f"sub_parts must be an exact list, got {type(self.sub_parts).__name__}"
+        if self.sub_parts is not None:
+            if type(self.sub_parts) is not list:
+                return False, f"sub_parts must be an exact list, got {type(self.sub_parts).__name__}"
 
-        if len(self.sub_parts) > 26:
-            return False, f"sub_parts count ({len(self.sub_parts)}) exceeds maximum 26 subparts ('a'-'z')"
+            if len(self.sub_parts) > 26:
+                return False, f"sub_parts count ({len(self.sub_parts)}) exceeds maximum 26 subparts ('a'-'z')"
 
-        # Re-validate all mutable subparts internally (strict exact type check)
-        for i, sp in enumerate(self.sub_parts):
-            if type(sp) is not SubPart:
-                return False, f"sub_parts[{i}] must be exact SubPart instance, got {type(sp).__name__}"
-            valid, err = sp.validate()
-            if not valid:
-                return False, f"sub_parts[{i}] validation failed: {err}"
+            # Re-validate all mutable subparts internally (strict exact type check)
+            for i, sp in enumerate(self.sub_parts):
+                if type(sp) is not SubPart:
+                    return False, f"sub_parts[{i}] must be exact SubPart instance, got {type(sp).__name__}"
+                valid, err = sp.validate()
+                if not valid:
+                    return False, f"sub_parts[{i}] validation failed: {err}"
 
         # 6. Invariant: partition=[] with populated sub_parts is strictly invalid
         if not self.partition and self.sub_parts:
@@ -673,7 +683,7 @@ class GeneratedQuestion:
                     f"Missing 'sub_parts' key for multi-part question with partition {partition}. "
                     "Pass allow_legacy=True only when loading historical pre-G1-A records."
                 )
-            hydrated_subparts = []
+            hydrated_subparts = None
             validate_allow_legacy = allow_legacy
         else:
             # Structured representation: 'sub_parts' key is explicitly present.
@@ -691,7 +701,8 @@ class GeneratedQuestion:
 
             allowed_sp_keys = {
                 "label", "marks", "text", "topic", "solution", "marking_scheme",
-                "figure_id", "image_path", "figure_caption", "image_sha256"
+                "figure_id", "image_path", "figure_caption", "image_sha256",
+                "bloom", "co"
             }
             for i, sp_data in enumerate(raw_subparts):
                 if type(sp_data) is SubPart:
@@ -744,6 +755,8 @@ class GeneratedQuestion:
                         image_path=sp_data.get("image_path"),
                         figure_caption=sp_data.get("figure_caption"),
                         image_sha256=sp_data.get("image_sha256"),
+                        bloom=_require_str(sp_data.get("bloom", ""), f"sub_parts[{i}].bloom", allow_empty=True),
+                        co=_require_str(sp_data.get("co", ""), f"sub_parts[{i}].co", allow_empty=True),
                     ))
                 else:
                     raise TypeError(f"sub_parts[{i}] must be a dict or SubPart, got {type(sp_data).__name__}")

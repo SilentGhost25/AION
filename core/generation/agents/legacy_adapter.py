@@ -301,7 +301,22 @@ def _clean_topic(concept: str) -> str:
 
 def _to_question_dict(q: GeneratedQuestion) -> dict:
     """Convert one GeneratedQuestion to the legacy question dict with synthesized subquestions."""
-    partition = [int(m) for m in (q.partition or ([q.marks] if q.marks else [10]))]
+    # 1. Partition validation
+    raw_partition = q.partition if q.partition is not None else ([q.marks] if q.marks else [10])
+    if not isinstance(raw_partition, (list, tuple)):
+        partition = [10]
+        partition_invalid = True
+    else:
+        partition = []
+        partition_invalid = False
+        for m in raw_partition:
+            if type(m) is not int or isinstance(m, bool) or m <= 0:
+                partition_invalid = True
+                break
+            partition.append(int(m))
+        if not partition:
+            partition = [10]
+            partition_invalid = True
 
     # Telemetry initialization with deep isolation for mutable lists to prevent shared reference mutation
     telemetry = dict(q.telemetry or {})
@@ -315,214 +330,392 @@ def _to_question_dict(q: GeneratedQuestion) -> dict:
         warnings_list.append(f"partition_exceeds_vtu_max:{len(partition)}")
         telemetry["warnings"] = warnings_list
 
-    extraction = _extract_subpart_structure(q.question_text, len(partition))
-
-    # Determine if subpart label mapping is possible
-    extracted_labels = {get_subpart_label(i) for i in range(len(partition))}
-    label_mapping_failed = False
-    if extraction.success and q.is_unresolved and q.unresolved_scope == "subquestion":
-        unmapped = [sp for sp in q.unresolved_subparts if sp not in extracted_labels]
-        if unmapped:
-            label_mapping_failed = True
-
+    stem = ""
     sub_questions = []
+    overlap_detected = False
+    overlap_details = []
 
-    if not extraction.success or label_mapping_failed:
-        # Safe fallback: single aggregate entry representing full text (NO text duplication)
-        if is_high_partition:
-            adaptation_code = "PARTITION_EXCEEDS_VTU_MAX"
-            adaptation_detail = f"Slot partition length {len(partition)} exceeds standard VTU subpart maximum (5)."
-            if q.is_unresolved:
-                sq_unresolved = True
-                sq_code = q.failure_code
-                sq_detail = q.failure_detail
-                adaptation_detail += f" Preserving pre-existing Stage 2A failure ({q.failure_code})."
-                q_scope = q.unresolved_scope
-                q_subparts = list(q.unresolved_subparts)
-            else:
-                sq_unresolved = True
-                sq_code = "PARTITION_EXCEEDS_VTU_MAX"
-                sq_detail = adaptation_detail
-                q_scope = "question"
-                q_subparts = []
-        elif label_mapping_failed:
-            sq_unresolved = True
-            sq_code = q.failure_code
-            sq_detail = q.failure_detail
-            adaptation_code = "UNRESOLVED_SUBPART_LABEL_MISMATCH"
-            adaptation_detail = (
-                f"Stage 2A marked subparts {q.unresolved_subparts} unresolved, "
-                f"but extracted labels are {sorted(extracted_labels)}. "
-                f"Preserving pre-existing failure ({q.failure_code}) on aggregate entry."
-            )
-            q_scope = q.unresolved_scope
-            q_subparts = list(q.unresolved_subparts)
-        elif q.is_unresolved:
-            sq_unresolved = True
-            sq_code = q.failure_code
-            sq_detail = q.failure_detail
-            adaptation_code = "MULTI_PART_STRUCTURE_MISMATCH"
-            adaptation_detail = (
-                f"Question has partition {partition} but lacks parseable subpart structure. "
-                f"Preserving pre-existing Stage 2A failure ({q.failure_code})."
-            )
-            q_scope = q.unresolved_scope
-            q_subparts = list(q.unresolved_subparts)
-        else:
-            sq_unresolved = True
-            sq_code = "MULTI_PART_STRUCTURE_MISMATCH"
-            sq_detail = f"Slot has partition {partition} but question text lacks valid structural subpart markers."
-            adaptation_code = "MULTI_PART_STRUCTURE_MISMATCH"
-            adaptation_detail = sq_detail
-            q_scope = "question"
-            q_subparts = []
+    # Preserve pre-existing question-level failure status
+    if q.is_unresolved:
+        q_is_unresolved = True
+        q_unresolved_scope = q.unresolved_scope
+        q_unresolved_subparts = list(q.unresolved_subparts)
+        q_failure_code = q.failure_code
+        q_failure_detail = q.failure_detail
+    else:
+        q_is_unresolved = False
+        q_unresolved_scope = None
+        q_unresolved_subparts = []
+        q_failure_code = None
+        q_failure_detail = None
 
+    q_adaptation_failure_code = None
+    q_adaptation_failure_detail = None
+
+    # Fail closed immediately if partition is invalid
+    if partition_invalid:
+        adaptation_code = "PARTITION_INVALID"
+        adaptation_detail = f"Slot has invalid partition specification: {raw_partition!r}."
         sub_questions.append({
             "letter": "a",
             "label": "a",
             "sub_label": "a",
             "text": q.question_text,
-            "marks": sum(partition),
+            "marks": sum(partition) if partition else 10,
             "co": q.co,
             "bloom": q.bloom,
-            "is_unresolved": sq_unresolved,
-            "failure_code": sq_code,
-            "failure_detail": sq_detail,
+            "is_unresolved": True,
+            "failure_code": q.failure_code or adaptation_code,
+            "failure_detail": q.failure_detail or adaptation_detail,
             "adaptation_failure_code": adaptation_code,
             "adaptation_failure_detail": adaptation_detail,
         })
-
         q_is_unresolved = True
-        q_unresolved_scope = q_scope
-        q_unresolved_subparts = q_subparts
-        q_failure_code = sq_code
-        q_failure_detail = sq_detail
+        q_unresolved_scope = "question"
+        q_unresolved_subparts = []
+        q_failure_code = q.failure_code or adaptation_code
+        q_failure_detail = q.failure_detail or adaptation_detail
         q_adaptation_failure_code = adaptation_code
         q_adaptation_failure_detail = adaptation_detail
-        overlap_detected, overlap_details = (False, [])
 
-    else:
-        # Clean extraction with verified label mapping (N <= 5)
-        stem = extraction.stem
-        clauses = extraction.clauses
+    # Branch 1 & 2: Structured SubParts Supplied (Stage G4-A)
+    elif (
+        q.sub_parts is not None
+        and (
+            bool(q.sub_parts)
+            or type(q.sub_parts) is not list
+            or getattr(q, "_has_structured_subparts", False)
+            or (isinstance(q, dict) and "sub_parts" in q and q["sub_parts"] is not None)
+        )
+    ):
+        structured_fail_code = None
+        structured_fail_detail = None
 
-        if q.is_unresolved:
-            q_is_unresolved = True
-            q_unresolved_scope = q.unresolved_scope
-            q_unresolved_subparts = list(q.unresolved_subparts)
-            q_failure_code = q.failure_code
-            q_failure_detail = q.failure_detail
+        if type(q.sub_parts) is not list:
+            structured_fail_code = "STRUCTURED_SUBPARTS_INVALID_TYPE"
+            structured_fail_detail = f"sub_parts must be an exact list, got {type(q.sub_parts).__name__}."
+        elif not q.sub_parts:
+            # Correction 1: Empty structured subparts must ALWAYS fail closed (including partition=[10])
+            structured_fail_code = "STRUCTURED_SUBPARTS_EMPTY"
+            structured_fail_detail = f"Slot has partition {partition} but sub_parts is an empty list."
+        elif is_high_partition:
+            structured_fail_code = "PARTITION_EXCEEDS_VTU_MAX"
+            structured_fail_detail = f"Slot partition length {len(partition)} exceeds standard VTU subpart maximum (5)."
+        elif len(q.sub_parts) != len(partition):
+            structured_fail_code = "STRUCTURED_SUBPARTS_COUNT_MISMATCH"
+            structured_fail_detail = f"Partition expected {len(partition)} subparts, got {len(q.sub_parts)}."
         else:
-            q_is_unresolved = False
-            q_unresolved_scope = None
+            # Ordered marks check (Correction G4-A: Complete ordered mark partition validation)
+            actual_marks = [getattr(sp, "marks", None) for sp in q.sub_parts]
+            if actual_marks != partition:
+                structured_fail_code = "STRUCTURED_SUBPARTS_MARKS_MISMATCH"
+                structured_fail_detail = f"Ordered subpart marks {actual_marks} do not match partition {partition}."
+            else:
+                # Validation and duplicate label checks
+                labels = []
+                for sp_idx, sp in enumerate(q.sub_parts):
+                    if not hasattr(sp, "validate") or not hasattr(sp, "label"):
+                        structured_fail_code = "STRUCTURED_SUBPART_INVALID_OBJECT"
+                        structured_fail_detail = f"sub_parts[{sp_idx}] is not a valid SubPart object."
+                        break
+                    valid, err = sp.validate()
+                    if not valid:
+                        structured_fail_code = "STRUCTURED_SUBPART_VALIDATION_FAILED"
+                        structured_fail_detail = f"SubPart ({getattr(sp, 'label', '?')}) validation failed: {err}"
+                        break
+                    labels.append(sp.label.lower())
+
+                if not structured_fail_code:
+                    # Correction 2: Duplicate-label validation using len(set(labels)) != len(labels)
+                    if len(set(labels)) != len(labels):
+                        structured_fail_code = "STRUCTURED_SUBPARTS_DUPLICATE_LABELS"
+                        structured_fail_detail = f"Duplicate subpart labels detected: {labels}"
+                    else:
+                        expected_labels = [get_subpart_label(i) for i in range(len(partition))]
+                        if labels != expected_labels:
+                            structured_fail_code = "STRUCTURED_SUBPARTS_LABEL_MISMATCH"
+                            structured_fail_detail = f"Expected subpart labels {expected_labels}, got {labels}."
+                        elif q.is_unresolved and q.unresolved_scope == "subquestion":
+                            unmapped = [sp_lbl for sp_lbl in q.unresolved_subparts if sp_lbl not in set(labels)]
+                            if unmapped:
+                                structured_fail_code = "UNRESOLVED_SUBPART_LABEL_MISMATCH"
+                                structured_fail_detail = (
+                                    f"Stage 2A marked subparts {q.unresolved_subparts} unresolved, "
+                                    f"but structured labels are {labels}."
+                                )
+
+        if structured_fail_code:
+            # FAIL CLOSED: Never silently fall back to text parsing!
+            sub_questions.append({
+                "letter": "a",
+                "label": "a",
+                "sub_label": "a",
+                "text": q.question_text,
+                "marks": sum(partition),
+                "co": q.co,
+                "bloom": q.bloom,
+                "is_unresolved": True,
+                "failure_code": q.failure_code or structured_fail_code,
+                "failure_detail": q.failure_detail or structured_fail_detail,
+                "adaptation_failure_code": structured_fail_code,
+                "adaptation_failure_detail": structured_fail_detail,
+            })
+            q_is_unresolved = True
+            q_unresolved_scope = "question"
             q_unresolved_subparts = []
-            q_failure_code = None
-            q_failure_detail = None
+            q_failure_code = q.failure_code or structured_fail_code
+            q_failure_detail = q.failure_detail or structured_fail_detail
+            q_adaptation_failure_code = structured_fail_code
+            q_adaptation_failure_detail = structured_fail_detail
+        else:
+            # Direct structured projection from authoritative SubPart objects
+            for i, sp in enumerate(q.sub_parts):
+                letter = sp.label.lower()
+                if not q_is_unresolved:
+                    sq_unresolved = False
+                    sq_code = None
+                    sq_detail = None
+                elif q_unresolved_scope == "subquestion":
+                    sq_unresolved = (letter in q_unresolved_subparts)
+                    sq_code = q_failure_code if sq_unresolved else None
+                    sq_detail = q_failure_detail if sq_unresolved else None
+                else:
+                    sq_unresolved = True
+                    sq_code = q_failure_code
+                    sq_detail = q_failure_detail
 
-        q_adaptation_failure_code = None
-        q_adaptation_failure_detail = None
+                sq_img = sp.image_path
+                sq_cap = sp.figure_caption
+                sq_fid = sp.figure_id
+                sq_sha = sp.image_sha256
+                sq_ref = bool(sq_img or sq_fid)
 
-        # Determine visual asset ownership across subparts (Stage G2-D)
-        subpart_visual_map: Dict[str, Dict[str, Any]] = {}
-        has_parent_image = bool(getattr(q, "references_image", False) or getattr(q, "image_path", None))
-        sub_parts_objs = getattr(q, "sub_parts", None) or []
+                # If single-part and sp has no image, fall back to parent image if present
+                if len(q.sub_parts) == 1 and not sq_img:
+                    sq_img = getattr(q, "image_path", None)
+                    sq_cap = getattr(q, "figure_caption", None)
+                    sq_fid = getattr(q, "figure_id", None)
+                    sq_sha = getattr(q, "image_sha256", None)
+                    sq_ref = bool(sq_img or sq_fid)
 
-        # 1. Direct subpart object bindings (figure_id or image_path on SubPart)
-        for sp_obj in sub_parts_objs:
-            sp_lbl = getattr(sp_obj, "label", "").lower()
-            sp_img = getattr(sp_obj, "image_path", None)
-            sp_fid = getattr(sp_obj, "figure_id", None)
-            sp_cap = getattr(sp_obj, "figure_caption", None)
-            sp_sha = getattr(sp_obj, "image_sha256", None)
-            if sp_img or sp_fid:
-                subpart_visual_map[sp_lbl] = {
-                    "image_path": sp_img or getattr(q, "image_path", None),
-                    "figure_caption": sp_cap or getattr(q, "figure_caption", None),
-                    "figure_id": sp_fid or getattr(q, "figure_id", None),
-                    "image_sha256": sp_sha or getattr(q, "image_sha256", None),
-                }
+                sub_questions.append({
+                    "letter": letter,
+                    "label": letter,
+                    "sub_label": letter,
+                    "text": sp.text,
+                    "marks": sp.marks,
+                    "co": sp.co or q.co,
+                    "bloom": sp.bloom or q.bloom,
+                    "is_unresolved": sq_unresolved,
+                    "failure_code": sq_code,
+                    "failure_detail": sq_detail,
+                    "adaptation_failure_code": None,
+                    "adaptation_failure_detail": None,
+                    "image_path": sq_img,
+                    "figure_caption": sq_cap,
+                    "figure_id": sq_fid,
+                    "image_sha256": sq_sha,
+                    "references_image": sq_ref,
+                    "topic": sp.topic,
+                    "solution": sp.solution,
+                    "marking_scheme": list(sp.marking_scheme or []),
+                })
 
-        # 2. Text reference / single-part fallback if not already mapped
-        if has_parent_image and not subpart_visual_map:
-            if len(partition) <= 1:
-                # Single part: unambiguous owner is the single subquestion
-                subpart_visual_map[get_subpart_label(0)] = {
-                    "image_path": getattr(q, "image_path", None),
-                    "figure_caption": getattr(q, "figure_caption", None),
-                    "figure_id": getattr(q, "figure_id", None),
-                    "image_sha256": getattr(q, "image_sha256", None),
-                }
-            else:
-                # Multi-part: check which clauses explicitly reference a figure
-                referencing_indices = [
-                    idx for idx, clause in enumerate(clauses)
-                    if _clause_references_figure(clause)
-                ]
-                if len(referencing_indices) == 1:
-                    owner_lbl = get_subpart_label(referencing_indices[0])
-                    subpart_visual_map[owner_lbl] = {
-                        "image_path": getattr(q, "image_path", None),
-                        "figure_caption": getattr(q, "figure_caption", None),
-                        "figure_id": getattr(q, "figure_id", None),
-                        "image_sha256": getattr(q, "image_sha256", None),
-                    }
-                # Else: ambiguous ownership (0 or >1 referencing subparts) -> DO NOT guess; leave unmapped
+            if len(q.sub_parts) > 1:
+                overlap_detected, overlap_details = detect_subquestion_overlap([sp.text for sp in q.sub_parts])
 
-        for i in range(len(partition)):
-            letter = get_subpart_label(i)
+    # Branch 3: Genuine Legacy Input Fallback (q.sub_parts is None)
+    else:
+        extraction = _extract_subpart_structure(q.question_text, len(partition))
 
-            # Presentation contract: stem attached to part (a) once; clauses clean for subsequent parts
-            if i == 0 and stem:
-                sq_text = f"{stem} {clauses[0]}".strip()
-            else:
-                sq_text = clauses[i]
+        # Determine if subpart label mapping is possible
+        extracted_labels = {get_subpart_label(i) for i in range(len(partition))}
+        label_mapping_failed = False
+        if extraction.success and q.is_unresolved and q.unresolved_scope == "subquestion":
+            unmapped = [sp for sp in q.unresolved_subparts if sp not in extracted_labels]
+            if unmapped:
+                label_mapping_failed = True
 
-            # Granular resolution state determination
-            if not q_is_unresolved:
-                sq_unresolved = False
-                sq_code = None
-                sq_detail = None
-            elif q_unresolved_scope == "subquestion":
-                sq_unresolved = (letter in q_unresolved_subparts)
-                sq_code = q_failure_code if sq_unresolved else None
-                sq_detail = q_failure_detail if sq_unresolved else None
-            else:  # question-level failure
+        if not extraction.success or label_mapping_failed:
+            # Safe fallback: single aggregate entry representing full text (NO text duplication)
+            if is_high_partition:
+                adaptation_code = "PARTITION_EXCEEDS_VTU_MAX"
+                adaptation_detail = f"Slot partition length {len(partition)} exceeds standard VTU subpart maximum (5)."
+                if q.is_unresolved:
+                    sq_unresolved = True
+                    sq_code = q.failure_code
+                    sq_detail = q.failure_detail
+                    adaptation_detail += f" Preserving pre-existing Stage 2A failure ({q.failure_code})."
+                    q_scope = q.unresolved_scope
+                    q_subparts = list(q.unresolved_subparts)
+                else:
+                    sq_unresolved = True
+                    sq_code = "PARTITION_EXCEEDS_VTU_MAX"
+                    sq_detail = adaptation_detail
+                    q_scope = "question"
+                    q_subparts = []
+            elif label_mapping_failed:
                 sq_unresolved = True
-                sq_code = q_failure_code
-                sq_detail = q_failure_detail
-
-            vis_info = subpart_visual_map.get(letter)
-            sq_img = vis_info["image_path"] if vis_info else None
-            sq_cap = vis_info["figure_caption"] if vis_info else None
-            sq_fid = vis_info["figure_id"] if vis_info else None
-            sq_sha = vis_info["image_sha256"] if vis_info else None
-            sq_ref = bool(sq_img)
+                sq_code = q.failure_code
+                sq_detail = q.failure_detail
+                adaptation_code = "UNRESOLVED_SUBPART_LABEL_MISMATCH"
+                adaptation_detail = (
+                    f"Stage 2A marked subparts {q.unresolved_subparts} unresolved, "
+                    f"but extracted labels are {sorted(extracted_labels)}. "
+                    f"Preserving pre-existing failure ({q.failure_code}) on aggregate entry."
+                )
+                q_scope = q.unresolved_scope
+                q_subparts = list(q.unresolved_subparts)
+            elif q.is_unresolved:
+                sq_unresolved = True
+                sq_code = q.failure_code
+                sq_detail = q.failure_detail
+                adaptation_code = "MULTI_PART_STRUCTURE_MISMATCH"
+                adaptation_detail = (
+                    f"Question has partition {partition} but lacks parseable subpart structure. "
+                    f"Preserving pre-existing Stage 2A failure ({q.failure_code})."
+                )
+                q_scope = q.unresolved_scope
+                q_subparts = list(q.unresolved_subparts)
+            else:
+                sq_unresolved = True
+                sq_code = "MULTI_PART_STRUCTURE_MISMATCH"
+                sq_detail = f"Slot has partition {partition} but question text lacks valid structural subpart markers."
+                adaptation_code = "MULTI_PART_STRUCTURE_MISMATCH"
+                adaptation_detail = sq_detail
+                q_scope = "question"
+                q_subparts = []
 
             sub_questions.append({
-                "letter": letter,
-                "label": letter,
-                "sub_label": letter,
-                "text": sq_text,
-                "marks": partition[i],
+                "letter": "a",
+                "label": "a",
+                "sub_label": "a",
+                "text": q.question_text,
+                "marks": sum(partition),
                 "co": q.co,
                 "bloom": q.bloom,
                 "is_unresolved": sq_unresolved,
                 "failure_code": sq_code,
                 "failure_detail": sq_detail,
-                "adaptation_failure_code": None,
-                "adaptation_failure_detail": None,
-                "image_path": sq_img,
-                "figure_caption": sq_cap,
-                "figure_id": sq_fid,
-                "image_sha256": sq_sha,
-                "references_image": sq_ref,
+                "adaptation_failure_code": adaptation_code,
+                "adaptation_failure_detail": adaptation_detail,
             })
 
-        # Run overlap detection strictly on clauses if multi-part
-        if len(partition) > 1:
-            overlap_detected, overlap_details = detect_subquestion_overlap(list(clauses))
-        else:
+            q_is_unresolved = True
+            q_unresolved_scope = q_scope
+            q_unresolved_subparts = q_subparts
+            q_failure_code = sq_code
+            q_failure_detail = sq_detail
+            q_adaptation_failure_code = adaptation_code
+            q_adaptation_failure_detail = adaptation_detail
             overlap_detected, overlap_details = (False, [])
+
+        else:
+            # Clean extraction with verified label mapping (N <= 5)
+            stem = extraction.stem
+            clauses = extraction.clauses
+
+            # Determine visual asset ownership across subparts (Stage G2-D)
+            subpart_visual_map: Dict[str, Dict[str, Any]] = {}
+            has_parent_image = bool(getattr(q, "references_image", False) or getattr(q, "image_path", None))
+            sub_parts_objs = getattr(q, "sub_parts", None) or []
+
+            # 1. Direct subpart object bindings (figure_id or image_path on SubPart)
+            for sp_obj in sub_parts_objs:
+                sp_lbl = getattr(sp_obj, "label", "").lower()
+                sp_img = getattr(sp_obj, "image_path", None)
+                sp_fid = getattr(sp_obj, "figure_id", None)
+                sp_cap = getattr(sp_obj, "figure_caption", None)
+                sp_sha = getattr(sp_obj, "image_sha256", None)
+                if sp_img or sp_fid:
+                    subpart_visual_map[sp_lbl] = {
+                        "image_path": sp_img or getattr(q, "image_path", None),
+                        "figure_caption": sp_cap or getattr(q, "figure_caption", None),
+                        "figure_id": sp_fid or getattr(q, "figure_id", None),
+                        "image_sha256": sp_sha or getattr(q, "image_sha256", None),
+                    }
+
+            # 2. Text reference / single-part fallback if not already mapped
+            if has_parent_image and not subpart_visual_map:
+                if len(partition) <= 1:
+                    # Single part: unambiguous owner is the single subquestion
+                    subpart_visual_map[get_subpart_label(0)] = {
+                        "image_path": getattr(q, "image_path", None),
+                        "figure_caption": getattr(q, "figure_caption", None),
+                        "figure_id": getattr(q, "figure_id", None),
+                        "image_sha256": getattr(q, "image_sha256", None),
+                    }
+                else:
+                    # Multi-part: check which clauses explicitly reference a figure
+                    referencing_indices = [
+                        idx for idx, clause in enumerate(clauses)
+                        if _clause_references_figure(clause)
+                    ]
+                    if len(referencing_indices) == 1:
+                        owner_lbl = get_subpart_label(referencing_indices[0])
+                        subpart_visual_map[owner_lbl] = {
+                            "image_path": getattr(q, "image_path", None),
+                            "figure_caption": getattr(q, "figure_caption", None),
+                            "figure_id": getattr(q, "figure_id", None),
+                            "image_sha256": getattr(q, "image_sha256", None),
+                        }
+                    # Else: ambiguous ownership (0 or >1 referencing subparts) -> DO NOT guess; leave unmapped
+
+            for i in range(len(partition)):
+                letter = get_subpart_label(i)
+
+                # Presentation contract: stem attached to part (a) once; clauses clean for subsequent parts
+                if i == 0 and stem:
+                    sq_text = f"{stem} {clauses[0]}".strip()
+                else:
+                    sq_text = clauses[i]
+
+                # Granular resolution state determination
+                if not q_is_unresolved:
+                    sq_unresolved = False
+                    sq_code = None
+                    sq_detail = None
+                elif q_unresolved_scope == "subquestion":
+                    sq_unresolved = (letter in q_unresolved_subparts)
+                    sq_code = q_failure_code if sq_unresolved else None
+                    sq_detail = q_failure_detail if sq_unresolved else None
+                else:  # question-level failure
+                    sq_unresolved = True
+                    sq_code = q_failure_code
+                    sq_detail = q_failure_detail
+
+                vis_info = subpart_visual_map.get(letter)
+                sq_img = vis_info["image_path"] if vis_info else None
+                sq_cap = vis_info["figure_caption"] if vis_info else None
+                sq_fid = vis_info["figure_id"] if vis_info else None
+                sq_sha = vis_info["image_sha256"] if vis_info else None
+                sq_ref = bool(sq_img)
+
+                sub_questions.append({
+                    "letter": letter,
+                    "label": letter,
+                    "sub_label": letter,
+                    "text": sq_text,
+                    "marks": partition[i],
+                    "co": q.co,
+                    "bloom": q.bloom,
+                    "is_unresolved": sq_unresolved,
+                    "failure_code": sq_code,
+                    "failure_detail": sq_detail,
+                    "adaptation_failure_code": None,
+                    "adaptation_failure_detail": None,
+                    "image_path": sq_img,
+                    "figure_caption": sq_cap,
+                    "figure_id": sq_fid,
+                    "image_sha256": sq_sha,
+                    "references_image": sq_ref,
+                })
+
+            # Run overlap detection strictly on clauses if multi-part
+            if len(partition) > 1:
+                overlap_detected, overlap_details = detect_subquestion_overlap(list(clauses))
+            else:
+                overlap_detected, overlap_details = (False, [])
 
     if overlap_detected:
         telemetry["subquestion_overlap"] = True
@@ -536,7 +729,7 @@ def _to_question_dict(q: GeneratedQuestion) -> dict:
         "global_q_idx": q.global_q_idx,
         "text": q.question_text,
         "question_text": q.question_text,
-        "stem": extraction.stem if extraction.success and not label_mapping_failed and not is_high_partition else "",
+        "stem": stem,
         "sub_questions": sub_questions,
         "subQuestions": sub_questions,
         # Resolution metadata
