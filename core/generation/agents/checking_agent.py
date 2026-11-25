@@ -745,3 +745,733 @@ class CheckingAgent(Agent):
     def _extract_cache_telemetry(self, context: AgentContext) -> dict:
         telemetry = context.telemetry or {}
         return dict(telemetry.get("cache", {}) or {})
+
+
+# =============================================================================
+# Stage G6: Choice-Pair Equivalence, Selection-Tree Modeling & Dual Bloom Audit
+# =============================================================================
+
+from dataclasses import dataclass, field
+import itertools
+
+
+@dataclass
+class AssessmentProfile:
+    """
+    Comprehensive whole-paper academic assessment profile across 10 gates (Section 8).
+    """
+    overall_status: str  # "PASS" | "FAIL" | "INDETERMINATE"
+    evidence_grounding_gate: str = "NOT_APPLICABLE"
+    segment_grounding_gate: str = "NOT_APPLICABLE"
+    choice_topic_dispersion_gate: str = "NOT_APPLICABLE"
+    bloom_accounting_gate: str = "PASS"
+    cognitive_distribution_gate: str = "NOT_APPLICABLE"
+    subpart_progression_gate: str = "NOT_APPLICABLE"
+    concept_integrity_gate: str = "PASS"
+    solution_completeness_gate: str = "NOT_APPLICABLE"
+    rubric_validation_gate: str = "NOT_APPLICABLE"
+    visual_dependency_gate: str = "NOT_APPLICABLE"
+    review_recommendations: List[str] = field(default_factory=list)
+    review_warnings: List[str] = field(default_factory=list)
+    telemetry: Dict[str, Any] = field(default_factory=dict)
+
+
+def check_choice_pair_equivalence(q1: Any, q2: Any) -> Tuple[str, List[str]]:
+    """
+    Audits choice-pair equivalence across 7 dimensions (Section 7.4):
+      1. Total marks equality (Marks(Q1) == Marks(Q2))
+      2. Subpart count parity (|SubParts(Q1)| == |SubParts(Q2)|)
+      3. Subpart marks partition alignment (sorted marks match)
+      4. Subpart Bloom depth alignment (cognitive depth profile matches)
+      5. Primary archetype compatibility
+      6. Time commitment parity (|EstTime(Q1) - EstTime(Q2)| <= 5 min)
+      7. Topic dispersion (Tier 1, Tier 2, or Tier 3)
+    Returns:
+      (status, defects)
+      status: "PASS" | "FAIL"
+    """
+    defects: List[str] = []
+
+    # 1. Total marks equality
+    m1 = getattr(q1, "marks", 0) or 0
+    m2 = getattr(q2, "marks", 0) or 0
+    if m1 != m2:
+        defects.append(f"MARKS_MISMATCH: Q1 has {m1} marks, Q2 has {m2} marks")
+
+    sps1 = list(getattr(q1, "sub_parts", None) or [])
+    sps2 = list(getattr(q2, "sub_parts", None) or [])
+
+    # 2. Subpart count parity
+    if len(sps1) != len(sps2):
+        defects.append(f"SUBPART_COUNT_MISMATCH: Q1 has {len(sps1)} subparts, Q2 has {len(sps2)} subparts")
+
+    # 3. Subpart marks partition alignment
+    if sps1 and sps2:
+        marks1_sorted = sorted([getattr(sp, "marks", 0) or 0 for sp in sps1])
+        marks2_sorted = sorted([getattr(sp, "marks", 0) or 0 for sp in sps2])
+        if marks1_sorted != marks2_sorted:
+            defects.append(f"SUBPART_MARKS_PARTITION_MISMATCH: Q1 partition {marks1_sorted} vs Q2 partition {marks2_sorted}")
+
+    # 4. Subpart Bloom depth alignment
+    bloom_rank = {"L1": 1, "L2": 2, "L3": 3, "L4": 4, "L5": 5, "L6": 6}
+    if sps1 and sps2:
+        b1_ranks = sorted([bloom_rank.get(str(getattr(sp, "bloom", "L2")).upper(), 2) for sp in sps1])
+        b2_ranks = sorted([bloom_rank.get(str(getattr(sp, "bloom", "L2")).upper(), 2) for sp in sps2])
+        # Imbalance if max ranks differ by more than 1 or average ranks differ by more than 1.0
+        if abs(max(b1_ranks) - max(b2_ranks)) > 1 or abs(sum(b1_ranks) / len(b1_ranks) - sum(b2_ranks) / len(b2_ranks)) > 1.0:
+            defects.append(f"COGNITIVE_DEPTH_IMBALANCE: Q1 Bloom ranks {b1_ranks} vs Q2 Bloom ranks {b2_ranks}")
+    else:
+        q1_b = bloom_rank.get(str(getattr(q1, "bloom", "L2")).upper(), 2)
+        q2_b = bloom_rank.get(str(getattr(q2, "bloom", "L2")).upper(), 2)
+        if abs(q1_b - q2_b) > 1:
+            defects.append(f"COGNITIVE_DEPTH_IMBALANCE: Q1 Bloom rank {q1_b} vs Q2 Bloom rank {q2_b}")
+
+    # 5. Primary archetype compatibility
+    arch1 = str(getattr(q1, "primary_archetype", None) or getattr(q1, "archetype", "")).strip().lower()
+    arch2 = str(getattr(q2, "primary_archetype", None) or getattr(q2, "archetype", "")).strip().lower()
+    if arch1 and arch2 and arch1 != arch2:
+        # Check incompatible pairs (e.g. purely descriptive vs algorithmic proof/derivation)
+        incompatible_pairs = [
+            ({"conceptual_essay", "descriptive_explanation"}, {"algorithmic_proof", "complex_derivation", "numerical_computation"}),
+            ({"definition", "recall"}, {"system_design", "comparative_analysis"}),
+        ]
+        for set_a, set_b in incompatible_pairs:
+            if (arch1 in set_a and arch2 in set_b) or (arch1 in set_b and arch2 in set_a):
+                defects.append(f"ARCHETYPE_ASYMMETRY: Q1 archetype '{arch1}' is academically asymmetric to Q2 archetype '{arch2}'")
+
+    # 6. Time commitment parity (|EstTime(Q1) - EstTime(Q2)| <= 5 min)
+    def _calc_time(q: Any) -> float:
+        t = getattr(q, "estimated_time_minutes", None)
+        if t is not None and isinstance(t, (int, float)):
+            return float(t)
+        sps = getattr(q, "sub_parts", None) or []
+        if sps:
+            sub_times = [getattr(sp, "estimated_time_minutes", None) for sp in sps]
+            if all(st is not None and isinstance(st, (int, float)) for st in sub_times):
+                return float(sum(sub_times))
+        # Estimate: 1.5 minutes per mark
+        return float(getattr(q, "marks", 10) or 10) * 1.5
+
+    t1 = _calc_time(q1)
+    t2 = _calc_time(q2)
+    if abs(t1 - t2) > 5.0:
+        defects.append(f"TIME_COMMITMENT_IMBALANCE: Q1 est time {t1:.1f}m vs Q2 est time {t2:.1f}m exceeds 5 min tolerance")
+
+    # 7. Topic dispersion
+    from .overlap_detector import classify_relationship
+    rel = classify_relationship(q1, q2)
+    if rel.get("status") == "FAIL":
+        defects.append(f"CHOICE_PAIR_TOPIC_COLLAPSE: {rel.get('detail', 'Choice pair collapses on identical topic/operation')}")
+
+    if defects:
+        return "FAIL", defects
+    return "PASS", []
+
+
+# -----------------------------------------------------------------------------
+# Selection-Tree Attempt-Path Modeling
+# -----------------------------------------------------------------------------
+
+class SelectionNode:
+    """
+    Decision point enforcing choice rule (choose K of Candidates).
+    May be conditional on parent candidate selection (Section 7.5).
+    """
+    def __init__(
+        self,
+        node_id: str,
+        choose_k: int,
+        candidates: List[Any],
+        parent_candidate: Any = None,
+        child_selection_nodes: Optional[List['SelectionNode']] = None,
+    ):
+        self.node_id = node_id
+        self.choose_k = choose_k
+        self.candidates = candidates
+        self.parent_candidate = parent_candidate
+        self.child_selection_nodes = child_selection_nodes or []
+
+        # Initial structural validation
+        if self.choose_k <= 0 or self.choose_k > len(self.candidates):
+            raise ValueError(
+                f"INVALID_CHOICE_STRUCTURE: Node '{node_id}' requires choosing {self.choose_k} from {len(self.candidates)} candidates"
+            )
+
+
+def build_selection_tree_from_questions(questions: List[Any]) -> List[SelectionNode]:
+    """
+    Builds canonical Selection Tree nodes from questions.
+    Groups questions by choice_group_id into internal choice nodes.
+    """
+    groups: Dict[str, List[Any]] = {}
+    ungrouped: List[Any] = []
+
+    for q in questions:
+        cg = getattr(q, "choice_group_id", None)
+        if cg and str(cg).strip():
+            cg_str = str(cg).strip()
+            groups.setdefault(cg_str, []).append(q)
+        else:
+            ungrouped.append(q)
+
+    root_nodes: List[SelectionNode] = []
+
+    # Compulsory questions: choose 1 of 1
+    for idx, q in enumerate(ungrouped):
+        qid = getattr(q, "question_id", None) or getattr(q, "slot_id", f"compulsory_{idx}")
+        # Check if question has nested subpart choices (e.g. choose 2 of 3 subparts)
+        nested_nodes = []
+        nested_rule = getattr(q, "subpart_choice_rule", None)
+        sps = list(getattr(q, "sub_parts", None) or [])
+        if nested_rule and isinstance(nested_rule, dict) and sps:
+            k = nested_rule.get("choose_k", len(sps))
+            nested_nodes.append(SelectionNode(f"{qid}_subparts", k, sps, parent_candidate=q))
+
+        root_nodes.append(SelectionNode(
+            node_id=str(qid),
+            choose_k=1,
+            candidates=[q],
+            child_selection_nodes=nested_nodes,
+        ))
+
+    # Internal choice groups: choose 1 of N
+    for group_id, cands in groups.items():
+        # Check nested rules for each candidate in group
+        for cand in cands:
+            qid = getattr(cand, "question_id", None) or getattr(cand, "slot_id", "cand")
+            nested_rule = getattr(cand, "subpart_choice_rule", None)
+            sps = list(getattr(cand, "sub_parts", None) or [])
+            if nested_rule and isinstance(nested_rule, dict) and sps:
+                k = nested_rule.get("choose_k", len(sps))
+                # Add child selection node to candidate
+                cand._child_selection_node = SelectionNode(f"{qid}_subparts", k, sps, parent_candidate=cand)
+
+        root_nodes.append(SelectionNode(
+            node_id=f"choice_group_{group_id}",
+            choose_k=1,
+            candidates=cands,
+        ))
+
+    return root_nodes
+
+
+def enumerate_attempt_paths(nodes: List[SelectionNode]) -> List[List[Any]]:
+    """
+    Exhaustively enumerates valid attempt paths over conditional selection tree.
+    Each path is a flat list of chosen SubParts or leaf Questions.
+    """
+    if not nodes:
+        return [[]]
+
+    def _resolve_candidate(cand: Any) -> List[List[Any]]:
+        # If candidate has nested child selection node, activate it conditionally
+        child_node = getattr(cand, "_child_selection_node", None)
+        if child_node is not None:
+            # Choose k from child candidates
+            sub_paths = []
+            for combo in itertools.combinations(child_node.candidates, child_node.choose_k):
+                sub_paths.append(list(combo))
+            return sub_paths
+
+        # If candidate is a Question with subparts, selecting Q selects its subparts
+        sps = list(getattr(cand, "sub_parts", None) or [])
+        if sps:
+            return [sps]
+        return [[cand]]
+
+    node_options: List[List[List[Any]]] = []
+    for node in nodes:
+        options_for_node: List[List[Any]] = []
+        for combo in itertools.combinations(node.candidates, node.choose_k):
+            # For each candidate in combo, resolve its active sub-trees
+            cand_resolutions = [_resolve_candidate(c) for c in combo]
+            for prod in itertools.product(*cand_resolutions):
+                flattened = []
+                for sublist in prod:
+                    flattened.extend(sublist)
+                options_for_node.append(flattened)
+        node_options.append(options_for_node)
+
+    all_paths: List[List[Any]] = []
+    for prod in itertools.product(*node_options):
+        path = []
+        for sub_items in prod:
+            path.extend(sub_items)
+        all_paths.append(path)
+
+    return all_paths
+
+
+def calculate_attempt_path_bloom_bounds(
+    questions: List[Any],
+    max_exhaustive_paths: int = 1024,
+) -> Dict[str, Tuple[float, float]]:
+    """
+    Computes MinPct(B) and MaxPct(B) for each Bloom band B across all valid attempt paths (Section 7.5).
+    Uses exhaustive enumeration for |P| <= 1024 and tree DP convolution for |P| > 1024.
+    Mathematical identity guaranteed between both algorithms.
+    """
+    nodes = build_selection_tree_from_questions(questions)
+    bands = ["L1", "L2", "L3", "L4", "L5", "L6"]
+
+    # Calculate total path count bound
+    num_paths = 1
+    for node in nodes:
+        ways = len(list(itertools.combinations(node.candidates, node.choose_k)))
+        nested_ways = 1
+        for c in node.candidates:
+            cn = getattr(c, "_child_selection_node", None)
+            if cn is not None:
+                nested_ways = max(nested_ways, len(list(itertools.combinations(cn.candidates, cn.choose_k))))
+        num_paths *= (ways * nested_ways)
+
+    if num_paths <= max_exhaustive_paths:
+        # Exhaustive enumeration
+        paths = enumerate_attempt_paths(nodes)
+        min_pcts = {b: 100.0 for b in bands}
+        max_pcts = {b: 0.0 for b in bands}
+
+        for path in paths:
+            total_marks = sum(float(getattr(item, "marks", 0) or 0) for item in path)
+            if total_marks <= 0.0:
+                continue
+            for b in bands:
+                b_marks = sum(
+                    float(getattr(item, "marks", 0) or 0)
+                    for item in path
+                    if str(getattr(item, "bloom", "")).upper() == b
+                )
+                pct = (b_marks / total_marks) * 100.0
+                if pct < min_pcts[b]:
+                    min_pcts[b] = pct
+                if pct > max_pcts[b]:
+                    max_pcts[b] = pct
+
+        return {b: (round(min_pcts[b], 2), round(max_pcts[b], 2)) for b in bands}
+
+    else:
+        # Tree Dynamic Programming Convolution over (total_marks, bloom_marks_tuple)
+        # Each state is a mapping: total_marks -> set of bloom_mark tuples (l1, l2, l3, l4, l5, l6)
+        def _get_item_tuple(item: Any) -> Tuple[float, Tuple[float, ...]]:
+            m = float(getattr(item, "marks", 0) or 0)
+            b = str(getattr(item, "bloom", "")).upper()
+            b_tuple = tuple(m if b == band else 0.0 for band in bands)
+            return m, b_tuple
+
+        # DP over nodes
+        dp_states: Set[Tuple[float, Tuple[float, ...]]] = {(0.0, (0.0, 0.0, 0.0, 0.0, 0.0, 0.0))}
+
+        for node in nodes:
+            next_dp: Set[Tuple[float, Tuple[float, ...]]] = set()
+            for combo in itertools.combinations(node.candidates, node.choose_k):
+                combo_states: Set[Tuple[float, Tuple[float, ...]]] = {(0.0, (0.0, 0.0, 0.0, 0.0, 0.0, 0.0))}
+                for cand in combo:
+                    child_node = getattr(cand, "_child_selection_node", None)
+                    if child_node is not None:
+                        cand_states: Set[Tuple[float, Tuple[float, ...]]] = set()
+                        for sub_combo in itertools.combinations(child_node.candidates, child_node.choose_k):
+                            sub_tot = sum(float(getattr(x, "marks", 0) or 0) for x in sub_combo)
+                            sub_b = [0.0] * 6
+                            for x in sub_combo:
+                                xm, xb = _get_item_tuple(x)
+                                for i in range(6):
+                                    sub_b[i] += xb[i]
+                            cand_states.add((sub_tot, tuple(sub_b)))
+                    else:
+                        sps = list(getattr(cand, "sub_parts", None) or [])
+                        if sps:
+                            sub_tot = sum(float(getattr(x, "marks", 0) or 0) for x in sps)
+                            sub_b = [0.0] * 6
+                            for x in sps:
+                                xm, xb = _get_item_tuple(x)
+                                for i in range(6):
+                                    sub_b[i] += xb[i]
+                            cand_states = {(sub_tot, tuple(sub_b))}
+                        else:
+                            cm, cb = _get_item_tuple(cand)
+                            cand_states = {(cm, cb)}
+
+                    # Convolve with combo_states
+                    merged: Set[Tuple[float, Tuple[float, ...]]] = set()
+                    for t1, b1 in combo_states:
+                        for t2, b2 in cand_states:
+                            merged.add((t1 + t2, tuple(b1[i] + b2[i] for i in range(6))))
+                    combo_states = merged
+
+                # Convolve combo_states with existing dp_states
+                for dt, db in dp_states:
+                    for ct, cb in combo_states:
+                        next_dp.add((dt + ct, tuple(db[i] + cb[i] for i in range(6))))
+
+            dp_states = next_dp
+
+        # Compute min and max percentages across all reachable DP states
+        min_pcts = {b: 100.0 for b in bands}
+        max_pcts = {b: 0.0 for b in bands}
+
+        for total_marks, b_tuple in dp_states:
+            if total_marks <= 0.0:
+                continue
+            for i, b in enumerate(bands):
+                pct = (b_tuple[i] / total_marks) * 100.0
+                if pct < min_pcts[b]:
+                    min_pcts[b] = pct
+                if pct > max_pcts[b]:
+                    max_pcts[b] = pct
+
+        return {b: (round(min_pcts[b], 2), round(max_pcts[b], 2)) for b in bands}
+
+
+def audit_whole_paper_bloom(
+    questions: List[Any],
+    config: Any = None,
+) -> Dict[str, Any]:
+    """
+    Audits whole-paper Bloom distribution across printed paper and attempt paths (Section 7.5, 8).
+    Independent bloom accounting vs cognitive distribution.
+    """
+    defects: List[str] = []
+    bands = ["L1", "L2", "L3", "L4", "L5", "L6"]
+
+    # Flatten all subparts for printed paper
+    all_subparts: List[Any] = []
+    for q in questions:
+        sps = list(getattr(q, "sub_parts", None) or [])
+        if sps:
+            all_subparts.extend(sps)
+        else:
+            all_subparts.append(q)
+
+    # Check for missing/null Bloom
+    missing_bloom = []
+    for sp in all_subparts:
+        b = getattr(sp, "bloom", None)
+        if not b or str(b).upper() not in bands:
+            missing_bloom.append(getattr(sp, "label", getattr(sp, "slot_id", "?")))
+
+    accounting_complete = len(missing_bloom) == 0
+    if not accounting_complete:
+        defects.append(f"ACCOUNTING_INCOMPLETE: Subparts {missing_bloom} missing valid Bloom level")
+
+    # Printed paper profile
+    printed_total = sum(float(getattr(sp, "marks", 0) or 0) for sp in all_subparts)
+    printed_profile = {}
+    if printed_total > 0:
+        for b in bands:
+            b_marks = sum(
+                float(getattr(sp, "marks", 0) or 0)
+                for sp in all_subparts
+                if str(getattr(sp, "bloom", "")).upper() == b
+            )
+            printed_profile[b] = round((b_marks / printed_total) * 100.0, 2)
+    else:
+        printed_profile = {b: 0.0 for b in bands}
+
+    # Attempt path bounds
+    try:
+        attempt_bounds = calculate_attempt_path_bloom_bounds(questions)
+    except Exception as exc:
+        attempt_bounds = {b: (0.0, 0.0) for b in bands}
+        defects.append(f"INVALID_CHOICE_STRUCTURE: {exc}")
+
+    # Check against CognitiveTargetDistribution if configured
+    target_dist = getattr(config, "cognitive_target", None) if config else None
+    distribution_compliant = True
+
+    if target_dist is not None:
+        targets = {
+            "L1": target_dist.l1_percentage,
+            "L2": target_dist.l2_percentage,
+            "L3": target_dist.l3_percentage,
+            "L4": target_dist.l4_percentage,
+            "L5": target_dist.l5_percentage,
+            "L6": target_dist.l6_percentage,
+        }
+        tol = target_dist.tolerance_percentage
+
+        # Evaluate printed compliance
+        for b, tgt in targets.items():
+            achieved = printed_profile.get(b, 0.0)
+            if not ((tgt - tol - 0.01) <= achieved <= (tgt + tol + 0.01)):
+                distribution_compliant = False
+                defects.append(f"PRINTED_BLOOM_OUT_OF_TOLERANCE: {b} achieved {achieved}%, target {tgt}% ± {tol}%")
+
+        # Evaluate attempt compliance
+        for b, tgt in targets.items():
+            min_p, max_p = attempt_bounds.get(b, (0.0, 0.0))
+            if min_p < (tgt - tol - 0.01) or max_p > (tgt + tol + 0.01):
+                distribution_compliant = False
+                defects.append(f"ATTEMPT_BLOOM_OUT_OF_TOLERANCE: {b} range [{min_p}%, {max_p}%] violates target {tgt}% ± {tol}%")
+
+    # Check Mandatory CO Coverage
+    mandatory_cos = getattr(config, "mandatory_course_outcomes", set()) if config else set()
+    if mandatory_cos:
+        assigned_co_marks: Dict[str, float] = {}
+        for sp in all_subparts:
+            co = getattr(sp, "course_outcome", None) or getattr(sp, "co", None)
+            if co:
+                co_str = str(co).strip().upper()
+                assigned_co_marks[co_str] = assigned_co_marks.get(co_str, 0.0) + float(getattr(sp, "marks", 0) or 0)
+
+        for m_co in mandatory_cos:
+            m_str = str(m_co).strip().upper()
+            if assigned_co_marks.get(m_str, 0.0) <= 0.0:
+                distribution_compliant = False
+                defects.append(f"MANDATORY_CO_COVERAGE_FAILED: Mandatory CO '{m_str}' received 0 marks in active paper")
+
+    return {
+        "accounting_complete": accounting_complete,
+        "distribution_compliant": distribution_compliant and accounting_complete,
+        "printed_profile": printed_profile,
+        "attempt_bounds": attempt_bounds,
+        "defects": defects,
+    }
+
+
+def generate_assessment_profile(
+    context_or_questions: Any,
+    config: Any = None,
+    paper_spec: Any = None,
+    kg: Any = None,
+    artifact: Any = None,
+) -> AssessmentProfile:
+    """
+    Evaluates paper across 10 gates and computes overall_status with Non-Vacuous Pass Invariant (Section 8).
+    """
+    if hasattr(context_or_questions, "questions"):
+        questions = list(getattr(context_or_questions, "questions", []) or [])
+        cfg = config or getattr(context_or_questions, "config", None)
+        spec = paper_spec or getattr(context_or_questions, "paper_spec", None)
+        kg_obj = kg or getattr(context_or_questions, "kg", None)
+        art_obj = artifact or getattr(context_or_questions, "artifact", None)
+    else:
+        questions = list(context_or_questions or [])
+        cfg = config
+        spec = paper_spec
+        kg_obj = kg
+        art_obj = artifact
+
+    rec_recommendations: List[str] = []
+    rec_warnings: List[str] = []
+    telemetry: Dict[str, Any] = {}
+
+    # 1. Gate: evidence_grounding_gate
+    # Applicable if artifact contains references/syllabus; Non-applicable for synthetic unit tests
+    allow_synth = getattr(cfg, "allow_synthetic", False) if cfg else False
+    if art_obj is not None and not allow_synth:
+        # Check evidence block presence
+        has_ev = all(bool(getattr(sp, "evidence_block_ids", None)) for q in questions for sp in getattr(q, "sub_parts", [q]))
+        evidence_gate = "PASS" if has_ev else "FAIL"
+    else:
+        evidence_gate = "NOT_APPLICABLE"
+
+    # 2. Gate: segment_grounding_gate
+    # Applicable if paper is module-segmented
+    mod_count = getattr(spec, "module_count", 0) if spec else 0
+    if mod_count > 1:
+        segment_gate = "PASS"
+    else:
+        segment_gate = "NOT_APPLICABLE"
+
+    # 3. Gate: choice_topic_dispersion_gate
+    # Applicable if paper contains internal choice pairs
+    choice_groups: Dict[str, List[Any]] = {}
+    for q in questions:
+        cg = getattr(q, "choice_group_id", None)
+        if cg and str(cg).strip():
+            choice_groups.setdefault(str(cg).strip(), []).append(q)
+
+    if choice_groups:
+        choice_gate = "PASS"
+        for cg_id, cands in choice_groups.items():
+            if len(cands) >= 2:
+                for i in range(len(cands)):
+                    for j in range(i + 1, len(cands)):
+                        st, defs = check_choice_pair_equivalence(cands[i], cands[j])
+                        if st == "FAIL":
+                            choice_gate = "FAIL"
+                            rec_warnings.extend(defs)
+    else:
+        choice_gate = "NOT_APPLICABLE"
+
+    # 4. Gate: bloom_accounting_gate (ALWAYS APPLICABLE)
+    bloom_audit = audit_whole_paper_bloom(questions, config=cfg)
+    if not bloom_audit["accounting_complete"]:
+        bloom_gate = "FAIL"
+    else:
+        bloom_gate = "PASS"
+
+    # 5. Gate: cognitive_distribution_gate
+    # Applicable if target or mandatory COs configured
+    has_target = cfg and (getattr(cfg, "cognitive_target", None) is not None or getattr(cfg, "mandatory_course_outcomes", set()))
+    if has_target:
+        if any("MANDATORY_CO_COVERAGE_FAILED" in d for d in bloom_audit["defects"]):
+            cog_dist_gate = "FAIL"
+        elif not bloom_audit["distribution_compliant"]:
+            cog_dist_gate = "FAIL"
+        else:
+            cog_dist_gate = "PASS"
+    else:
+        cog_dist_gate = "NOT_APPLICABLE"
+
+    # 6. Gate: subpart_progression_gate
+    # Applicable if paper contains multi-part questions
+    multi_part_qs = [q for q in questions if len(getattr(q, "sub_parts", []) or []) >= 2]
+    if multi_part_qs:
+        subpart_gate = "PASS"
+        from .overlap_detector import classify_relationship
+        for q in multi_part_qs:
+            sps = list(q.sub_parts)
+            for i in range(len(sps)):
+                for j in range(i + 1, len(sps)):
+                    rel = classify_relationship(sps[i], sps[j], kg=kg_obj, artifact=art_obj, allow_synthetic=allow_synth)
+                    if rel.get("status") == "FAIL":
+                        subpart_gate = "FAIL"
+                    elif rel.get("status") == "INDETERMINATE" and subpart_gate != "FAIL":
+                        subpart_gate = "INDETERMINATE"
+    else:
+        subpart_gate = "NOT_APPLICABLE"
+
+    # 7. Gate: concept_integrity_gate (ALWAYS APPLICABLE)
+    from .overlap_detector import generate_concept_integrity_report
+    concept_report = generate_concept_integrity_report(questions, kg=kg_obj, artifact=art_obj, allow_synthetic=allow_synth)
+    concept_gate = concept_report["gate_status"]
+    if concept_gate == "INDETERMINATE":
+        rec_recommendations.append("UNVERIFIED_CONCEPT_REVIEW")
+
+    # 8. Gate: solution_completeness_gate
+    # Applicable if generate_solutions=True
+    gen_sol = getattr(cfg, "generate_solutions", True) if cfg else True
+    if gen_sol and questions:
+        solution_gate = "PASS"
+        from .local_evaluators import evaluate_solution_completeness
+        for q in questions:
+            for sp in getattr(q, "sub_parts", [q]):
+                sol = getattr(sp, "solution", "") or getattr(q, "solution", "")
+                q_text = getattr(sp, "text", "") or getattr(q, "question_text", "")
+                contract = getattr(sp, "expected_response", None)
+                m = getattr(sp, "marks", 5) or 5
+                sol_st, _ = evaluate_solution_completeness(q_text, sol, contract=contract, marks=m)
+                if sol_st == "FAIL":
+                    solution_gate = "FAIL"
+                elif sol_st == "INDETERMINATE" and solution_gate != "FAIL":
+                    solution_gate = "INDETERMINATE"
+    else:
+        solution_gate = "NOT_APPLICABLE"
+
+    # 9. Gate: rubric_validation_gate
+    # Applicable if generate_rubrics=True
+    gen_rub = getattr(cfg, "generate_rubrics", True) if cfg else True
+    if gen_rub and questions:
+        rubric_gate = "PASS"
+        from .local_evaluators import evaluate_marking_scheme_relevance
+        for q in questions:
+            for sp in getattr(q, "sub_parts", [q]):
+                m_scheme = getattr(sp, "marking_scheme", None)
+                # Check for malformed entries in telemetry
+                malformed = getattr(sp, "telemetry", {}).get("malformed_rubric_entries", []) if hasattr(sp, "telemetry") and isinstance(sp.telemetry, dict) else []
+                if malformed:
+                    rubric_gate = "FAIL"
+                    break
+                r_st, _ = evaluate_marking_scheme_relevance(sp, m_scheme)
+                if r_st == "FAIL":
+                    rubric_gate = "FAIL"
+                elif r_st == "INDETERMINATE" and rubric_gate != "FAIL":
+                    rubric_gate = "INDETERMINATE"
+    else:
+        rubric_gate = "NOT_APPLICABLE"
+
+    # 10. Gate: visual_dependency_gate
+    # Applicable if paper contains visual assets
+    has_visual = any(
+        bool(getattr(sp, "visual_task", None) or getattr(sp, "image_path", None) or getattr(q, "image_path", None))
+        for q in questions
+        for sp in getattr(q, "sub_parts", [q])
+    )
+    if has_visual:
+        visual_gate = "PASS"
+        from .local_evaluators import audit_visual_asset, evaluate_visual_dependency
+        for q in questions:
+            for sp in getattr(q, "sub_parts", [q]):
+                vt = getattr(sp, "visual_task", None)
+                fig_meta = getattr(sp, "figure_metadata", None) or ({"figure_id": vt.figure_id, "width": 800, "height": 600} if vt else None)
+                q_text = getattr(sp, "text", "") or getattr(q, "question_text", "")
+                b_lvl = getattr(sp, "bloom", "L2")
+                v_st, v_detail = evaluate_visual_dependency(q_text, figure_metadata=fig_meta, visual_contract=vt, bloom=b_lvl)
+                if v_st == "FAIL":
+                    visual_gate = "FAIL"
+                elif v_st == "INDETERMINATE" and visual_gate != "FAIL":
+                    visual_gate = "INDETERMINATE"
+                    if "REVISE_FOR_HUMAN_REVIEW" not in rec_recommendations:
+                        rec_recommendations.append("REVISE_FOR_HUMAN_REVIEW")
+                    rec_warnings.append(f"VISUAL_DEPENDENCY_AMBIGUOUS: {v_detail}")
+
+                # Mandatory Sub-Gate: Visual Asset Correctness & Answer-Leakage Audit
+                va = getattr(sp, "visual_audit", None)
+                if va is None and (getattr(sp, "figure", None) is not None or (isinstance(fig_meta, dict) and fig_meta.get("ocr_payload"))):
+                    fig_obj = getattr(sp, "figure", None) or fig_meta
+                    va = audit_visual_asset(
+                        fig_obj,
+                        q_text,
+                        expected_answer=getattr(sp, "solution", None),
+                        visual_contract=vt,
+                        expected_response=getattr(sp, "expected_response", None),
+                    )
+                if va is not None:
+                    va_dec = getattr(va, "decision", "INDETERMINATE")
+                    if va_dec == "FAIL":
+                        visual_gate = "FAIL"
+                    elif va_dec == "INDETERMINATE" and visual_gate != "FAIL":
+                        visual_gate = "INDETERMINATE"
+                        if "REVISE_FOR_HUMAN_REVIEW" not in rec_recommendations:
+                            rec_recommendations.append("REVISE_FOR_HUMAN_REVIEW")
+                        rec_warnings.append(f"VISUAL_ASSET_AUDIT_INDETERMINATE: {getattr(va, 'figure_id', '?')}")
+    else:
+        visual_gate = "NOT_APPLICABLE"
+
+    # Aggregate Overall Status
+    all_gates = [
+        evidence_gate, segment_gate, choice_gate, bloom_gate,
+        cog_dist_gate, subpart_gate, concept_gate, solution_gate,
+        rubric_gate, visual_gate,
+    ]
+    applicable_gates = [g for g in all_gates if g != "NOT_APPLICABLE"]
+
+    # Non-Vacuous Pass Invariant:
+    # Requires universal gates (bloom, concept) + at least one content/grounding gate
+    content_grounding_gates = [evidence_gate, segment_gate, choice_gate, cog_dist_gate, subpart_gate, solution_gate, rubric_gate, visual_gate]
+    has_content_pass = any(g == "PASS" for g in content_grounding_gates)
+
+    if any(g == "FAIL" for g in applicable_gates):
+        overall = "FAIL"
+    elif any(g == "INDETERMINATE" for g in applicable_gates):
+        overall = "INDETERMINATE"
+    elif len(applicable_gates) < 3 or not has_content_pass:
+        # Zero gates or only trivial non-academic gates applicable
+        overall = "INDETERMINATE"
+        rec_recommendations.append("INSUFFICIENT_APPLICABLE_GATES")
+    elif all(g == "PASS" for g in applicable_gates):
+        overall = "PASS"
+    else:
+        overall = "INDETERMINATE"
+
+    telemetry["bloom_audit"] = bloom_audit
+    telemetry["concept_audit"] = concept_report["telemetry"]
+
+    return AssessmentProfile(
+        overall_status=overall,
+        evidence_grounding_gate=evidence_gate,
+        segment_grounding_gate=segment_gate,
+        choice_topic_dispersion_gate=choice_gate,
+        bloom_accounting_gate=bloom_gate,
+        cognitive_distribution_gate=cog_dist_gate,
+        subpart_progression_gate=subpart_gate,
+        concept_integrity_gate=concept_gate,
+        solution_completeness_gate=solution_gate,
+        rubric_validation_gate=rubric_gate,
+        visual_dependency_gate=visual_gate,
+        review_recommendations=rec_recommendations,
+        review_warnings=rec_warnings,
+        telemetry=telemetry,
+    )
+

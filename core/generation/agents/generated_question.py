@@ -16,6 +16,14 @@ import copy
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+from .question_plan import (
+    ConceptFootprint,
+    ExpectedResponseContract,
+    RubricCriterion,
+    VisualTaskContract,
+    EvidenceBlockID,
+)
+
 
 # =============================================================================
 # Strict Type Validator Helpers
@@ -75,9 +83,9 @@ class SubPart:
     evaluation, solution provision, and criteria-level marking.
     Mutable state with persistent validation and controlled projection synchronization.
     """
-    label: str                                              # Subpart marker: strictly single lowercase ASCII 'a'-'z'
-    marks: int                                              # Exact mark allocation: strictly positive integer
-    text: str                                               # Self-contained subquestion text
+    label: str = ""                                         # Subpart marker: strictly single lowercase ASCII 'a'-'z'
+    marks: int = 0                                          # Exact mark allocation: strictly positive integer
+    text: str = ""                                          # Self-contained subquestion text
     topic: str = ""                                         # Specific topic allocated from the module KG
     solution: str = ""                                      # Model answer for this subpart
     marking_scheme: List[Dict[str, Any]] = field(default_factory=list)  # Criteria breakdown for this subpart
@@ -87,6 +95,108 @@ class SubPart:
     image_sha256: Optional[str] = None                      # Cryptographic hash (Stage G2-D)
     bloom: str = ""                                         # Planned Bloom level for this subpart (Stage G4, e.g. "L2", "L3")
     co: str = ""                                            # Planned Course Outcome for this subpart (Stage G4, e.g. "CO1", "CO2")
+    evidence_block_ids: Tuple[str, ...] = field(default_factory=tuple)  # Stage G6
+    concept_footprint: Optional[ConceptFootprint] = None                 # Stage G6
+    expected_response: Optional[ExpectedResponseContract] = None         # Stage G6
+    visual_task: Optional[VisualTaskContract] = None                     # Stage G6
+    telemetry: Dict[str, Any] = field(default_factory=dict)              # Stage G6
+    subpart_index: Optional[int] = None
+    question_id: Optional[str] = None
+    module_id: Optional[str] = None
+    target_cognitive_level: Optional[str] = None
+    syllabus_topic: Optional[str] = None
+    archetype: Optional[str] = None
+
+    def __init__(
+        self,
+        *args,
+        label: Optional[str] = None,
+        marks: Optional[int] = None,
+        text: Optional[str] = None,
+        topic: Any = "",
+        solution: str = "",
+        marking_scheme: Optional[List[Dict[str, Any]]] = None,
+        figure_id: Optional[str] = None,
+        image_path: Optional[str] = None,
+        figure_caption: Optional[str] = None,
+        image_sha256: Optional[str] = None,
+        bloom: str = "",
+        co: str = "",
+        evidence_block_ids: Tuple[str, ...] = (),
+        concept_footprint: Optional[ConceptFootprint] = None,
+        expected_response: Optional[ExpectedResponseContract] = None,
+        visual_task: Optional[VisualTaskContract] = None,
+        telemetry: Optional[Dict[str, Any]] = None,
+        subpart_index: Optional[int] = None,
+        question_id: Optional[str] = None,
+        module_id: Optional[str] = None,
+        target_cognitive_level: Optional[str] = None,
+        syllabus_topic: Optional[str] = None,
+        archetype: Optional[str] = None,
+        course_outcome: Optional[str] = None,
+        **kwargs,
+    ):
+        if len(args) > 0:
+            if isinstance(args[0], int):
+                # Pattern: (subpart_index, label, text, marks, bloom, co, target_cognitive_level, syllabus_topic, archetype, figure_id, image_path, image_sha256)
+                subpart_index = args[0]
+                if len(args) > 1: label = args[1]
+                if len(args) > 2: text = args[2]
+                if len(args) > 3: marks = args[3]
+                if len(args) > 4: bloom = args[4]
+                if len(args) > 5: co = args[5]
+                if len(args) > 6: target_cognitive_level = args[6]
+                if len(args) > 7: topic = syllabus_topic = args[7]
+                if len(args) > 8: archetype = args[8]
+                if len(args) > 9: figure_id = args[9]
+                if len(args) > 10: image_path = args[10]
+                if len(args) > 11: image_sha256 = args[11]
+            else:
+                # Pattern: (label, marks, text, topic, solution, marking_scheme, figure_id, image_path, figure_caption, image_sha256, bloom, co)
+                label = args[0]
+                if len(args) > 1: marks = args[1]
+                if len(args) > 2: text = args[2]
+                if len(args) > 3: topic = args[3]
+                if len(args) > 4: solution = args[4]
+                if len(args) > 5: marking_scheme = args[5]
+                if len(args) > 6: figure_id = args[6]
+                if len(args) > 7: image_path = args[7]
+                if len(args) > 8: figure_caption = args[8]
+                if len(args) > 9: image_sha256 = args[9]
+                if len(args) > 10: bloom = args[10]
+                if len(args) > 11: co = args[11]
+
+        self.label = label if label is not None else ""
+        self.marks = marks if marks is not None else 0
+        self.text = text if text is not None else ""
+        self.topic = topic
+        self.solution = solution if solution is not None else ""
+        self.marking_scheme = marking_scheme if marking_scheme is not None else []
+        self.figure_id = figure_id
+        self.image_path = image_path
+        self.figure_caption = figure_caption
+        self.image_sha256 = image_sha256
+        self.bloom = bloom or ""
+        self.co = co or (course_outcome or "")
+        self.evidence_block_ids = tuple(evidence_block_ids) if evidence_block_ids else ()
+        self.concept_footprint = concept_footprint
+        self.expected_response = expected_response
+        self.visual_task = visual_task
+        self.telemetry = dict(telemetry) if telemetry is not None else {}
+        self.subpart_index = subpart_index
+        self.question_id = question_id
+        self.module_id = module_id
+        self.target_cognitive_level = target_cognitive_level
+        self.syllabus_topic = syllabus_topic or self.topic
+        self.archetype = archetype
+        self.__post_init__()
+
+    def materialize_marking_scheme(self, raw_scheme: Any) -> None:
+        """Helper to assign and wrap legacy prose or structured scheme."""
+        if isinstance(raw_scheme, str):
+            self.marking_scheme = [{"criterion": raw_scheme.strip(), "marks": self.marks, "is_legacy_string": True}]
+        elif isinstance(raw_scheme, list):
+            self.marking_scheme = list(raw_scheme)
 
     def validate(self) -> Tuple[bool, str]:
         """
@@ -159,6 +269,25 @@ class SubPart:
         if self.image_sha256 is not None and type(self.image_sha256) is not str:
             return False, f"SubPart.image_sha256 must be str or None, got {type(self.image_sha256).__name__}"
 
+        if self.evidence_block_ids is not None:
+            if not isinstance(self.evidence_block_ids, (tuple, list)):
+                return False, f"SubPart.evidence_block_ids must be tuple, got {type(self.evidence_block_ids).__name__}"
+            for b_id in self.evidence_block_ids:
+                if not isinstance(b_id, str):
+                    return False, f"SubPart.evidence_block_ids element must be str, got {type(b_id).__name__}"
+
+        if self.concept_footprint is not None and not isinstance(self.concept_footprint, ConceptFootprint):
+            return False, f"SubPart.concept_footprint must be ConceptFootprint or None, got {type(self.concept_footprint).__name__}"
+
+        if self.expected_response is not None and not isinstance(self.expected_response, ExpectedResponseContract):
+            return False, f"SubPart.expected_response must be ExpectedResponseContract or None, got {type(self.expected_response).__name__}"
+
+        if self.visual_task is not None and not isinstance(self.visual_task, VisualTaskContract):
+            return False, f"SubPart.visual_task must be VisualTaskContract or None, got {type(self.visual_task).__name__}"
+
+        if not isinstance(self.telemetry, dict):
+            return False, f"SubPart.telemetry must be dict, got {type(self.telemetry).__name__}"
+
         return True, ""
 
     def __post_init__(self) -> None:
@@ -181,6 +310,30 @@ class SubPart:
         self.text = self.text.strip()
         self.topic = self.topic.strip()
         self.solution = self.solution.strip()
+        if self.evidence_block_ids is not None:
+            self.evidence_block_ids = tuple(self.evidence_block_ids)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert SubPart to plain dictionary representation."""
+        return {
+            "label": self.label,
+            "marks": self.marks,
+            "text": self.text,
+            "topic": self.topic,
+            "solution": self.solution,
+            "marking_scheme": copy.deepcopy(self.marking_scheme),
+            "figure_id": self.figure_id,
+            "image_path": self.image_path,
+            "figure_caption": self.figure_caption,
+            "image_sha256": self.image_sha256,
+            "bloom": self.bloom,
+            "co": self.co,
+            "evidence_block_ids": list(self.evidence_block_ids) if self.evidence_block_ids else [],
+            "concept_footprint": self.concept_footprint.to_dict() if self.concept_footprint is not None else None,
+            "expected_response": self.expected_response.to_dict() if self.expected_response is not None else None,
+            "visual_task": self.visual_task.to_dict() if self.visual_task is not None else None,
+            "telemetry": copy.deepcopy(self.telemetry),
+        }
 
 
 # =============================================================================
@@ -232,12 +385,13 @@ class GeneratedQuestion:
 
     def __init__(
         self,
-        slot_id: str,
-        module_id: str,
-        global_q_idx: int,
-        question_text: str,
-        solution: str,
-        marking_scheme: List[Dict[str, Any]],
+        *args,
+        slot_id: str = "",
+        module_id: str = "",
+        global_q_idx: int = 1,
+        question_text: str = "",
+        solution: str = "",
+        marking_scheme: Optional[List[Dict[str, Any]]] = None,
         marks: int = 0,
         partition: Optional[List[int]] = None,
         bloom: str = "L2",
@@ -259,19 +413,57 @@ class GeneratedQuestion:
         sub_parts: Optional[List[SubPart]] = None,
         figure_id: Optional[str] = None,
         image_sha256: Optional[str] = None,
+        evidence_block_ids: Tuple[str, ...] = (),
+        concept_footprints: Tuple[Dict[str, Any], ...] = (),
+        expected_responses: Tuple[Dict[str, Any], ...] = (),
+        visual_tasks: Tuple[Dict[str, Any], ...] = (),
+        choice_group_id: Optional[str] = None,
+        choice_variant: Optional[str] = None,
+        primary_archetype: Optional[str] = None,
+        question_id: Optional[str] = None,
+        subpart_choice_rule: Optional[Dict[str, Any]] = None,
+        concept_footprint: Optional[Any] = None,
+        **kwargs,
     ):
-        self.slot_id = slot_id
-        self.module_id = module_id
+        if len(args) > 0:
+            if len(args) >= 3 and isinstance(args[2], int):
+                slot_id = args[0]
+                module_id = args[1]
+                global_q_idx = args[2]
+                if len(args) > 3: question_text = args[3]
+                if len(args) > 4: solution = args[4]
+                if len(args) > 5: marking_scheme = args[5]
+                if len(args) > 6: marks = args[6]
+                if len(args) > 7: partition = args[7]
+                if len(args) > 8: bloom = args[8]
+                if len(args) > 9: co = args[9]
+                if len(args) > 10: topic = args[10]
+                if len(args) > 11: evidence_summary = args[11]
+            else:
+                question_id = args[0]
+                slot_id = args[1] if len(args) > 1 else args[0]
+                if len(args) > 2: question_text = args[2]
+                if len(args) > 3: marks = args[3]
+                if len(args) > 4: bloom = args[4]
+
+        self._question_id = question_id or (args[0] if len(args) > 0 and not (len(args) >= 3 and isinstance(args[2], int)) else None)
+        self.slot_id = slot_id or (self._question_id or "")
+        self.module_id = module_id or "module_1"
         self.global_q_idx = global_q_idx
-        self.question_text = question_text
-        self.solution = solution
-        self.marking_scheme = marking_scheme
+        self.question_text = question_text or ""
+        self.solution = solution or ""
+        self.marking_scheme = list(marking_scheme) if marking_scheme is not None else []
         self.marks = marks
-        self.partition = list(partition) if partition is not None else []
-        self.bloom = bloom
-        self.co = co
-        self.topic = topic
-        self.evidence_summary = evidence_summary
+
+        if partition is not None:
+            self.partition = list(partition)
+        else:
+            self.partition = []
+
+        self.bloom = bloom or "L2"
+        self.co = co or "CO1"
+        self.topic = topic or ""
+        self.evidence_summary = evidence_summary or ""
         self.references_image = references_image
         self.image_path = image_path
         self.figure_caption = figure_caption
@@ -284,16 +476,48 @@ class GeneratedQuestion:
         self.unresolved_subparts = tuple(unresolved_subparts)
         self.failure_code = failure_code
         self.failure_detail = failure_detail
+        self.choice_group_id = choice_group_id
+        self.choice_variant = choice_variant
+        self.primary_archetype = primary_archetype
+        self.subpart_choice_rule = subpart_choice_rule
+        self.concept_footprint = concept_footprint
+
         if sub_parts is not None:
             _require_exact_type(sub_parts, list, "sub_parts")
+            for i, sp in enumerate(sub_parts):
+                if type(sp) is not SubPart:
+                    raise TypeError(f"sub_parts[{i}] must be exact SubPart, got {type(sp).__name__}")
             self.sub_parts = list(sub_parts)
             self._has_structured_subparts = True
+            if len(self.sub_parts) == 1:
+                if not getattr(self.sub_parts[0], "solution", None) and self.solution:
+                    self.sub_parts[0].solution = self.solution
+                if not getattr(self.sub_parts[0], "text", None) and self.question_text:
+                    self.sub_parts[0].text = self.question_text
+            if self.marks == 0:
+                self.marks = sum(getattr(sp, "marks", 0) for sp in self.sub_parts)
+            if partition is None:
+                self.partition = [getattr(sp, "marks", 0) for sp in self.sub_parts]
         else:
             self.sub_parts = []
             self._has_structured_subparts = False
+
         self._figure_id = figure_id
         self._image_sha256 = image_sha256
+        self._question_id = question_id
+        self.evidence_block_ids = tuple(evidence_block_ids) if evidence_block_ids else ()
+        self.concept_footprints = tuple(concept_footprints) if concept_footprints else ()
+        self.expected_responses = tuple(expected_responses) if expected_responses else ()
+        self.visual_tasks = tuple(visual_tasks) if visual_tasks else ()
         self.__post_init__()
+
+    @property
+    def question_id(self) -> str:
+        return self._question_id or self.slot_id
+
+    @question_id.setter
+    def question_id(self, val: str) -> None:
+        self._question_id = val
 
     @property
     def figure_id(self) -> Optional[str]:
@@ -389,20 +613,71 @@ class GeneratedQuestion:
         combined: List[Dict[str, Any]] = []
         for sp in self.sub_parts:
             for entry in sp.marking_scheme:
-                _require_exact_type(entry, dict, f"SubPart({sp.label}) criterion")
+                if isinstance(entry, str):
+                    # Legacy string entry wrapped
+                    item = {"criterion": f"({sp.label}) {entry}".strip(), "marks": sp.marks, "is_legacy_string": True, "subpart": sp.label}
+                    combined.append(item)
+                    continue
+                if not isinstance(entry, dict):
+                    sp.telemetry.setdefault("malformed_rubric_entries", []).append(entry)
+                    continue
+                marks_val = entry.get("marks")
+                if type(marks_val) is not int or isinstance(marks_val, bool) or marks_val <= 0:
+                    sp.telemetry.setdefault("malformed_rubric_entries", []).append(entry)
+                    continue
+                crit_text = entry.get("criterion")
+                if not isinstance(crit_text, str) or not crit_text.strip():
+                    sp.telemetry.setdefault("malformed_rubric_entries", []).append(entry)
+                    continue
+
                 item = dict(entry)  # Preserve all criterion metadata fields
-                crit_text = item.get("criterion", "")
-                item["criterion"] = f"({sp.label}) {crit_text}".strip()
+                crit_prefix = f"({sp.label}) " if (len(self.sub_parts) > 1 or self.is_multi_part) else ""
+                item["criterion"] = f"{crit_prefix}{crit_text}".strip()
                 item["subpart"] = sp.label
                 combined.append(item)
         return combined
 
     def sync_materialized_projections(self) -> None:
-        """Synchronize question_text, solution, and marking_scheme from authoritative sub_parts."""
+        """Synchronize question_text, solution, marking_scheme, evidence_block_ids, concept_footprints, expected_responses, visual_tasks from authoritative sub_parts."""
         if self.sub_parts:
             self.question_text = self.materialize_question_text()
             self.solution = self.materialize_solution()
             self.marking_scheme = self.materialize_marking_scheme()
+
+            seen = set()
+            ev_ids = []
+            for sp in self.sub_parts:
+                for b_id in (getattr(sp, "evidence_block_ids", None) or ()):
+                    if b_id not in seen:
+                        seen.add(b_id)
+                        ev_ids.append(b_id)
+            self.evidence_block_ids = tuple(ev_ids)
+
+            cf_list = []
+            for sp in self.sub_parts:
+                cf = getattr(sp, "concept_footprint", None)
+                if cf is not None:
+                    cf_list.append(cf.to_dict() if hasattr(cf, "to_dict") else dict(cf))
+            self.concept_footprints = tuple(cf_list)
+
+            er_list = []
+            for sp in self.sub_parts:
+                er = getattr(sp, "expected_response", None)
+                if er is not None:
+                    er_list.append(er.to_dict() if hasattr(er, "to_dict") else dict(er))
+            self.expected_responses = tuple(er_list)
+
+            vt_list = []
+            for sp in self.sub_parts:
+                vt = getattr(sp, "visual_task", None)
+                if vt is not None:
+                    vt_list.append(vt.to_dict() if hasattr(vt, "to_dict") else dict(vt))
+            self.visual_tasks = tuple(vt_list)
+        else:
+            self.evidence_block_ids = ()
+            self.concept_footprints = ()
+            self.expected_responses = ()
+            self.visual_tasks = ()
 
     def verify_projection_consistency(self) -> Tuple[bool, str]:
         """
@@ -431,10 +706,30 @@ class GeneratedQuestion:
         if sync_projections and self.sub_parts:
             self.sync_materialized_projections()
         d = asdict(self)
+        d.pop("_question_id", None)
         if getattr(self, "_figure_id", None) is not None:
             d["figure_id"] = self._figure_id
         if getattr(self, "_image_sha256", None) is not None:
             d["image_sha256"] = self._image_sha256
+        d["question_id"] = self.question_id
+        if self.sub_parts:
+            d["sub_parts"] = [sp.to_dict() for sp in self.sub_parts]
+        if getattr(self, "evidence_block_ids", None):
+            d["evidence_block_ids"] = list(self.evidence_block_ids)
+        if getattr(self, "concept_footprints", None):
+            d["concept_footprints"] = list(self.concept_footprints)
+        if getattr(self, "expected_responses", None):
+            d["expected_responses"] = list(self.expected_responses)
+        if getattr(self, "visual_tasks", None):
+            d["visual_tasks"] = list(self.visual_tasks)
+        if getattr(self, "choice_group_id", None) is not None:
+            d["choice_group_id"] = self.choice_group_id
+        if getattr(self, "choice_variant", None) is not None:
+            d["choice_variant"] = self.choice_variant
+        if getattr(self, "primary_archetype", None) is not None:
+            d["primary_archetype"] = self.primary_archetype
+        if getattr(self, "subpart_choice_rule", None) is not None:
+            d["subpart_choice_rule"] = self.subpart_choice_rule
         return d
 
     # =========================================================================
@@ -591,7 +886,9 @@ class GeneratedQuestion:
             "diagram_request", "generation_source", "attempts", "telemetry",
             "is_unresolved", "unresolved_scope", "unresolved_subparts",
             "failure_code", "failure_detail", "sub_parts",
-            "figure_id", "image_sha256"
+            "figure_id", "image_sha256",
+            "evidence_block_ids", "concept_footprints", "expected_responses", "visual_tasks",
+            "question_id", "choice_group_id", "choice_variant", "primary_archetype", "subpart_choice_rule"
         }
         unknown_top = set(data.keys()) - allowed_top_keys
         if unknown_top:
@@ -702,7 +999,9 @@ class GeneratedQuestion:
             allowed_sp_keys = {
                 "label", "marks", "text", "topic", "solution", "marking_scheme",
                 "figure_id", "image_path", "figure_caption", "image_sha256",
-                "bloom", "co"
+                "bloom", "co",
+                "evidence_block_ids", "concept_footprint", "expected_response", "visual_task", "telemetry",
+                "subpart_index", "question_id", "module_id", "target_cognitive_level", "syllabus_topic", "archetype"
             }
             for i, sp_data in enumerate(raw_subparts):
                 if type(sp_data) is SubPart:
@@ -744,6 +1043,33 @@ class GeneratedQuestion:
                             raise ValueError(f"sub_parts[{i}].marking_scheme[{j}].marks must be strictly positive, got {crit_m!r}")
                         sp_scheme_validated.append(copy.deepcopy(crit_entry))
 
+                    raw_sp_ev_ids = sp_data.get("evidence_block_ids")
+                    if raw_sp_ev_ids is not None:
+                        if type(raw_sp_ev_ids) not in (list, tuple):
+                            raise TypeError(f"sub_parts[{i}].evidence_block_ids must be list or tuple, got {type(raw_sp_ev_ids).__name__}")
+                        sp_ev_ids_list = []
+                        for eid in raw_sp_ev_ids:
+                            if not isinstance(eid, str):
+                                raise TypeError(f"sub_parts[{i}].evidence_block_ids element must be str, got {type(eid).__name__}")
+                            sp_ev_ids_list.append(eid)
+                        sp_ev_ids = tuple(sp_ev_ids_list)
+                    else:
+                        sp_ev_ids = ()
+
+                    raw_cf = sp_data.get("concept_footprint")
+                    sp_cf = ConceptFootprint.from_dict(raw_cf) if raw_cf is not None else None
+
+                    raw_er = sp_data.get("expected_response")
+                    sp_er = ExpectedResponseContract.from_dict(raw_er) if raw_er is not None else None
+
+                    raw_vt = sp_data.get("visual_task")
+                    sp_vt = VisualTaskContract.from_dict(raw_vt) if raw_vt is not None else None
+
+                    raw_sp_telem = sp_data.get("telemetry", {})
+                    if not isinstance(raw_sp_telem, dict):
+                        raise TypeError(f"sub_parts[{i}].telemetry must be dict, got {type(raw_sp_telem).__name__}")
+                    sp_telem = dict(raw_sp_telem)
+
                     hydrated_subparts.append(SubPart(
                         label=sp_label,
                         marks=sp_marks,
@@ -757,12 +1083,43 @@ class GeneratedQuestion:
                         image_sha256=sp_data.get("image_sha256"),
                         bloom=_require_str(sp_data.get("bloom", ""), f"sub_parts[{i}].bloom", allow_empty=True),
                         co=_require_str(sp_data.get("co", ""), f"sub_parts[{i}].co", allow_empty=True),
+                        evidence_block_ids=sp_ev_ids,
+                        concept_footprint=sp_cf,
+                        expected_response=sp_er,
+                        visual_task=sp_vt,
+                        telemetry=sp_telem,
+                        subpart_index=sp_data.get("subpart_index"),
+                        question_id=sp_data.get("question_id"),
+                        module_id=sp_data.get("module_id"),
+                        target_cognitive_level=sp_data.get("target_cognitive_level"),
+                        syllabus_topic=sp_data.get("syllabus_topic"),
+                        archetype=sp_data.get("archetype"),
                     ))
                 else:
                     raise TypeError(f"sub_parts[{i}] must be a dict or SubPart, got {type(sp_data).__name__}")
 
             # Since 'sub_parts' was explicitly provided, validation enforces standard structured rules
             validate_allow_legacy = False
+
+        raw_top_ev = data.get("evidence_block_ids", ())
+        if type(raw_top_ev) not in (list, tuple):
+            raise TypeError("evidence_block_ids must be list or tuple")
+        top_ev_ids = tuple(raw_top_ev)
+
+        raw_top_cf = data.get("concept_footprints", ())
+        if type(raw_top_cf) not in (list, tuple):
+            raise TypeError("concept_footprints must be list or tuple")
+        top_cfs = tuple(raw_top_cf)
+
+        raw_top_er = data.get("expected_responses", ())
+        if type(raw_top_er) not in (list, tuple):
+            raise TypeError("expected_responses must be list or tuple")
+        top_ers = tuple(raw_top_er)
+
+        raw_top_vt = data.get("visual_tasks", ())
+        if type(raw_top_vt) not in (list, tuple):
+            raise TypeError("visual_tasks must be list or tuple")
+        top_vts = tuple(raw_top_vt)
 
         q = cls(
             slot_id=slot_id,
@@ -792,6 +1149,15 @@ class GeneratedQuestion:
             sub_parts=hydrated_subparts,
             figure_id=figure_id,
             image_sha256=image_sha256,
+            evidence_block_ids=top_ev_ids,
+            concept_footprints=top_cfs,
+            expected_responses=top_ers,
+            visual_tasks=top_vts,
+            question_id=data.get("question_id"),
+            choice_group_id=data.get("choice_group_id"),
+            choice_variant=data.get("choice_variant"),
+            primary_archetype=data.get("primary_archetype"),
+            subpart_choice_rule=data.get("subpart_choice_rule"),
         )
 
         # Complete Structural Validation upon Hydration via the common validation engine

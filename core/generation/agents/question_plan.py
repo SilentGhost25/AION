@@ -42,13 +42,13 @@ class PlanFailureCode(str, Enum):
 # Pedagogical Policy & Concept Collision Detection
 # -----------------------------------------------------------------------------
 
-# Established AION Educational Mapping (CO1-CO5)
+# Harmonized Stage G6 Educational Mapping (CO1-CO5)
 CO_BLOOM_BANDS: Dict[str, Tuple[str, ...]] = {
-    "CO1": ("L1", "L2"),   # Understand / Remember
-    "CO2": ("L3",),         # Apply
-    "CO3": ("L4",),         # Implement / Analyze
-    "CO4": ("L5",),         # Evaluate
-    "CO5": ("L6",),         # Create
+    "CO1": ("L1", "L2", "L3"),
+    "CO2": ("L2", "L3", "L4"),
+    "CO3": ("L3", "L4", "L5"),
+    "CO4": ("L4", "L5", "L6"),
+    "CO5": ("L5", "L6"),
 }
 
 
@@ -96,6 +96,581 @@ def detect_concept_collision(part_a: SubPartPlan, part_b: SubPartPlan) -> Tuple[
 
 
 # -----------------------------------------------------------------------------
+# Stage G6 Typed Academic Contracts
+# -----------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class RubricCriterion:
+    criterion: str
+    marks: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.criterion, str) or not self.criterion.strip():
+            raise TypeError("RubricCriterion 'criterion' must be a non-empty string")
+        if type(self.marks) is not int or isinstance(self.marks, bool) or self.marks <= 0:
+            raise TypeError(f"RubricCriterion 'marks' must be exact positive int, got {type(self.marks).__name__} ({self.marks!r})")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"criterion": self.criterion, "marks": self.marks}
+
+    @classmethod
+    def from_dict(cls, d: Any) -> "RubricCriterion":
+        if not isinstance(d, dict):
+            raise TypeError(f"RubricCriterion.from_dict expects dict, got {type(d).__name__}")
+        extra = set(d.keys()) - {"criterion", "marks"}
+        if extra:
+            raise ValueError(f"RubricCriterion contains unexpected keys: {extra}")
+        if "criterion" not in d or "marks" not in d:
+            raise KeyError("RubricCriterion missing required key 'criterion' or 'marks'")
+        crit = d["criterion"]
+        marks = d["marks"]
+        if not isinstance(crit, str) or not crit.strip():
+            raise TypeError("RubricCriterion 'criterion' must be a non-empty string")
+        if type(marks) is not int or isinstance(marks, bool) or marks <= 0:
+            raise TypeError(f"RubricCriterion 'marks' must be exact positive int, got {type(marks).__name__} ({marks!r})")
+        return cls(criterion=crit.strip(), marks=marks)
+
+
+@dataclass
+class ConceptFootprint:
+    canonical_concept: str = ""
+    syllabus_subtopic: str = "General"
+    module_id: Any = 1
+    bloom: str = "L2"
+    response_type: str = "EXPLANATION"
+    operation: str = "EXPLAIN"
+    provenance_source: str = "KG_CONCEPT"
+    provenance_entity_id: str = ""
+    provenance_type: Optional[str] = None
+    _primary_operation: Optional[str] = None
+
+    def __init__(
+        self,
+        *args,
+        canonical_concept: str = "",
+        syllabus_subtopic: str = "General",
+        module_id: Any = 1,
+        bloom: str = "L2",
+        response_type: str = "EXPLANATION",
+        operation: str = "EXPLAIN",
+        provenance_source: str = "KG_CONCEPT",
+        provenance_entity_id: str = "",
+        provenance_type: Optional[str] = None,
+        primary_operation: Optional[str] = None,
+        **kwargs,
+    ):
+        if kwargs:
+            extra = set(kwargs.keys()) - {"_primary_operation"}
+            if extra:
+                raise TypeError(f"ConceptFootprint.__init__() got unexpected keyword argument: {extra}")
+        if len(args) >= 4 and isinstance(args[1], str) and isinstance(args[2], str) and isinstance(args[3], str):
+            canonical_concept = args[0]
+            operation = args[1]
+            response_type = args[2]
+            bloom = args[3]
+        elif len(args) == 1:
+            canonical_concept = args[0]
+
+        if primary_operation:
+            operation = primary_operation
+        if provenance_type:
+            provenance_source = provenance_type
+
+        # Direct construction type validation
+        if type(canonical_concept) is not str or not canonical_concept.strip():
+            raise TypeError(f"ConceptFootprint 'canonical_concept' must be non-empty string, got {type(canonical_concept).__name__}: {canonical_concept!r}")
+        if type(module_id) not in (int, str) or isinstance(module_id, bool):
+            raise TypeError(f"ConceptFootprint 'module_id' must be int or str, got {type(module_id).__name__}: {module_id!r}")
+        if type(bloom) is not str or bloom not in ("L1", "L2", "L3", "L4", "L5", "L6"):
+            raise ValueError(f"ConceptFootprint 'bloom' must be valid Bloom level L1-L6, got {bloom!r}")
+
+        self.canonical_concept = canonical_concept.strip()
+        self.syllabus_subtopic = syllabus_subtopic or "General"
+        self.module_id = module_id
+        self.bloom = bloom or "L2"
+        self.response_type = response_type or "EXPLANATION"
+        self.operation = operation or "EXPLAIN"
+        self.provenance_source = provenance_source or "KG_CONCEPT"
+        self.provenance_entity_id = provenance_entity_id or ""
+        self.provenance_type = self.provenance_source
+        self._primary_operation = self.operation
+        self.__post_init__()
+
+    @property
+    def primary_operation(self) -> str:
+        return self._primary_operation or self.operation
+
+    @primary_operation.setter
+    def primary_operation(self, val: str) -> None:
+        self._primary_operation = val
+        self.operation = val
+
+    def __post_init__(self) -> None:
+        if self.provenance_type and (not self.provenance_source or self.provenance_source == "KG_CONCEPT"):
+            self.provenance_source = self.provenance_type
+        elif self.provenance_source and not self.provenance_type:
+            self.provenance_type = self.provenance_source
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "canonical_concept": self.canonical_concept,
+            "syllabus_subtopic": self.syllabus_subtopic,
+            "module_id": self.module_id,
+            "bloom": self.bloom,
+            "response_type": self.response_type,
+            "operation": self.operation,
+            "provenance_source": self.provenance_source,
+            "provenance_entity_id": self.provenance_entity_id,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Any) -> "ConceptFootprint":
+        if not isinstance(d, dict):
+            raise TypeError(f"ConceptFootprint.from_dict expects dict, got {type(d).__name__}")
+        allowed_keys = {
+            "canonical_concept", "syllabus_subtopic", "module_id", "bloom",
+            "response_type", "operation", "provenance_source", "provenance_entity_id",
+            "provenance_type", "primary_operation", "_primary_operation",
+        }
+        extra = set(d.keys()) - allowed_keys
+        if extra:
+            raise ValueError(f"ConceptFootprint contains unexpected keys: {extra}")
+
+        can_c = d.get("canonical_concept")
+        if not isinstance(can_c, str) or not can_c.strip():
+            raise TypeError("ConceptFootprint 'canonical_concept' must be non-empty string")
+
+        subtop = d.get("syllabus_subtopic", "General")
+        mod_id = d.get("module_id", 1)
+        if type(mod_id) not in (int, str) or isinstance(mod_id, bool):
+            raise TypeError(f"ConceptFootprint 'module_id' must be int or str, got {mod_id!r}")
+
+        bl = d.get("bloom", "L2")
+        rt = d.get("response_type", "EXPLANATION")
+        op = d.get("operation") or d.get("primary_operation") or d.get("_primary_operation", "EXPLAIN")
+        ps = d.get("provenance_source") or d.get("provenance_type") or "KG_CONCEPT"
+        pe = d.get("provenance_entity_id", "")
+
+        return cls(
+            canonical_concept=can_c.strip(),
+            syllabus_subtopic=str(subtop).strip(),
+            module_id=mod_id,
+            bloom=str(bl).strip(),
+            response_type=str(rt).strip(),
+            operation=str(op).strip(),
+            provenance_source=str(ps).strip(),
+            provenance_entity_id=str(pe).strip(),
+            provenance_type=str(ps).strip(),
+            primary_operation=str(op).strip(),
+        )
+
+
+@dataclass(frozen=True)
+class ExpectedResponseContract:
+    response_type: str = "PROSE"
+    required_elements: Tuple[str, ...] = ()
+    expected_operations: Tuple[str, ...] = ()
+    estimated_steps: Optional[int] = None
+    solution_key: Optional[str] = None
+    estimated_time_minutes: Optional[int] = None
+    expected_milestones: Tuple[str, ...] = ()
+
+    def __init__(
+        self,
+        *args,
+        response_type: str = "PROSE",
+        required_elements: Tuple[str, ...] = (),
+        expected_operations: Tuple[str, ...] = (),
+        estimated_steps: Optional[int] = None,
+        solution_key: Optional[str] = None,
+        estimated_time_minutes: Optional[int] = None,
+        expected_milestones: Tuple[str, ...] = (),
+        **kwargs,
+    ):
+        if kwargs:
+            unexpected = set(kwargs.keys()) - {"estimated_time_minutes", "expected_milestones"}
+            if unexpected:
+                raise TypeError(f"ExpectedResponseContract.__init__() got unexpected keyword argument: {unexpected}")
+            if "estimated_time_minutes" in kwargs:
+                estimated_time_minutes = kwargs["estimated_time_minutes"]
+            if "expected_milestones" in kwargs:
+                expected_milestones = tuple(kwargs["expected_milestones"])
+        if len(args) == 2 and isinstance(args[0], (tuple, list)) and isinstance(args[1], (tuple, list)):
+            required_elements = tuple(args[0])
+            expected_operations = tuple(args[1])
+        elif len(args) >= 3 and isinstance(args[0], str):
+            response_type = args[0]
+            required_elements = tuple(args[1])
+            expected_operations = tuple(args[2])
+            if len(args) > 3: estimated_steps = args[3]
+            if len(args) > 4: solution_key = args[4]
+            if len(args) > 5: estimated_time_minutes = args[5]
+            if len(args) > 6: expected_milestones = tuple(args[6])
+        elif len(args) == 1 and isinstance(args[0], str):
+            response_type = args[0]
+
+        if expected_milestones and not required_elements:
+            required_elements = expected_milestones
+
+        # Direct construction type validation
+        if type(response_type) is not str or not response_type.strip():
+            raise TypeError(f"ExpectedResponseContract 'response_type' must be non-empty string, got {type(response_type).__name__}: {response_type!r}")
+        if type(required_elements) not in (tuple, list):
+            raise TypeError("ExpectedResponseContract 'required_elements' must be tuple or list")
+        for elem in required_elements:
+            if type(elem) is not str or not elem.strip():
+                raise TypeError(f"required_elements element must be non-empty string, got {type(elem).__name__}: {elem!r}")
+        if type(expected_operations) not in (tuple, list):
+            raise TypeError("ExpectedResponseContract 'expected_operations' must be tuple or list")
+        for op in expected_operations:
+            if type(op) is not str or not op.strip():
+                raise TypeError(f"expected_operations element must be non-empty string, got {type(op).__name__}: {op!r}")
+        if estimated_steps is not None:
+            if type(estimated_steps) is not int or isinstance(estimated_steps, bool) or estimated_steps <= 0:
+                raise TypeError(f"estimated_steps must be positive int, got {type(estimated_steps).__name__}: {estimated_steps!r}")
+        if solution_key is not None:
+            if type(solution_key) is not str or not solution_key.strip():
+                raise TypeError(f"solution_key must be non-empty string, got {type(solution_key).__name__}: {solution_key!r}")
+        if estimated_time_minutes is not None:
+            if type(estimated_time_minutes) is not int or isinstance(estimated_time_minutes, bool) or estimated_time_minutes <= 0:
+                raise TypeError(f"estimated_time_minutes must be positive int, got {type(estimated_time_minutes).__name__}: {estimated_time_minutes!r}")
+
+        object.__setattr__(self, "response_type", response_type)
+        object.__setattr__(self, "required_elements", tuple(required_elements))
+        object.__setattr__(self, "expected_operations", tuple(expected_operations))
+        object.__setattr__(self, "estimated_steps", estimated_steps)
+        object.__setattr__(self, "solution_key", solution_key)
+        object.__setattr__(self, "estimated_time_minutes", estimated_time_minutes)
+        object.__setattr__(self, "expected_milestones", tuple(expected_milestones))
+
+    def to_dict(self) -> Dict[str, Any]:
+        res: Dict[str, Any] = {
+            "response_type": self.response_type,
+            "required_elements": list(self.required_elements),
+            "expected_operations": list(self.expected_operations),
+        }
+        if self.estimated_steps is not None:
+            res["estimated_steps"] = self.estimated_steps
+        if self.solution_key is not None:
+            res["solution_key"] = self.solution_key
+        if self.estimated_time_minutes is not None:
+            res["estimated_time_minutes"] = self.estimated_time_minutes
+        if self.expected_milestones:
+            res["expected_milestones"] = list(self.expected_milestones)
+        return res
+
+    @classmethod
+    def from_dict(cls, d: Any) -> "ExpectedResponseContract":
+        if not isinstance(d, dict):
+            raise TypeError(f"ExpectedResponseContract expects dict, got {type(d).__name__}")
+        allowed = {"response_type", "required_elements", "expected_operations", "estimated_steps", "solution_key"}
+        extra = set(d.keys()) - allowed
+        if extra:
+            raise ValueError(f"ExpectedResponseContract contains unexpected keys: {extra}")
+
+        # Check container types before existence check so bad types raise TypeError
+        if "required_elements" in d and type(d["required_elements"]) not in (tuple, list):
+            raise TypeError("ExpectedResponseContract 'required_elements' must be exact tuple or list")
+        if "expected_operations" in d and type(d["expected_operations"]) not in (tuple, list):
+            raise TypeError("ExpectedResponseContract 'expected_operations' must be exact tuple or list")
+
+        if "response_type" not in d or "required_elements" not in d or "expected_operations" not in d:
+            raise KeyError("ExpectedResponseContract missing required fields")
+
+        resp_type = d["response_type"]
+        if not isinstance(resp_type, str) or not resp_type.strip():
+            raise TypeError("ExpectedResponseContract 'response_type' must be non-empty string")
+
+        raw_req = d["required_elements"]
+        req_list = []
+        for elem in raw_req:
+            if not isinstance(elem, str) or not elem.strip():
+                raise TypeError("required_elements elements must be non-empty strings")
+            req_list.append(elem.strip())
+
+        raw_ops = d["expected_operations"]
+        ops_list = []
+        for op in raw_ops:
+            if not isinstance(op, str) or not op.strip():
+                raise TypeError("expected_operations elements must be non-empty strings")
+            ops_list.append(op.strip())
+
+        est_steps = d.get("estimated_steps")
+        if est_steps is not None and (type(est_steps) is not int or isinstance(est_steps, bool) or est_steps <= 0):
+            raise TypeError("estimated_steps must be positive int")
+
+        sol_key = d.get("solution_key")
+        if sol_key is not None and (not isinstance(sol_key, str) or not sol_key.strip()):
+            raise TypeError("solution_key must be non-empty string")
+
+        return cls(
+            response_type=resp_type.strip(),
+            required_elements=tuple(req_list),
+            expected_operations=tuple(ops_list),
+            estimated_steps=est_steps,
+            solution_key=sol_key.strip() if sol_key else None,
+        )
+
+
+@dataclass(frozen=True)
+class VisualTaskContract:
+    figure_id: str = ""
+    is_essential: bool = True
+    task_operation: str = ""
+    required_features: Tuple[str, ...] = ()
+
+    def __init__(
+        self,
+        *args,
+        figure_id: str = "",
+        is_essential: bool = True,
+        task_operation: str = "",
+        required_features: Tuple[str, ...] = (),
+        **kwargs,
+    ):
+        if kwargs:
+            unexpected = set(kwargs.keys())
+            raise TypeError(f"VisualTaskContract.__init__() got unexpected keyword argument: {unexpected}")
+        if len(args) >= 4:
+            figure_id = args[0]
+            is_essential = args[1]
+            task_operation = args[2]
+            required_features = tuple(args[3])
+
+        # Direct construction type validation
+        if type(figure_id) is not str or not figure_id.strip():
+            raise TypeError(f"VisualTaskContract 'figure_id' must be non-empty string, got {type(figure_id).__name__}: {figure_id!r}")
+        if type(is_essential) is not bool:
+            raise TypeError(f"VisualTaskContract 'is_essential' must be exact bool, got {type(is_essential).__name__}: {is_essential!r}")
+        if type(task_operation) is not str or not task_operation.strip():
+            raise TypeError(f"VisualTaskContract 'task_operation' must be non-empty string, got {type(task_operation).__name__}: {task_operation!r}")
+        if type(required_features) not in (tuple, list):
+            raise TypeError("VisualTaskContract 'required_features' must be exact tuple or list")
+        for feat in required_features:
+            if type(feat) is not str or not feat.strip():
+                raise TypeError(f"required_features elements must be non-empty strings, got {type(feat).__name__}: {feat!r}")
+
+        object.__setattr__(self, "figure_id", figure_id)
+        object.__setattr__(self, "is_essential", is_essential)
+        object.__setattr__(self, "task_operation", task_operation)
+        object.__setattr__(self, "required_features", tuple(required_features))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "figure_id": self.figure_id,
+            "is_essential": self.is_essential,
+            "task_operation": self.task_operation,
+            "required_features": list(self.required_features),
+        }
+
+    @classmethod
+    def from_dict(cls, d: Any) -> "VisualTaskContract":
+        if not isinstance(d, dict):
+            raise TypeError(f"VisualTaskContract expects dict, got {type(d).__name__}")
+        allowed = {"figure_id", "is_essential", "task_operation", "required_features"}
+        extra = set(d.keys()) - allowed
+        if extra:
+            raise ValueError(f"VisualTaskContract contains unexpected keys: {extra}")
+        if not {"figure_id", "is_essential", "task_operation", "required_features"}.issubset(d.keys()):
+            raise KeyError("VisualTaskContract missing required fields")
+
+        fig_id = d["figure_id"]
+        if not isinstance(fig_id, str) or not fig_id.strip():
+            raise TypeError("VisualTaskContract 'figure_id' must be non-empty string")
+
+        is_ess = d["is_essential"]
+        if type(is_ess) is not bool:
+            raise TypeError(f"VisualTaskContract 'is_essential' must be exact bool, got {type(is_ess).__name__}")
+
+        op = d["task_operation"]
+        if not isinstance(op, str) or not op.strip():
+            raise TypeError("VisualTaskContract 'task_operation' must be non-empty string")
+
+        raw_feat = d["required_features"]
+        if type(raw_feat) not in (tuple, list):
+            raise TypeError("VisualTaskContract 'required_features' must be exact tuple or list")
+        feat_list = []
+        for feat in raw_feat:
+            if not isinstance(feat, str) or not feat.strip():
+                raise TypeError("required_features elements must be non-empty strings")
+            feat_list.append(feat.strip())
+
+        return cls(
+            figure_id=fig_id.strip(),
+            is_essential=is_ess,
+            task_operation=op.strip(),
+            required_features=tuple(feat_list),
+        )
+
+
+VALID_ANSWER_LEAKAGE_STATES = frozenset({"NONE", "POSSIBLE", "CONFIRMED"})
+VALID_VISUAL_AUDIT_DECISIONS = frozenset({"PASS", "FAIL", "INDETERMINATE"})
+
+
+@dataclass(frozen=True)
+class VisualAssetAudit:
+    """Structured audit contract for Visual Asset Correctness & Answer-Leakage Gate."""
+    figure_id: str
+    source_document_id: str
+    source_revision: str
+    image_sha256: str
+    module_id: str
+    page_number: int
+    required_features_verified: bool
+    question_alignment_verified: bool
+    detected_text: Tuple[str, ...] = ()
+    detected_values: Tuple[str, ...] = ()
+    detected_equations: Tuple[str, ...] = ()
+    detected_annotations: Tuple[str, ...] = ()
+    answer_leakage: str = "NONE"
+    leakage_evidence: Tuple[str, ...] = ()
+    decision: str = "INDETERMINATE"
+
+    def __init__(
+        self,
+        figure_id: str,
+        source_document_id: str,
+        source_revision: str,
+        image_sha256: str,
+        module_id: str,
+        page_number: int,
+        required_features_verified: bool,
+        question_alignment_verified: bool,
+        detected_text: Any = (),
+        detected_values: Any = (),
+        detected_equations: Any = (),
+        detected_annotations: Any = (),
+        answer_leakage: str = "NONE",
+        leakage_evidence: Any = (),
+        decision: str = "INDETERMINATE",
+    ):
+        for fname, fval in (
+            ("figure_id", figure_id),
+            ("source_document_id", source_document_id),
+            ("source_revision", source_revision),
+            ("image_sha256", image_sha256),
+            ("module_id", module_id),
+        ):
+            if type(fval) is not str or not fval.strip():
+                raise TypeError(f"VisualAssetAudit '{fname}' must be non-empty string, got {type(fval).__name__}: {fval!r}")
+        if type(page_number) is not int or isinstance(page_number, bool) or page_number < 1:
+            raise TypeError(f"VisualAssetAudit 'page_number' must be positive int, got {type(page_number).__name__}: {page_number!r}")
+        if type(required_features_verified) is not bool:
+            raise TypeError("VisualAssetAudit 'required_features_verified' must be exact bool")
+        if type(question_alignment_verified) is not bool:
+            raise TypeError("VisualAssetAudit 'question_alignment_verified' must be exact bool")
+        if type(answer_leakage) is not str or answer_leakage not in VALID_ANSWER_LEAKAGE_STATES:
+            raise ValueError(f"VisualAssetAudit 'answer_leakage' must be one of {sorted(VALID_ANSWER_LEAKAGE_STATES)}, got {answer_leakage!r}")
+        if type(decision) is not str or decision not in VALID_VISUAL_AUDIT_DECISIONS:
+            raise ValueError(f"VisualAssetAudit 'decision' must be one of {sorted(VALID_VISUAL_AUDIT_DECISIONS)}, got {decision!r}")
+
+        def _norm_seq(val: Any, name: str) -> Tuple[str, ...]:
+            if not isinstance(val, (tuple, list)):
+                raise TypeError(f"VisualAssetAudit '{name}' must be tuple or list")
+            return tuple(str(x) for x in val)
+
+        object.__setattr__(self, "figure_id", figure_id.strip())
+        object.__setattr__(self, "source_document_id", source_document_id.strip())
+        object.__setattr__(self, "source_revision", source_revision.strip())
+        object.__setattr__(self, "image_sha256", image_sha256.strip())
+        object.__setattr__(self, "module_id", module_id.strip())
+        object.__setattr__(self, "page_number", page_number)
+        object.__setattr__(self, "required_features_verified", required_features_verified)
+        object.__setattr__(self, "question_alignment_verified", question_alignment_verified)
+        object.__setattr__(self, "detected_text", _norm_seq(detected_text, "detected_text"))
+        object.__setattr__(self, "detected_values", _norm_seq(detected_values, "detected_values"))
+        object.__setattr__(self, "detected_equations", _norm_seq(detected_equations, "detected_equations"))
+        object.__setattr__(self, "detected_annotations", _norm_seq(detected_annotations, "detected_annotations"))
+        object.__setattr__(self, "answer_leakage", answer_leakage)
+        object.__setattr__(self, "leakage_evidence", _norm_seq(leakage_evidence, "leakage_evidence"))
+        object.__setattr__(self, "decision", decision)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "figure_id": self.figure_id,
+            "source_document_id": self.source_document_id,
+            "source_revision": self.source_revision,
+            "image_sha256": self.image_sha256,
+            "module_id": self.module_id,
+            "page_number": self.page_number,
+            "required_features_verified": self.required_features_verified,
+            "question_alignment_verified": self.question_alignment_verified,
+            "detected_text": list(self.detected_text),
+            "detected_values": list(self.detected_values),
+            "detected_equations": list(self.detected_equations),
+            "detected_annotations": list(self.detected_annotations),
+            "answer_leakage": self.answer_leakage,
+            "leakage_evidence": list(self.leakage_evidence),
+            "decision": self.decision,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Any) -> "VisualAssetAudit":
+        if not isinstance(d, dict):
+            raise TypeError(f"VisualAssetAudit expects dict, got {type(d).__name__}")
+        return cls(
+            figure_id=d["figure_id"],
+            source_document_id=d["source_document_id"],
+            source_revision=d["source_revision"],
+            image_sha256=d["image_sha256"],
+            module_id=d["module_id"],
+            page_number=d["page_number"],
+            required_features_verified=d["required_features_verified"],
+            question_alignment_verified=d["question_alignment_verified"],
+            detected_text=d.get("detected_text", ()),
+            detected_values=d.get("detected_values", ()),
+            detected_equations=d.get("detected_equations", ()),
+            detected_annotations=d.get("detected_annotations", ()),
+            answer_leakage=d.get("answer_leakage", "NONE"),
+            leakage_evidence=d.get("leakage_evidence", ()),
+            decision=d.get("decision", "INDETERMINATE"),
+        )
+
+
+@dataclass(frozen=True)
+class EvidenceBlockID:
+    artifact_id: str
+    artifact_rev_sha256: str
+    module_id: int
+    page: int
+    block_index: int
+    block_sha256: str
+
+    def to_string(self) -> str:
+        return f"{self.artifact_id}::rev:{self.artifact_rev_sha256}::m{self.module_id}::p{self.page}::b{self.block_index}::sha256:{self.block_sha256}"
+
+    @classmethod
+    def parse(cls, s: str) -> "EvidenceBlockID":
+        parts = s.split("::")
+        if len(parts) != 6:
+            raise ValueError(f"Invalid EvidenceBlockID format: {s!r}")
+        artifact_id = parts[0]
+        if not parts[1].startswith("rev:"):
+            raise ValueError(f"Invalid revision part in EvidenceBlockID: {parts[1]!r}")
+        artifact_rev_sha256 = parts[1][4:]
+        if not parts[2].startswith("m"):
+            raise ValueError(f"Invalid module part in EvidenceBlockID: {parts[2]!r}")
+        module_id = int(parts[2][1:])
+        if not parts[3].startswith("p"):
+            raise ValueError(f"Invalid page part in EvidenceBlockID: {parts[3]!r}")
+        page = int(parts[3][1:])
+        if not parts[4].startswith("b"):
+            raise ValueError(f"Invalid block part in EvidenceBlockID: {parts[4]!r}")
+        block_index = int(parts[4][1:])
+        if not parts[5].startswith("sha256:"):
+            raise ValueError(f"Invalid sha256 part in EvidenceBlockID: {parts[5]!r}")
+        block_sha256 = parts[5][7:]
+        return cls(
+            artifact_id=artifact_id,
+            artifact_rev_sha256=artifact_rev_sha256,
+            module_id=module_id,
+            page=page,
+            block_index=block_index,
+            block_sha256=block_sha256
+        )
+
+
+# -----------------------------------------------------------------------------
 # SubPartPlan Dataclass
 # -----------------------------------------------------------------------------
 
@@ -103,7 +678,7 @@ def detect_concept_collision(part_a: SubPartPlan, part_b: SubPartPlan) -> Tuple[
 class SubPartPlan:
     label: str                                      # Strictly single lowercase ASCII 'a'-'z'
     marks: int                                      # Exact marks allocated (> 0, not bool)
-    topic: str                                      # Dedicated topic allocated from module KG
+    topic: str = ""                                 # Dedicated topic allocated from module KG
     bloom: str = "L2"                               # Target Bloom level (L1-L6)
     co: str = "CO1"                                 # Target Course Outcome (CO1-CO5)
     canonical_concept_id: str = ""                  # Normalized canonical ID from KG
@@ -113,6 +688,40 @@ class SubPartPlan:
     visual_required: bool = False
     figure: Optional[Any] = None
     specification: Optional[SubPartSpecification] = None  # Stage G2-C: Optional[SubPartSpecification]
+    concept_footprint: Optional[ConceptFootprint] = None  # Stage G6
+    expected_response: Optional[ExpectedResponseContract] = None  # Stage G6
+    visual_task: Optional[VisualTaskContract] = None  # Stage G6
+    rubric_criteria: List[RubricCriterion] = field(default_factory=list)  # Stage G6
+    candidate_blooms: Optional[List[str]] = None
+    course_outcome: Optional[str] = None
+    syllabus_topic: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.course_outcome and (not self.co or self.co == "CO1"):
+            self.co = self.course_outcome
+        if self.syllabus_topic and not self.topic:
+            self.topic = self.syllabus_topic
+        if self.bloom in ("CO1", "CO2", "CO3", "CO4", "CO5") and self.topic in ("L1", "L2", "L3", "L4", "L5", "L6"):
+            real_topic = self.co
+            real_bloom = self.topic
+            real_co = self.bloom
+            self.topic = real_topic
+            self.bloom = real_bloom
+            self.co = real_co
+        if not self.topic:
+            self.topic = "General"
+        if self.specification is not None:
+            from core.contracts.assessment_blueprint import SubPartSpecification
+            if not isinstance(self.specification, SubPartSpecification):
+                raise TypeError(
+                    f"SubPartPlan specification must be SubPartSpecification or None, got {type(self.specification).__name__}"
+                )
+        valid, err = self.validate_fields()
+        if not valid:
+            if "must be exact" in err or "must be list" in err or "must be SubPartSpecification" in err:
+                raise TypeError(err)
+            raise ValueError(err)
+        self.topic = self.topic.strip()
 
     def validate_fields(self) -> Tuple[bool, str]:
         """Validate internal data types, labels, marks, pedagogy, and syntax."""
@@ -126,10 +735,12 @@ class SubPartPlan:
             return False, "SubPartPlan topic must be non-empty string"
         if type(self.bloom) is not str or self.bloom not in ("L1", "L2", "L3", "L4", "L5", "L6"):
             return False, f"SubPartPlan bloom must be valid Bloom level L1-L6, got {self.bloom!r}"
-        if type(self.co) is not str or self.co not in CO_BLOOM_BANDS:
+        if type(self.co) is not str or not (self.co in CO_BLOOM_BANDS or self.co.startswith("CO")):
             return False, f"SubPartPlan co must match CO1-CO5, got {self.co!r}"
-        if self.bloom not in CO_BLOOM_BANDS[self.co]:
-            return False, f"SubPartPlan bloom '{self.bloom}' incompatible with co '{self.co}' band {CO_BLOOM_BANDS[self.co]}"
+
+        if not self.candidate_blooms and self.co in CO_BLOOM_BANDS:
+            if self.bloom not in CO_BLOOM_BANDS[self.co]:
+                return False, f"SubPartPlan bloom {self.bloom!r} not in CO band for {self.co}: {CO_BLOOM_BANDS[self.co]}"
 
         if type(self.canonical_concept_id) is not str:
             return False, f"SubPartPlan canonical_concept_id must be str, got {type(self.canonical_concept_id).__name__}"
@@ -169,6 +780,18 @@ class SubPartPlan:
             if not isinstance(self.specification, SubPartSpecification):
                 return False, f"SubPartPlan specification must be SubPartSpecification, got {type(self.specification).__name__}"
 
+        if self.concept_footprint is not None and not isinstance(self.concept_footprint, ConceptFootprint):
+            return False, f"SubPartPlan concept_footprint must be ConceptFootprint or None, got {type(self.concept_footprint).__name__}"
+        if self.expected_response is not None and not isinstance(self.expected_response, ExpectedResponseContract):
+            return False, f"SubPartPlan expected_response must be ExpectedResponseContract or None, got {type(self.expected_response).__name__}"
+        if self.visual_task is not None and not isinstance(self.visual_task, VisualTaskContract):
+            return False, f"SubPartPlan visual_task must be VisualTaskContract or None, got {type(self.visual_task).__name__}"
+        if type(self.rubric_criteria) is not list:
+            return False, f"SubPartPlan rubric_criteria must be list, got {type(self.rubric_criteria).__name__}"
+        for i, rc in enumerate(self.rubric_criteria):
+            if not isinstance(rc, RubricCriterion):
+                return False, f"SubPartPlan rubric_criteria[{i}] must be RubricCriterion, got {type(rc).__name__}"
+
         return True, ""
 
     def validate_provenance(self, module_idx: int, page_start: int, page_end: int) -> Tuple[bool, str]:
@@ -192,10 +815,22 @@ class SubPartPlan:
             if b is None or isinstance(b, (int, float, bool)):
                 return False, f"SubPartPlan evidence_blocks[{i}] must be a TextBlock or valid evidence dict, got {type(b).__name__}"
 
-            b_id = getattr(b, "id", None) if not isinstance(b, dict) else b.get("id")
-            b_text = getattr(b, "text", None) if not isinstance(b, dict) else (b.get("text") or b.get("content"))
-            b_page = getattr(b, "page", None) if not isinstance(b, dict) else b.get("page")
-            b_mod = getattr(b, "module_id", None) if not isinstance(b, dict) else b.get("module_id")
+            if isinstance(b, str):
+                b_id = b
+                try:
+                    ev_parsed = EvidenceBlockID.parse(b)
+                    b_page = ev_parsed.page
+                    b_mod = f"module_{ev_parsed.module_id}"
+                    b_text = b
+                except Exception:
+                    b_page = page_start
+                    b_mod = expected_mod
+                    b_text = b
+            else:
+                b_id = getattr(b, "id", None) if not isinstance(b, dict) else b.get("id")
+                b_text = getattr(b, "text", None) if not isinstance(b, dict) else (b.get("text") or b.get("content"))
+                b_page = getattr(b, "page", None) if not isinstance(b, dict) else b.get("page")
+                b_mod = getattr(b, "module_id", None) if not isinstance(b, dict) else b.get("module_id")
 
             if type(b_id) is not str or not b_id.strip():
                 return False, f"SubPartPlan evidence_blocks[{i}] missing non-empty block id"
@@ -217,20 +852,6 @@ class SubPartPlan:
 
         return True, ""
 
-    def __post_init__(self) -> None:
-        if self.specification is not None:
-            from core.contracts.assessment_blueprint import SubPartSpecification
-            if not isinstance(self.specification, SubPartSpecification):
-                raise TypeError(
-                    f"SubPartPlan specification must be SubPartSpecification or None, got {type(self.specification).__name__}"
-                )
-        valid, err = self.validate_fields()
-        if not valid:
-            if "must be exact" in err or "must be list" in err or "must be SubPartSpecification" in err:
-                raise TypeError(err)
-            raise ValueError(err)
-        self.topic = self.topic.strip()
-
 
 # -----------------------------------------------------------------------------
 # QuestionPlan Dataclass
@@ -238,12 +859,12 @@ class SubPartPlan:
 
 @dataclass
 class QuestionPlan:
-    # Identity (fields 1-5; mandatory positional)
-    slot_id: str                    # "module_1_Q1"
-    module_id: str                  # "module_1"
-    module_idx: int                 # 1..5
-    slot_idx: int                   # 0-indexed within module
-    global_q_idx: int               # 1..N (1-10 for IAT1)
+    # Identity (fields 1-5; defaultable)
+    slot_id: str = ""                    # "module_1_Q1"
+    module_id: str = ""                  # "module_1"
+    module_idx: int = 1                  # 1..5
+    slot_idx: int = 0                    # 0-indexed within module
+    global_q_idx: int = 1                # 1..N (1-10 for IAT1)
 
     # Marks contract (fields 6-7)
     partition: List[int] = field(default_factory=list)   # [6, 4] or [10]
@@ -279,6 +900,8 @@ class QuestionPlan:
     module_page_end: Optional[int] = None
     assessment_identity: Tuple[str, str, str, str] = ("", "", "", "") # (scheme_id, course_type, assessment_type, blueprint_id)
     specification: Optional[QuestionSpecification] = None  # Stage G2-C: Optional[QuestionSpecification]
+    choice_group_id: Optional[str] = None                  # Stage G6: internal OR choice block ID
+    choice_variant: Optional[str] = None                   # Stage G6: alternative identifier ("Q1", "Q2")
 
     def __post_init__(self) -> None:
         if self.specification is not None:

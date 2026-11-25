@@ -288,8 +288,9 @@ def build_constraints_section(total_marks: int = 10) -> str:
         "[CONSTRAINTS]\n"
         "  - The question must be self-contained; no references to 'the notes',\n"
         "    'the textbook', 'chapter N', or meta-text.\n"
-        "  - FORBIDDEN PHRASES: Do NOT include preamble phrases such as 'Based on the provided evidence',\n"
+        "  - FORBIDDEN PHRASES & SOURCE TAGS: Do NOT include preamble phrases such as 'Based on the provided evidence',\n"
         "    'Based on the evidence provided', 'Apply the following', or 'Refer to the text'.\n"
+        "    NEVER include textbook/source tags such as 'Figure 1.2', 'Fig. 5.1', 'Table 2.1', 'Chapter 3', 'Section 2.4', 'Unit 1', or 'Module 2'.\n"
         "  - Open directly with the target Bloom action verb or scenario context.\n"
         "  - Keep each sub-question under 40 words. State the scenario in ONE sentence, then pose the task.\n"
         "  - If this question has a multi-part partition, emit each part with an explicit marker: (i)/(ii) or (a)/(b). Never merge them into one instruction.\n"
@@ -404,8 +405,10 @@ def build_subpart_task_section(sp_plan, difficulty_feedback: Optional[str] = Non
 
     lines = [
         "[TASK]",
-        f"Generate ONE {sp_plan.bloom}-level sub-question ({sp_plan.label}) worth {sp_plan.marks} marks.",
-        f"Start with an approved {sp_plan.bloom} verb: {verb_list}.",
+        f"Generate ONE {sp_plan.bloom}-level sub-question ({sp_plan.label}) worth {sp_plan.marks} marks aligned with {sp_plan.co}.",
+        f"Start with ONE approved {sp_plan.bloom} verb: {verb_list}.",
+        "SINGULAR DIRECTIVE: Use ONE and only ONE directive verb (e.g. only define, OR only describe, OR only explain, OR only implement). NEVER combine multiple directives (e.g. 'define X and explain Y').",
+        "SINGLE TOPIC: Ask strictly about the ONE assigned topic below; do NOT bundle multiple unrelated topics.",
         f"Target completion time: ~{minutes} minutes.",
         f"Provide a complete solution and a marking scheme totaling exactly {sp_plan.marks} marks.",
         "INDEPENDENCE: This sub-question must be completely self-contained and independently answerable. Do not reference other sub-parts.",
@@ -424,9 +427,11 @@ def build_subpart_constraints_section(marks: int) -> str:
         "[CONSTRAINTS]\n"
         "  - The sub-question must be self-contained; no references to 'the notes',\n"
         "    'the textbook', 'chapter N', or other subparts.\n"
-        "  - FORBIDDEN PHRASES: Do NOT include preamble phrases such as 'Based on the provided evidence',\n"
+        "  - FORBIDDEN PHRASES & SOURCE TAGS: Do NOT include preamble phrases such as 'Based on the provided evidence',\n"
         "    'Based on the evidence provided', 'Apply the following', or 'Refer to the text'.\n"
+        "    NEVER include textbook/source tags such as 'Figure 1.2', 'Fig. 5.1', 'Table 2.1', 'Chapter 3', 'Section 2.4', 'Unit 1', or 'Module 2'.\n"
         "  - Open directly with the target Bloom action verb or scenario context.\n"
+        "  - SINGULAR DIRECTIVE & SINGLE TOPIC: Ask ONLY ONE task using ONE Bloom action verb on ONE single topic. Do NOT combine multiple directives (such as 'define X, explain Y, and implement Z') or stack multiple questions.\n"
         "  - SIBLING INDEPENDENCE: Do NOT reference other sub-parts (e.g. 'with reference to part (a)', 'using your answer from part (a)') and do NOT start with referring pronouns ('It', 'This', 'These', 'They').\n"
         "  - NO FORMATTING ARTIFACTS: Do NOT include bullet markers (•, ▪, →, ◆, ■) or unparsed placeholders ({TOPIC}, [TOPIC]).\n"
         "  - COMPLETE CLAUSES: Do NOT end the question text mid-clause or with trailing punctuation like ',' or ';'.\n"
@@ -438,6 +443,35 @@ def build_subpart_constraints_section(marks: int) -> str:
         "Optional/conditional keys: \"diagram_request\", \"references_image\", \"bloom_verb_used\". "
         "No commentary, no code fences, no preamble."
     )
+
+
+def build_subpart_contract_guidance_section(sp_plan) -> str:
+    parts = []
+    cf = getattr(sp_plan, "concept_footprint", None)
+    if cf:
+        parts.append(
+            f"Target Concept: {cf.canonical_concept}\n"
+            f"Expected Operation: {cf.operation}\n"
+            f"Response Type: {cf.response_type}"
+        )
+    er = getattr(sp_plan, "expected_response", None)
+    if er:
+        reqs = ", ".join(er.required_elements)
+        ops = ", ".join(er.expected_operations)
+        parts.append(
+            f"Solution Required Elements: {reqs}\n"
+            f"Solution Expected Operations: {ops}"
+        )
+    vt = getattr(sp_plan, "visual_task", None)
+    if vt:
+        feats = ", ".join(vt.required_features)
+        parts.append(
+            f"Visual Operation: {vt.task_operation}\n"
+            f"Required Visual Features: {feats}"
+        )
+    if parts:
+        return "[ACADEMIC CONTRACT GUIDANCE]\n" + "\n".join(parts)
+    return ""
 
 
 def build_subpart_prompt(
@@ -483,6 +517,10 @@ def build_subpart_prompt(
     vis = build_subpart_visual_section(sp_plan)
     if vis:
         sections.append(vis)
+
+    contract_guidance = build_subpart_contract_guidance_section(sp_plan)
+    if contract_guidance:
+        sections.append(contract_guidance)
 
     sections.append(build_subpart_task_section(sp_plan, difficulty_feedback=difficulty_feedback))
     sections.append(build_subpart_constraints_section(marks=sp_plan.marks))
@@ -610,6 +648,10 @@ def build_archetype_subpart_prompt(
     vis = build_subpart_visual_section(sp_plan)
     if vis:
         sections.append(vis)
+
+    contract_guidance = build_subpart_contract_guidance_section(sp_plan)
+    if contract_guidance:
+        sections.append(contract_guidance)
 
     sections.append(build_subpart_task_section(sp_plan, difficulty_feedback=difficulty_feedback))
     sections.append(build_subpart_constraints_section(marks=sp_plan.marks))

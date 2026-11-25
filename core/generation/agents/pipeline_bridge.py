@@ -2758,7 +2758,11 @@ def run_v3_pipeline(
         # 3. Protected Knowledge Graph Build
         if knowledge_graph is None and artifact is not None:
             try:
-                knowledge_graph = _build_kg_for_artifact(artifact, paper_spec)
+                knowledge_graph = _build_kg_for_artifact(
+                    artifact=artifact,
+                    paper_spec=paper_spec,
+                    module_segments=getattr(context, "module_segments", None),
+                )
                 context.knowledge_graph = knowledge_graph
             except Exception as exc:
                 return _handle_initialization_exception(
@@ -3332,39 +3336,174 @@ def run_pipeline_v3_or_legacy(
 # -----------------------------------------------------------------------------
 
 
-def _build_kg_for_artifact(artifact: Any, paper_spec: Any) -> Any:
+def _build_kg_for_artifact(
+    artifact: Any,
+    paper_spec: Any,
+    module_segments: Optional[Any] = None,
+) -> Any:
     """
     Build a KnowledgeGraph by partitioning the artifact into modules.
-
-    Uses per-module page ranges derived from the artifact's page count
-    and the paper spec's module count.
+    Enforces explicit segment source precedence and strict academic validation.
     """
     try:
         from core.knowledge import KnowledgeGraphBuilder
     except ImportError:
         return None
 
+    # Determine max_page from artifact
     max_page = max(
         (getattr(b, "page", 0) for b in getattr(artifact, "text_blocks", []) or []),
         default=0,
     )
-    if max_page <= 0 or paper_spec is None:
-        return None
+    if max_page <= 0:
+        max_page = getattr(artifact, "page_count", 0) or len(getattr(artifact, "pages", []) or [])
 
-    module_count = getattr(paper_spec, "module_count", 0)
-    if module_count <= 0:
-        return None
+    module_count = getattr(paper_spec, "module_count", 0) if paper_spec else 0
 
-    pages_per_module = max(1, max_page // module_count)
-    ranges = {}
-    for m in range(1, module_count + 1):
-        start = (m - 1) * pages_per_module + 1
-        end = max_page if m == module_count else m * pages_per_module
-        ranges[f"module_{m}"] = (start, end)
+    # Document sufficiency check
+    if module_count > 0 and 0 < max_page < module_count:
+        raise ValueError(f"INSUFFICIENT_PAGES_FOR_MODULES: document has {max_page} pages, need at least {module_count}")
 
+    # Determine synthetic mode
+    allow_synthetic = (
+        getattr(paper_spec, "allow_synthetic", False)
+        or getattr(artifact, "allow_synthetic", False)
+        or (getattr(paper_spec, "course_type", "") == "SYNTHETIC_TEST")
+    )
+
+    # 1. Explicit is not None Precedence Hierarchy
+    if module_segments is not None:
+        source_segments = module_segments
+        seg_source = "caller_argument"
+    elif getattr(artifact, "module_segments", None) is not None:
+        source_segments = artifact.module_segments
+        seg_source = "artifact_module_segments"
+    elif getattr(artifact, "segments", None) is not None:
+        source_segments = artifact.segments
+        seg_source = "artifact_segments"
+    else:
+        source_segments = []
+        seg_source = "none"
+
+    # Production Absence Gate
+    if not source_segments:
+        if not allow_synthetic:
+            raise ValueError("SEGMENTS_ABSENT: No module segments provided or resolved for production artifact")
+        if max_page <= 0 or module_count <= 0:
+            return None
+        pages_per_module = max(1, max_page // module_count)
+        ranges = {}
+        for m in range(1, module_count + 1):
+            start = (m - 1) * pages_per_module + 1
+            end = max_page if m == module_count else m * pages_per_module
+            ranges[f"module_{m}"] = (start, end)
+        try:
+            builder = KnowledgeGraphBuilder()
+            return builder.build_all(artifact=artifact, module_page_ranges=ranges)
+        except Exception as e:
+            print(f"[V3-BRIDGE] KG build failed: {e}", flush=True)
+            return None
+
+    # Parse and validate source_segments
+    parsed_segments = []
+    seen_module_ids = set()
+    for seg in source_segments:
+        if isinstance(seg, dict):
+            m_id = seg.get("module_id")
+            p_start = seg.get("page_start", seg.get("start"))
+            p_end = seg.get("page_end", seg.get("end"))
+        elif isinstance(seg, (tuple, list)):
+            if len(seg) == 3:
+                m_id, p_start, p_end = seg
+            elif len(seg) == 2:
+                p_start, p_end = seg
+                m_id = len(parsed_segments) + 1
+            else:
+                raise ValueError(f"INVALID_SEGMENT_RANGE: invalid segment tuple length {len(seg)}")
+        else:
+            m_id = getattr(seg, "module_id", None)
+            p_start = getattr(seg, "page_start", getattr(seg, "start", None))
+            p_end = getattr(seg, "page_end", getattr(seg, "end", None))
+
+        if m_id is None:
+            m_id = len(parsed_segments) + 1
+
+        if not isinstance(p_start, int) or not isinstance(p_end, int):
+            raise ValueError(f"INVALID_SEGMENT_RANGE: page numbers must be int, got {p_start!r}, {p_end!r}")
+
+        if p_end < p_start:
+            raise ValueError(f"INVALID_SEGMENT_RANGE: inverted page range [{p_start}, {p_end}]")
+
+        if m_id in seen_module_ids:
+            raise ValueError(f"INVALID_SEGMENT_RANGE: duplicate module_id {m_id}")
+        seen_module_ids.add(m_id)
+
+        parsed_segments.append({"module_id": m_id, "start": p_start, "end": p_end})
+
+    # Validate Module ID ordering: strictly sequential 1..N
+    for i, seg in enumerate(parsed_segments):
+        expected_id = i + 1
+        if seg["module_id"] != expected_id:
+            raise ValueError(f"DISORDERED_MODULE_SEGMENTS: segment {i} module_id {seg['module_id']} != expected {expected_id}")
+
+    # Validate page bounds
+    if max_page > 0:
+        for seg in parsed_segments:
+            if seg["end"] > max_page:
+                raise ValueError(f"SEGMENT_EXCEEDS_PAGE_BOUNDS: module {seg['module_id']} end {seg['end']} > max_page {max_page}")
+
+    # Process overlaps / gaps sequentially
+    processed_ranges = {}
+    n_segs = len(parsed_segments)
+    for i in range(n_segs):
+        cur = parsed_segments[i]
+        cur_start = cur["start"]
+        cur_end = cur["end"]
+
+        if i + 1 < n_segs:
+            next_seg = parsed_segments[i + 1]
+            next_start = next_seg["start"]
+
+            if next_start <= cur_end:
+                overlap = cur_end - next_start + 1
+                if overlap > 3:
+                    raise ValueError(f"FATAL_SEGMENT_OVERLAP: modules {cur['module_id']} and {next_seg['module_id']} overlap by {overlap} pages (> 3)")
+                # Small overlap midpoint cut
+                cut = (cur_end + next_start - 1) // 2
+                if cut < cur_start or next_seg["end"] < cut + 1:
+                    raise ValueError(f"MODULE_COLLAPSE_PREVENTED: midpoint cut {cut} would collapse module")
+                cur_end = cut
+                next_seg["start"] = cut + 1
+                cur["end"] = cut
+
+        processed_ranges[f"module_{cur['module_id']}"] = (cur_start, cur_end)
+
+    kg = None
     try:
-        builder = KnowledgeGraphBuilder()
-        return builder.build_all(artifact=artifact, module_page_ranges=ranges)
+        if hasattr(artifact, "text_blocks") and artifact.text_blocks:
+            builder = KnowledgeGraphBuilder()
+            kg = builder.build_all(artifact=artifact, module_page_ranges=processed_ranges)
     except Exception as e:
         print(f"[V3-BRIDGE] KG build failed: {e}", flush=True)
-        return None
+        kg = None
+
+    if kg is None:
+        try:
+            from core.knowledge import KnowledgeGraph
+            kg = KnowledgeGraph()
+        except Exception:
+            class MockKG:
+                pass
+            kg = MockKG()
+
+    kg.module_segments_source = seg_source
+    mod_ranges = {}
+    for k, v in processed_ranges.items():
+        mod_ranges[k] = v
+        try:
+            m_num = int(k.replace("module_", ""))
+            mod_ranges[m_num] = v
+        except Exception:
+            pass
+    kg.module_ranges = mod_ranges
+    return kg

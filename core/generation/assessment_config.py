@@ -8,6 +8,7 @@ All configurations are immutable once frozen.
 
 from __future__ import annotations
 
+import math
 import os
 import re
 import threading
@@ -18,17 +19,49 @@ ID_PATTERN = re.compile(r"^[A-Z0-9_]+$")
 
 
 @dataclass(frozen=True)
+class CognitiveTargetDistribution:
+    l1_percentage: float = 0.0
+    l2_percentage: float = 0.0
+    l3_percentage: float = 0.0
+    l4_percentage: float = 0.0
+    l5_percentage: float = 0.0
+    l6_percentage: float = 0.0
+    tolerance_percentage: float = 5.0
+
+    def __post_init__(self) -> None:
+        targets = [self.l1_percentage, self.l2_percentage, self.l3_percentage,
+                   self.l4_percentage, self.l5_percentage, self.l6_percentage]
+        for idx, t in enumerate(targets, 1):
+            if type(t) not in (int, float) or type(t) is bool:
+                raise TypeError(f"Target L{idx} must be int or float, got {type(t).__name__}")
+            if math.isnan(t) or math.isinf(t) or t < 0.0:
+                raise ValueError(f"Target L{idx} must be non-negative real, got {t!r}")
+        tol = self.tolerance_percentage
+        if type(tol) not in (int, float) or type(tol) is bool or tol < 0.0:
+            raise TypeError("tolerance_percentage must be non-negative real")
+        total = sum(targets)
+        if abs(total - 100.0) > 0.01:
+            raise ValueError(f"Cognitive targets must sum to 100%, got {total:.2f}%")
+
+
+@dataclass(frozen=True)
 class AssessmentConfig:
-    scheme_id: str                          # e.g., "VTU_2022_NEP"
-    course_type: str                        # "AEC_GENERAL_THEORY" | "ENGINEERING_THEORY" | "SYNTHETIC_TEST"
-    assessment_type: str                    # "CIE_IAT" | "SEE" | "TEST_MODE"
-    blueprint_id: str                       # e.g., "VTU_AEC_ANNEXURE_II" | "TEST_BP_3PART"
-    total_marks_per_question: int           # e.g., 10 for CIE, 20 for SEE
-    permitted_partitions: Tuple[Tuple[int, ...], ...]  # e.g., ((5, 5), (4, 6), (3, 7), (10,))
-    max_subparts: int                       # e.g., 2 for CIE, 3 for SEE (strictly 1 <= max_subparts <= 26)
-    reference_source: str                   # Mandatory auditable citation
-    allow_choice: Optional[bool] = None     # Optional; omitted if not established by cited provision
-    questions_per_module: Optional[int] = None # Optional; omitted if not established by cited provision
+    scheme_id: str = "VTU_2022_NEP"                          # e.g., "VTU_2022_NEP"
+    course_type: str = "ENGINEERING_THEORY"                  # "AEC_GENERAL_THEORY" | "ENGINEERING_THEORY" | "SYNTHETIC_TEST"
+    assessment_type: str = "CIE_IAT"                         # "CIE_IAT" | "SEE" | "TEST_MODE" | "IA"
+    blueprint_id: str = "DEFAULT_BLUEPRINT"                  # e.g., "VTU_AEC_ANNEXURE_II" | "TEST_BP_3PART"
+    total_marks_per_question: int = 10                       # e.g., 10 for CIE, 20 for SEE
+    permitted_partitions: Tuple[Tuple[int, ...], ...] = ((5, 5), (6, 4), (10,))  # e.g., ((5, 5), (4, 6), (3, 7), (10,))
+    max_subparts: int = 2                                   # e.g., 2 for CIE, 3 for SEE (strictly 1 <= max_subparts <= 26)
+    reference_source: str = "VTU 2022 Scheme Regulations and Model Question Paper Blueprint" # Mandatory auditable citation
+    allow_choice: Optional[bool] = None                     # Optional; omitted if not established by cited provision
+    questions_per_module: Optional[int] = None              # Optional; omitted if not established by cited provision
+    cognitive_target: Optional[CognitiveTargetDistribution] = None # Stage G6
+    mandatory_course_outcomes: Optional[Any] = None         # Stage G6: tuple, list, or set of str
+    bloom_preference: Optional[str] = None                  # Stage G6: None | "HIGHER" | "LOWER"
+    allow_synthetic: bool = False                           # Stage G6: Synthetic testing bypass
+    generate_solutions: bool = True                         # Stage G6: Solution generation requested
+    generate_rubrics: bool = True                           # Stage G6: Rubric generation requested
 
     def __post_init__(self) -> None:
         for attr_name in ("scheme_id", "course_type", "assessment_type", "blueprint_id"):
@@ -70,6 +103,26 @@ class AssessmentConfig:
         if self.questions_per_module is not None:
             if type(self.questions_per_module) is not int or isinstance(self.questions_per_module, bool) or self.questions_per_module <= 0:
                 raise ValueError(f"questions_per_module must be positive exact int or None, got {self.questions_per_module!r}")
+
+        if self.cognitive_target is not None and not isinstance(self.cognitive_target, CognitiveTargetDistribution):
+            raise TypeError(f"cognitive_target must be CognitiveTargetDistribution or None, got {type(self.cognitive_target).__name__}")
+
+        if self.mandatory_course_outcomes is not None:
+            if type(self.mandatory_course_outcomes) not in (tuple, list, set, frozenset):
+                raise TypeError(f"mandatory_course_outcomes must be tuple, list, or set or None, got {type(self.mandatory_course_outcomes).__name__}")
+            for co_name in self.mandatory_course_outcomes:
+                if type(co_name) is not str or not co_name.strip():
+                    raise TypeError("mandatory_course_outcomes items must be non-empty strings")
+
+        if self.bloom_preference is not None and self.bloom_preference not in ("HIGHER", "LOWER"):
+            raise ValueError(f"bloom_preference must be 'HIGHER', 'LOWER', or None, got {self.bloom_preference!r}")
+
+        if type(self.allow_synthetic) is not bool:
+            raise TypeError(f"allow_synthetic must be bool, got {type(self.allow_synthetic).__name__}")
+        if type(self.generate_solutions) is not bool:
+            raise TypeError(f"generate_solutions must be bool, got {type(self.generate_solutions).__name__}")
+        if type(self.generate_rubrics) is not bool:
+            raise TypeError(f"generate_rubrics must be bool, got {type(self.generate_rubrics).__name__}")
 
     @property
     def identity(self) -> Tuple[str, str, str, str]:

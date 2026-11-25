@@ -855,13 +855,13 @@ def test_scenario_11_full_five_agent_pipeline_success_orchestrator_planning_to_e
 
     # Model returns compliant responses matching assigned Bloom verbs (L1 band: state, list)
     resp_a = {
-        "text": "State the core process scheduling principles and define execution states.",
+        "text": "State the core process scheduling execution states.",
         "solution": "Process scheduling states include ready, running, and waiting.",
         "marking_scheme": [{"criterion": "Scheduling principles", "marks": 5}],
         "bloom_verb_used": "state",
     }
     resp_b = {
-        "text": "List the CPU dispatching mechanics and define context switching latency.",
+        "text": "List the primary CPU dispatching mechanics.",
         "solution": "Dispatcher provides CPU control and saves program counter.",
         "marking_scheme": [{"criterion": "Dispatching mechanics", "marks": 5}],
         "bloom_verb_used": "list",

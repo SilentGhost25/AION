@@ -52,6 +52,9 @@ from .local_evaluators import (
     ALL_BLOOM_VERBS,
     evaluate_cognitive_demand,
     SemanticDemandOutcome,
+    validate_no_source_tags,
+    validate_singular_directive,
+    validate_single_topic,
 )
 from .planning_agent import PlanStatus
 from .prompts import (
@@ -443,6 +446,16 @@ class WritingAgent(Agent):
         if not compliant:
             return slot_reason
 
+        # Singular Directive Enforcement (no compound/multi-directive tasks)
+        directive_err = validate_singular_directive(text_raw)
+        if directive_err:
+            return directive_err
+
+        # Source Tag Leakage Enforcement (no Figure 5.1 / Chapter N / Section N / Module N tags)
+        tag_err = validate_no_source_tags(text_raw)
+        if tag_err:
+            return tag_err
+
         # Layer 2: Semantic Cognitive Demand Classification
         outcome, demand_reason = evaluate_cognitive_demand(text_raw, bloom)
         if outcome == SemanticDemandOutcome.FAIL:
@@ -645,16 +658,27 @@ class WritingAgent(Agent):
                     last_error = raw_err
                     continue
 
-                # 2. Bloom verb and cognitive depth alignment
+                # 2. Sibling independence (must not chain to previous subparts)
+                indep_err = self._validate_subpart_independence(text_raw, sp_plan.label, subparts)
+                if indep_err:
+                    last_error = indep_err
+                    continue
+
+                # 3. Bloom verb, singular directive, and cognitive depth alignment
                 bloom_err = self._validate_subpart_bloom(text_raw, getattr(sp_plan, "bloom", "L2"), sp_plan.marks, label=sp_plan.label)
                 if bloom_err:
                     last_error = bloom_err
                     continue
 
-                # 3. Sibling independence (must not chain to previous subparts)
-                indep_err = self._validate_subpart_independence(text_raw, sp_plan.label, subparts)
-                if indep_err:
-                    last_error = indep_err
+                # 4. Single-topic focus (must not bundle sibling topics)
+                sibling_topics = [
+                    getattr(s, "topic", "")
+                    for s in plan.sub_part_plans
+                    if getattr(s, "label", "") != sp_plan.label and getattr(s, "topic", None)
+                ]
+                topic_err = validate_single_topic(text_raw, getattr(sp_plan, "topic", None), sibling_topics)
+                if topic_err:
+                    last_error = topic_err
                     continue
 
                 # Clean subpart text (strip preamble and any accidental leading label)
@@ -675,6 +699,12 @@ class WritingAgent(Agent):
 
                 # Authoritative label assignment: sp_plan.label governs, ignoring any LLM-supplied label
                 try:
+                    ev_ids = []
+                    for b in (getattr(sp_plan, "evidence_blocks", None) or []):
+                        b_id = getattr(b, "id", None) if not isinstance(b, dict) else b.get("id")
+                        if b_id:
+                            ev_ids.append(str(b_id))
+
                     sp = SubPart(
                         label=sp_plan.label,
                         marks=sp_plan.marks,
@@ -684,6 +714,10 @@ class WritingAgent(Agent):
                         marking_scheme=scheme_raw,
                         bloom=getattr(sp_plan, "bloom", "") or "",
                         co=getattr(sp_plan, "co", "") or "",
+                        evidence_block_ids=tuple(ev_ids),
+                        concept_footprint=getattr(sp_plan, "concept_footprint", None),
+                        expected_response=getattr(sp_plan, "expected_response", None),
+                        visual_task=getattr(sp_plan, "visual_task", None),
                     )
                 except Exception as exc:
                     last_error = f"SubPart construction failed: {exc}"

@@ -151,7 +151,7 @@ class MockLLMCaller:
             text = "Analyze the differences and performance trade-offs between the two operational mechanisms."
         elif bloom == "L5":
             verb = "Evaluate"
-            text = "Evaluate the design trade-offs and assess whether the system meets performance criteria under the specified architectural requirements."
+            text = "Evaluate the design trade-offs against performance criteria under the specified architectural requirements."
         elif bloom == "L6":
             verb = "Design"
             text = "Design a custom architecture satisfying system specifications and timing constraints."
