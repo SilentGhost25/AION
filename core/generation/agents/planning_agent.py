@@ -425,7 +425,12 @@ class PlanningAgent(Agent):
         used_figures: set = set()
 
         # 8. Resolve module segments.
-        segments_source = getattr(context, "module_segments", None) or getattr(artifact, "segments", None) or []
+        segments_source = (
+            getattr(context, "module_segments", None)
+            or getattr(artifact, "module_segments", None)
+            or getattr(artifact, "segments", None)
+            or []
+        )
 
         # Mandatory Course Outcomes validation
         mandatory_cos = getattr(config, "mandatory_course_outcomes", None)
@@ -562,7 +567,7 @@ class PlanningAgent(Agent):
                                 mod_headings = [
                                     b.text.strip() for b in getattr(artifact, "text_blocks", []) or []
                                     if (page_start is None or page_start <= getattr(b, "page", 0) <= (page_end or 9999))
-                                    and getattr(b, "block_role", "") == "HEADING"
+                                    and getattr(b, "block_role", "") in ("HEADING", "SECTION_HEADING")
                                 ]
                                 for h in mod_headings:
                                     h_clean = self._clean_topic(h)
@@ -573,6 +578,23 @@ class PlanningAgent(Agent):
                             if not topic_candidate and segment and getattr(segment, "title", None):
                                 t_clean = self._clean_topic(segment.title)
                                 if self._is_valid_topic(t_clean) and t_clean.lower() not in attempt_used_topics:
+                                    topic_candidate = t_clean
+
+                            # If all headings/title are already in attempt_used_topics, recycle from module headings or segment title
+                            if not topic_candidate:
+                                if hasattr(artifact, "text_blocks"):
+                                    all_headings = [
+                                        self._clean_topic(b.text.strip()) for b in getattr(artifact, "text_blocks", []) or []
+                                        if (page_start is None or page_start <= getattr(b, "page", 0) <= (page_end or 9999))
+                                        and getattr(b, "block_role", "") in ("HEADING", "SECTION_HEADING")
+                                        and self._is_valid_topic(self._clean_topic(b.text.strip()))
+                                    ]
+                                    if all_headings:
+                                        topic_candidate = all_headings[(within_idx * 3 + part_k) % len(all_headings)]
+
+                            if not topic_candidate and segment and getattr(segment, "title", None):
+                                t_clean = self._clean_topic(segment.title)
+                                if self._is_valid_topic(t_clean):
                                     topic_candidate = t_clean
 
                         if not topic_candidate:
@@ -933,7 +955,7 @@ class PlanningAgent(Agent):
             clean_candidates = [self._clean_topic(c) for c in kg if self._is_valid_topic(self._clean_topic(c))]
             valid_candidates = [c for c in clean_candidates if c.lower() not in exclude_lower and normalize_concept(c) not in exclude_lower]
             if not valid_candidates:
-                if clean_candidates and len(clean_candidates) <= 2:
+                if clean_candidates:
                     if telemetry is not None:
                         telemetry["topic_dispersion_tier"] = "TIER_3_COMPACT_MODULE_FALLBACK"
                     return clean_candidates[(within_idx + part_idx) % len(clean_candidates)]
@@ -960,9 +982,9 @@ class PlanningAgent(Agent):
                         valid_candidates.append(cleaned)
 
             if not valid_candidates:
-                # Tier 3 fallback: in compact modules with only one syllabus topic
+                # Tier 3 fallback: in compact modules when all syllabus topics have been used once
                 all_valid = [self._clean_topic(c) for c, _ in top if self._is_valid_topic(self._clean_topic(c))]
-                if all_valid and len(all_valid) <= 2:
+                if all_valid:
                     if telemetry is not None:
                         telemetry["topic_dispersion_tier"] = "TIER_3_COMPACT_MODULE_FALLBACK"
                     return all_valid[(within_idx + part_idx) % len(all_valid)]

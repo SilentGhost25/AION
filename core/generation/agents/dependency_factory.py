@@ -126,7 +126,13 @@ class DependencyFactory:
             notes.append("no sympy_verifier_factory provided; numerical repairs unverified")
 
         # --- Build agents ---
-        planning = PlanningAgent()
+        env_max_vis = os.getenv("AION_MAX_VISUAL_SLOTS_PER_MODULE")
+        if env_max_vis is not None and env_max_vis.strip().isdigit():
+            max_visual = int(env_max_vis.strip())
+        else:
+            max_visual = 1 if vlm_caller is not None else 0
+
+        planning = PlanningAgent(max_visual_slots_per_module=max_visual)
         writing = WritingAgent(llm_caller=llm_caller, vlm_caller=vlm_caller)
         evaluation = EvaluationAgent(api_caller=api_caller) if api_caller else None
         refinement = RefinementAgent(
