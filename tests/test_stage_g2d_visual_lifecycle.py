@@ -150,7 +150,8 @@ def test_ac_d1_portable_visual_assets_and_hashing(temp_images_dir):
 
     # 3. Cross-machine absolute path recovery
     if os.name == "nt":
-        bogus_host_abs = f"C:\\Users\\OtherDeveloper\\AION\\{png_info['rel'].replace('/', '\\')}"
+        rel_win = png_info["rel"].replace("/", "\\")
+        bogus_host_abs = f"C:\\Users\\OtherDeveloper\\AION\\{rel_win}"
     else:
         bogus_host_abs = f"/home/OtherDeveloper/AION/{png_info['rel']}"
     fig_other_machine = FigureArtifact(
