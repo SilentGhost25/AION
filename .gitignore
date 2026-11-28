@@ -46,3 +46,6 @@ Thumbs.db
 # Transient extraction dumps from gateway tests
 original.md
 /original.md
+
+# Graphify Output
+graphify-out/
