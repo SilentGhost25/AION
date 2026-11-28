@@ -393,7 +393,7 @@ def test_stage_a_skips_leaky_candidate_and_selects_clean_alternative(tmp_path):
 def test_subpart_b_visual_assignment_and_caption_normalization(tmp_path):
     """Subpart (b) can receive a visual when (a) is text-only; display caption strips 'Figure X.Y:'."""
     p_fig = tmp_path / "bplus.png"
-    sha = _make_png(p_fig, "B+ Tree Root and Leaves")
+    sha = _make_png(p_fig, "B+ Tree Root Nodes and Leaves")
     fig = FigureArtifact(
         id="fig_bplus",
         page=3,

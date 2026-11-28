@@ -59,10 +59,21 @@ def _parse_json_response(raw_text: str) -> dict:
                 except Exception:
                     pass
 
-    # Extract JSON object between outer-most curly braces
     start = text.find("{")
+    if start == -1:
+        raise ValueError(f"no JSON object in response: {text[:200]!r}")
+
+    # First attempt: parse first valid JSON object via raw_decode (tolerates trailing text/tokens)
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(text[start:])
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
+
+    # Second attempt: extract between first '{' and last '}'
     end = text.rfind("}")
-    if start == -1 or end == -1 or end < start:
+    if end == -1 or end < start:
         raise ValueError(f"no JSON object in response: {text[:200]!r}")
 
     return json.loads(text[start : end + 1])
@@ -288,20 +299,9 @@ class RobustLLMCaller:
             "additionalProperties": False,
         }
 
-        # Version-aware candidate order: >=0.12 uses structured_outputs; older uses json_schema then guided_json
-        use_modern = False
-        try:
-            parts = [int(p) for p in vllm_ver.lstrip("v").split(".")[:2] if p.isdigit()]
-            if len(parts) >= 2 and (parts[0] > 0 or parts[1] >= 12):
-                use_modern = True
-        except Exception:
-            pass
-
-        candidates = (
-            ["structured_outputs", "json_schema"]
-            if use_modern
-            else ["json_schema", "structured_outputs", "guided_json"]
-        )
+        # Prioritize standard OpenAI json_schema (natively supported by vLLM via xgrammar/outlines),
+        # followed by native guided_json, then structured_outputs
+        candidates = ["json_schema", "guided_json", "structured_outputs"]
 
         last_err = "No structured decoding mode succeeded"
         for mode in candidates:
@@ -311,15 +311,20 @@ class RobustLLMCaller:
                 "max_tokens": 32,
                 "temperature": 0.0,
             }
-            if mode == "structured_outputs":
-                probe_payload["extra_body"] = {"structured_outputs": {"json": probe_schema}}
-            elif mode == "json_schema":
+            if mode == "json_schema":
                 probe_payload["response_format"] = {
                     "type": "json_schema",
                     "json_schema": {"name": "cap_probe", "schema": probe_schema, "strict": True},
                 }
-            else:
+            elif mode == "guided_json":
                 probe_payload["guided_json"] = probe_schema
+                probe_payload["extra_body"] = {"guided_json": probe_schema}
+            else:  # structured_outputs
+                probe_payload["extra_body"] = {"structured_outputs": {"json": probe_schema}}
+                probe_payload["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {"name": "cap_probe", "schema": probe_schema, "strict": True},
+                }
 
             try:
                 pr = req_module.post(
@@ -381,9 +386,7 @@ class RobustLLMCaller:
                     elapsed_sec=time.monotonic() - start,
                     error=f"PROVIDER_CAPABILITY_FAILURE: {cap_err}",
                 )
-            if mode == "structured_outputs":
-                payload["extra_body"] = {"structured_outputs": {"json": request.schema}}
-            elif mode == "json_schema":
+            if mode == "json_schema":
                 payload["response_format"] = {
                     "type": "json_schema",
                     "json_schema": {
@@ -392,8 +395,21 @@ class RobustLLMCaller:
                         "strict": True,
                     },
                 }
-            else:  # "guided_json" for legacy vLLM < 0.12
                 payload["guided_json"] = request.schema
+                payload["extra_body"] = {"guided_json": request.schema}
+            elif mode == "structured_outputs":
+                payload["extra_body"] = {"structured_outputs": {"json": request.schema}}
+                payload["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "structured_response",
+                        "schema": request.schema,
+                        "strict": True,
+                    },
+                }
+            else:  # "guided_json"
+                payload["guided_json"] = request.schema
+                payload["extra_body"] = {"guided_json": request.schema}
         else:
             payload["response_format"] = {"type": "json_object"}
 
