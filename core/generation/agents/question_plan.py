@@ -418,6 +418,7 @@ class VisualTaskContract:
     is_essential: bool = True
     task_operation: str = ""
     required_features: Tuple[str, ...] = ()
+    prohibited_features: Tuple[str, ...] = ()
 
     def __init__(
         self,
@@ -426,16 +427,28 @@ class VisualTaskContract:
         is_essential: bool = True,
         task_operation: str = "",
         required_features: Tuple[str, ...] = (),
+        prohibited_features: Tuple[str, ...] = (),
         **kwargs,
     ):
         if kwargs:
             unexpected = set(kwargs.keys())
             raise TypeError(f"VisualTaskContract.__init__() got unexpected keyword argument: {unexpected}")
-        if len(args) >= 4:
+        if args:
+            if len(args) > 5:
+                raise TypeError(f"VisualTaskContract takes at most 5 positional arguments, got {len(args)}")
             figure_id = args[0]
-            is_essential = args[1]
-            task_operation = args[2]
-            required_features = tuple(args[3])
+            if len(args) >= 2:
+                is_essential = args[1]
+            if len(args) >= 3:
+                task_operation = args[2]
+            if len(args) >= 4:
+                if type(args[3]) not in (tuple, list):
+                    raise TypeError("VisualTaskContract positional 'required_features' must be list or tuple")
+                required_features = args[3]
+            if len(args) >= 5:
+                if type(args[4]) not in (tuple, list):
+                    raise TypeError("VisualTaskContract positional 'prohibited_features' must be list or tuple")
+                prohibited_features = args[4]
 
         # Direct construction type validation
         if type(figure_id) is not str or not figure_id.strip():
@@ -449,25 +462,34 @@ class VisualTaskContract:
         for feat in required_features:
             if type(feat) is not str or not feat.strip():
                 raise TypeError(f"required_features elements must be non-empty strings, got {type(feat).__name__}: {feat!r}")
+        if type(prohibited_features) not in (tuple, list):
+            raise TypeError("VisualTaskContract 'prohibited_features' must be exact tuple or list")
+        for pfeat in prohibited_features:
+            if type(pfeat) is not str or not pfeat.strip():
+                raise TypeError(f"prohibited_features elements must be non-empty strings, got {type(pfeat).__name__}: {pfeat!r}")
 
         object.__setattr__(self, "figure_id", figure_id)
         object.__setattr__(self, "is_essential", is_essential)
         object.__setattr__(self, "task_operation", task_operation)
         object.__setattr__(self, "required_features", tuple(required_features))
+        object.__setattr__(self, "prohibited_features", tuple(prohibited_features))
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d = {
             "figure_id": self.figure_id,
             "is_essential": self.is_essential,
             "task_operation": self.task_operation,
             "required_features": list(self.required_features),
         }
+        if self.prohibited_features:
+            d["prohibited_features"] = list(self.prohibited_features)
+        return d
 
     @classmethod
     def from_dict(cls, d: Any) -> "VisualTaskContract":
         if not isinstance(d, dict):
             raise TypeError(f"VisualTaskContract expects dict, got {type(d).__name__}")
-        allowed = {"figure_id", "is_essential", "task_operation", "required_features"}
+        allowed = {"figure_id", "is_essential", "task_operation", "required_features", "prohibited_features"}
         extra = set(d.keys()) - allowed
         if extra:
             raise ValueError(f"VisualTaskContract contains unexpected keys: {extra}")
@@ -495,11 +517,21 @@ class VisualTaskContract:
                 raise TypeError("required_features elements must be non-empty strings")
             feat_list.append(feat.strip())
 
+        raw_prohib = d.get("prohibited_features", ())
+        if type(raw_prohib) not in (tuple, list):
+            raise TypeError("VisualTaskContract 'prohibited_features' must be exact tuple or list")
+        prohib_list = []
+        for pfeat in raw_prohib:
+            if not isinstance(pfeat, str) or not pfeat.strip():
+                raise TypeError("prohibited_features elements must be non-empty strings")
+            prohib_list.append(pfeat.strip())
+
         return cls(
             figure_id=fig_id.strip(),
             is_essential=is_ess,
             task_operation=op.strip(),
             required_features=tuple(feat_list),
+            prohibited_features=tuple(prohib_list),
         )
 
 
@@ -831,6 +863,15 @@ class SubPartPlan:
                 b_text = getattr(b, "text", None) if not isinstance(b, dict) else (b.get("text") or b.get("content"))
                 b_page = getattr(b, "page", None) if not isinstance(b, dict) else b.get("page")
                 b_mod = getattr(b, "module_id", None) if not isinstance(b, dict) else b.get("module_id")
+
+            if b_mod is None and isinstance(b_id, str) and "::rev:" in b_id:
+                try:
+                    ev_parsed = EvidenceBlockID.parse(b_id)
+                    b_mod = f"module_{ev_parsed.module_id}"
+                    if b_page is None:
+                        b_page = ev_parsed.page
+                except Exception:
+                    pass
 
             if type(b_id) is not str or not b_id.strip():
                 return False, f"SubPartPlan evidence_blocks[{i}] missing non-empty block id"

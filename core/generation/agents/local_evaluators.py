@@ -1282,10 +1282,192 @@ def _fig_field(fig: Any, key: str, default: Any = None) -> Any:
     return getattr(fig, key, default)
 
 
+class VisualContentExtractor:
+    """
+    Provider abstraction for extracting text, numeric values, equations, labels,
+    annotations, confidence, and bounding boxes from visual assets.
+    Caches results by (image_sha256, extractor_id, extractor_version, config_key).
+    """
+
+    _CACHE: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
+
+    def __init__(self, backend: str = "auto", min_confidence: float = 0.50, config_key: str = "default"):
+        self.backend = backend
+        self.min_confidence = min_confidence
+        self.config_key = config_key
+
+    def _resolve_backend(self) -> Tuple[str, str, Optional[Any]]:
+        if self.backend in ("auto", "rapidocr"):
+            try:
+                import rapidocr_onnxruntime as r_ocr
+                ver = str(getattr(r_ocr, "__version__", "1.x"))
+                return "rapidocr", ver, r_ocr.RapidOCR()
+            except Exception:
+                if self.backend == "rapidocr":
+                    return "rapidocr", "unavailable", None
+        if self.backend in ("auto", "pytesseract"):
+            try:
+                import pytesseract
+                ver = str(pytesseract.get_tesseract_version())
+                return "pytesseract", ver, pytesseract
+            except Exception:
+                pass
+        return "none", "unavailable", None
+
+    def extract(self, image_path: str) -> Dict[str, Any]:
+        import hashlib
+        import os
+
+        if not image_path or not os.path.isfile(image_path):
+            return {
+                "text_regions": [],
+                "numerical_values": [],
+                "equations": [],
+                "labels": [],
+                "annotations": [],
+                "confidence": 0.0,
+                "bounding_boxes": [],
+                "extractor_id": "none",
+                "extractor_version": "unavailable",
+                "available": False,
+                "error": "image_file_missing",
+            }
+
+        with open(image_path, "rb") as f:
+            img_sha = hashlib.sha256(f.read()).hexdigest()
+
+        ext_id, ext_ver, engine = self._resolve_backend()
+        cache_key = (img_sha, ext_id, ext_ver, self.config_key)
+        if cache_key in self._CACHE:
+            return dict(self._CACHE[cache_key])
+
+        if engine is None:
+            res = {
+                "text_regions": [],
+                "numerical_values": [],
+                "equations": [],
+                "labels": [],
+                "annotations": [],
+                "confidence": 0.0,
+                "bounding_boxes": [],
+                "extractor_id": ext_id,
+                "extractor_version": ext_ver,
+                "available": False,
+                "error": "ocr_backend_unavailable",
+            }
+            return res
+
+        text_regions: List[str] = []
+        bboxes: List[Any] = []
+        confs: List[float] = []
+        try:
+            if ext_id == "rapidocr":
+                ocr_out, _ = engine(image_path)
+                for item in (ocr_out or []):
+                    box, txt, conf = item[0], str(item[1]), float(item[2])
+                    text_regions.append(txt)
+                    bboxes.append(box)
+                    confs.append(conf)
+            elif ext_id == "pytesseract":
+                from PIL import Image
+                with Image.open(image_path) as im:
+                    data = engine.image_to_data(im, output_type=engine.Output.DICT)
+                for i, txt in enumerate(data.get("text", [])):
+                    if str(txt).strip():
+                        text_regions.append(str(txt).strip())
+                        c = float(data.get("conf", [0])[i]) / 100.0
+                        if c >= 0:
+                            confs.append(c)
+                        bboxes.append([
+                            data["left"][i], data["top"][i],
+                            data["width"][i], data["height"][i],
+                        ])
+        except Exception as e:
+            return {
+                "text_regions": [],
+                "numerical_values": [],
+                "equations": [],
+                "labels": [],
+                "annotations": [],
+                "confidence": 0.0,
+                "bounding_boxes": [],
+                "extractor_id": ext_id,
+                "extractor_version": ext_ver,
+                "available": False,
+                "error": f"ocr_execution_failed: {e}",
+            }
+
+        joined = " ".join(text_regions)
+        num_vals = re.findall(r"\b\d+(?:\.\d+)?(?:\s*(?:ohm|Ω|v|a|hz|s|m/s\^?2|kω|mω))?\b", joined, re.IGNORECASE)
+        eqs = [t for t in text_regions if "=" in t or "->" in t]
+        avg_conf = sum(confs) / len(confs) if confs else 0.0
+        res = {
+            "text_regions": text_regions,
+            "numerical_values": num_vals,
+            "equations": eqs,
+            "labels": text_regions,
+            "annotations": [],
+            "confidence": avg_conf,
+            "bounding_boxes": bboxes,
+            "extractor_id": ext_id,
+            "extractor_version": ext_ver,
+            "available": True,
+        }
+        self._CACHE[cache_key] = dict(res)
+        return res
+
+
+_INPUT_ROLE_LHS = re.compile(
+    r"^(?:r\s*_?\d+|v\s*_?\d+|i\s*_?\d+|c\s*_?\d+|l\s*_?\d+|input\w*|given\w*|v\(\d+\)|t|x\d+)$",
+    re.IGNORECASE,
+)
+_OUTPUT_ROLE_LHS = re.compile(
+    r"^(?:r_?eq|r_?total|equivalent\s+resistance|total\s+\w+|ans(?:wer)?|result|final\s+answer|output|req)$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_numeric_unit(expr: str) -> Optional[Tuple[float, str]]:
+    """Normalize numeric + optional SI unit (e.g. '15.0 ohm' -> (15.0, 'ohm'))."""
+    if not expr:
+        return None
+    s = str(expr).strip().lower().replace("ω", "ohm").replace("ohms", "ohm")
+    m = re.match(r"^\s*([-+]?\d+(?:\.\d+)?)\s*([a-z/^0-9]*)\s*$", s)
+    if not m:
+        return None
+    val = float(m.group(1))
+    unit = m.group(2).strip()
+    if unit.startswith("k") and len(unit) > 1:
+        val *= 1000.0
+        unit = unit[1:]
+    return val, unit
+
+
+def _expressions_equivalent(expr_a: str, expr_b: str) -> bool:
+    """Check numeric/unit equivalence and SymPy symbolic equivalence."""
+    na = _normalize_numeric_unit(expr_a)
+    nb = _normalize_numeric_unit(expr_b)
+    if na is not None and nb is not None:
+        if abs(na[0] - nb[0]) < 1e-6 and (not na[1] or not nb[1] or na[1] == nb[1]):
+            return True
+    try:
+        import sympy as sp
+        clean_a = re.sub(r"\b(?:ohms?|Ω|volts?|amps?|hz)\b", "", str(expr_a), flags=re.IGNORECASE).strip()
+        clean_b = re.sub(r"\b(?:ohms?|Ω|volts?|amps?|hz)\b", "", str(expr_b), flags=re.IGNORECASE).strip()
+        if not clean_a or not clean_b:
+            return False
+        sa = sp.sympify(clean_a)
+        sb = sp.sympify(clean_b)
+        return sp.simplify(sa - sb) == 0
+    except Exception:
+        return False
+
+
 def audit_visual_asset(
     figure: Any,
     question_text: str,
     *,
+    stage: str = "post_generation",
     expected_answer: Optional[str] = None,
     visual_contract: Optional[Any] = None,
     expected_response: Optional[Any] = None,
@@ -1295,15 +1477,13 @@ def audit_visual_asset(
     module_page_range: Optional[Tuple[int, int]] = None,
     ocr_extractor: Optional[Callable[[str], Dict[str, Any]]] = None,
     vlm_verifier: Optional[Callable[..., Dict[str, Any]]] = None,
+    min_ocr_confidence: float = 0.50,
+    require_ocr_if_file: bool = False,
 ):
     """
     Visual Asset Correctness & Answer-Leakage Gate (Stage G6.1).
-    Independently verifies:
-      1. Source authenticity (document ID, revision, module, page, SHA-256).
-      2. Correct image identification (required features & question/topic alignment).
-      3. Mechanism A: Deterministic OCR / content extraction & task-specific leakage check.
-      4. Mechanism B: Independent VLM visual reasoning challenge (if provided).
-    Returns a VisualAssetAudit contract with decision in {'PASS', 'FAIL', 'INDETERMINATE'}.
+    Stage A ('pre_selection'): screens authenticity, decodability, features, and obvious leaks.
+    Stage B ('post_generation'): compares actual question, solution, and expected answer against image.
     """
     import hashlib
     import os
@@ -1324,9 +1504,10 @@ def audit_visual_asset(
     req_verified = True
     align_verified = True
     unreadable = bool(_fig_field(figure, "unreadable_labels", False))
+    ocr_insufficient = False
     hard_fail_reasons: List[str] = []
 
-    # 1. Source Authenticity & Provenance Checks
+    # 1. Source Authenticity, Decodability & Provenance Checks
     if registered_document_id and doc_id != registered_document_id:
         hard_fail_reasons.append(f"SOURCE_DOCUMENT_MISMATCH: expected {registered_document_id!r}, got {doc_id!r}")
     if registered_revision and rev != registered_revision:
@@ -1338,11 +1519,20 @@ def audit_visual_asset(
         if page_num < p_lo or page_num > p_hi:
             hard_fail_reasons.append(f"PAGE_OUT_OF_MODULE_BOUNDS: page {page_num} outside [{p_lo}, {p_hi}]")
 
-    if img_path and isinstance(img_path, str) and os.path.isfile(img_path):
+    file_exists = bool(img_path and isinstance(img_path, str) and os.path.isfile(img_path))
+    if img_path and isinstance(img_path, str) and not file_exists:
+        hard_fail_reasons.append(f"MISSING_IMAGE_FILE: {img_path!r} does not exist")
+    if file_exists:
         with open(img_path, "rb") as f:
             actual_sha = hashlib.sha256(f.read()).hexdigest()
         if img_sha != "missing_sha256" and actual_sha != img_sha:
             hard_fail_reasons.append("IMAGE_SHA256_MISMATCH: file bytes do not match registered SHA-256")
+        try:
+            from PIL import Image
+            with Image.open(img_path) as im:
+                im.verify()
+        except Exception as e:
+            hard_fail_reasons.append(f"IMAGE_CORRUPTED_OR_UNDECODABLE: {e}")
 
     # 2. Mechanism A: OCR & Deterministic Content Extraction
     ocr_data: Dict[str, Any] = {}
@@ -1350,22 +1540,41 @@ def audit_visual_asset(
         ocr_data = ocr_extractor(img_path) or {}
     elif isinstance(_fig_field(figure, "ocr_payload", None), dict):
         ocr_data = _fig_field(figure, "ocr_payload")
+    elif (
+        _fig_field(figure, "detected_text", None) is None
+        and _fig_field(figure, "detected_values", None) is None
+        and _fig_field(figure, "detected_equations", None) is None
+        and (require_ocr_if_file or (file_exists and vlm_verifier is None))
+    ):
+        ocr_data = VisualContentExtractor(min_confidence=min_ocr_confidence).extract(img_path or "")
 
-    det_text = list(ocr_data.get("detected_text") or _fig_field(figure, "detected_text", ()) or ())
-    det_values = list(ocr_data.get("detected_values") or _fig_field(figure, "detected_values", ()) or ())
-    det_eqs = list(ocr_data.get("detected_equations") or _fig_field(figure, "detected_equations", ()) or ())
-    det_annots = list(ocr_data.get("detected_annotations") or _fig_field(figure, "detected_annotations", ()) or ())
-    if ocr_data.get("unreadable_labels"):
-        unreadable = True
+    if ocr_data:
+        if ocr_data.get("available") is False and vlm_verifier is None:
+            ocr_insufficient = True
+            leakage_evidence.append(f"OCR unavailable: {ocr_data.get('error', 'no_backend')}")
+        conf = ocr_data.get("confidence")
+        if isinstance(conf, (int, float)) and conf < min_ocr_confidence and vlm_verifier is None:
+            ocr_insufficient = True
+            leakage_evidence.append(f"Low-confidence OCR ({conf:.2f} < {min_ocr_confidence:.2f})")
+        if ocr_data.get("unreadable_labels"):
+            unreadable = True
+
+    det_text = list(ocr_data.get("text_regions") or ocr_data.get("detected_text") or _fig_field(figure, "detected_text", ()) or ())
+    det_values = list(ocr_data.get("numerical_values") or ocr_data.get("detected_values") or _fig_field(figure, "detected_values", ()) or ())
+    det_eqs = list(ocr_data.get("equations") or ocr_data.get("detected_equations") or _fig_field(figure, "detected_equations", ()) or ())
+    det_annots = list(ocr_data.get("annotations") or ocr_data.get("detected_annotations") or _fig_field(figure, "detected_annotations", ()) or ())
 
     combined_ocr = " | ".join(det_text + det_values + det_eqs + det_annots).lower()
     if any(tok in combined_ocr for tok in ("???", "[unreadable]", "illegible")):
         unreadable = True
 
-    # Required visual features verification (from VisualTaskContract)
+    # Required & Prohibited visual features verification (from VisualTaskContract)
     req_features = list(getattr(visual_contract, "required_features", ()) or ())
+    prohib_features = list(getattr(visual_contract, "prohibited_features", ()) or ())
     if isinstance(visual_contract, dict):
         req_features = list(visual_contract.get("required_features") or ())
+        prohib_features = list(visual_contract.get("prohibited_features") or ())
+
     combined_features_corpus = f"{caption} {combined_ocr}".lower()
     for feat in req_features:
         feat_norm = str(feat).strip().lower()
@@ -1380,16 +1589,22 @@ def audit_visual_asset(
                 req_verified = False
                 hard_fail_reasons.append(f"MISSING_REQUIRED_FEATURE: {feat!r}")
 
+    for pfeat in prohib_features:
+        pfeat_norm = str(pfeat).strip().lower().replace("_", " ")
+        if pfeat_norm and pfeat_norm in combined_ocr:
+            answer_leakage = "CONFIRMED"
+            leakage_evidence.append(f"Prohibited visual feature detected: {pfeat!r}")
+
     q_lower = (question_text or "").lower()
     task_op = str(getattr(visual_contract, "task_operation", "") or (visual_contract.get("task_operation", "") if isinstance(visual_contract, dict) else "")).lower()
 
-    # Answer-leakage detection (Mechanism A)
+    # Answer-leakage detection (Mechanism A: semantic role + numeric/unit/symbolic equivalence)
     confirmed_leak_patterns = [
         (r"\b(?:ans(?:wer)?|solution|final\s+answer|result)\s*[:=]\s*[^\s]+", "explicit answer/solution label"),
         (r"\bworked\s+solution\b", "worked solution present in image"),
         (r"\bcorrect\s+option\b|\[x\]|✓", "highlighted/marked MCQ answer"),
-        (r"\b(?:r_?eq|r_?total|equivalent\s+resistance)\s*=\s*\d+", "pre-computed equivalent resistance"),
-        (r"[a-zA-Z_][a-zA-Z0-9_]*\s*=\s*[a-zA-Z0-9_+\-*/\s]+\s*=\s*\d+", "worked intermediate substitution equation"),
+        (r"\b(?:r_?eq|r_?total|equivalent\s+resistance)\s*=\s*[^\s|]+", "pre-computed equivalent resistance"),
+        (r"[a-zA-Z_][a-zA-Z0-9_]*\s*=\s*[a-zA-Z0-9_+\-*/()\s]+\s*=\s*[-+]?\d+(?:\.\d+)?", "worked intermediate substitution equation"),
         (r"\bcompleted\s+construction\b|\bsolved\s+diagram\b", "completed/solved diagram"),
     ]
     is_read_output_task = task_op in ("read_output", "read_graph", "inspect_given_output")
@@ -1400,11 +1615,30 @@ def audit_visual_asset(
             answer_leakage = "CONFIRMED"
             leakage_evidence.append(f"OCR detected {desc}")
 
-    if expected_answer and str(expected_answer).strip():
-        exp_norm = str(expected_answer).strip().lower()
-        if exp_norm in combined_ocr and exp_norm not in q_lower and not is_read_output_task:
-            answer_leakage = "CONFIRMED"
-            leakage_evidence.append(f"Expected answer {expected_answer!r} appears directly in image")
+    # Semantic-role aware check against expected_answer (Stage B)
+    if expected_answer and str(expected_answer).strip() and not is_read_output_task:
+        exp_str = str(expected_answer).strip()
+        for item in (det_text + det_eqs + det_annots):
+            if "=" in item:
+                parts = item.split("=")
+                lhs = parts[0].strip()
+                rhs = parts[-1].strip()
+                # If LHS is explicitly a given input (e.g. R1 = 15 ohm), do NOT flag as leak
+                if _INPUT_ROLE_LHS.match(lhs):
+                    continue
+                if _OUTPUT_ROLE_LHS.match(lhs) and _expressions_equivalent(rhs, exp_str):
+                    answer_leakage = "CONFIRMED"
+                    leakage_evidence.append(f"Output expression {item!r} is equivalent to expected answer {exp_str!r}")
+                elif not _INPUT_ROLE_LHS.match(lhs) and _expressions_equivalent(rhs, exp_str):
+                    # Generic LHS like "R = 15" or "x = 2*a + 4"
+                    answer_leakage = "CONFIRMED"
+                    leakage_evidence.append(f"Equation {item!r} reveals expected answer {exp_str!r}")
+            else:
+                item_clean = item.strip()
+                if item_clean.lower() not in q_lower and _expressions_equivalent(item_clean, exp_str):
+                    # Standalone value/expression (not labeled as R1/input) matching expected answer
+                    answer_leakage = "CONFIRMED"
+                    leakage_evidence.append(f"Standalone image label {item_clean!r} matches expected answer {exp_str!r}")
 
     if not is_read_output_task and re.search(r"\bpre-?annotated\s+output\b|\boutput\s*=\s*\d+", combined_ocr, re.IGNORECASE):
         answer_leakage = "CONFIRMED"
@@ -1426,6 +1660,7 @@ def audit_visual_asset(
             question_text=question_text,
             visual_contract=visual_contract,
             expected_response=expected_response,
+            stage=stage,
         ) or {}
         if vlm_result.get("required_features_verified") is False:
             req_verified = False
@@ -1446,7 +1681,7 @@ def audit_visual_asset(
     # 4. Final Decision Logic (Strict Fail-Closed)
     if hard_fail_reasons or not req_verified or not align_verified or answer_leakage == "CONFIRMED":
         decision = "FAIL"
-    elif unreadable or answer_leakage == "POSSIBLE":
+    elif unreadable or ocr_insufficient or answer_leakage == "POSSIBLE":
         decision = "INDETERMINATE"
     else:
         decision = "PASS"
@@ -1470,47 +1705,190 @@ def audit_visual_asset(
     )
 
 
+def _find_question_table(doc) -> Optional[Any]:
+    """Identify the question table by header signature rather than hardcoded index."""
+    for table in doc.tables:
+        if not table.rows:
+            continue
+        headers = [c.text.strip().lower() for c in table.rows[0].cells]
+        if any("q.no" in h or "qno" in h for h in headers) and any("question" in h for h in headers):
+            return table
+    return None
+
+
+def _row_embedded_image_hashes(doc, row) -> List[str]:
+    """Extract SHA-256 digests for every image embedded in a table row's cells."""
+    import hashlib
+    hashes: List[str] = []
+    seen_rids = set()
+    for cell in row.cells:
+        for blip in cell._tc.xpath(".//*[local-name()='blip']"):
+            for k, r_id in blip.attrib.items():
+                if k.endswith("embed") and r_id and r_id not in seen_rids:
+                    seen_rids.add(r_id)
+                    part = doc.part.related_parts.get(r_id)
+                    if part is not None:
+                        hashes.append(hashlib.sha256(part.blob).hexdigest())
+    return hashes
+
+
 def verify_exported_docx_visuals(
-    docx_path: str,
-    approved_audits: List[Any],
+    docx_source: Any,
+    approved_manifest: List[Any],
 ) -> Tuple[bool, List[str]]:
     """
-    Post-Export DOCX Visual Manifest Verification (Section 7):
-    Inspects the exported DOCX file, computes SHA-256 digests of all embedded images,
-    and verifies every approved VisualAssetAudit asset is present without stale/swapped images.
-    Returns (is_valid, errors).
+    Post-Export DOCX Visual Manifest Verification (Section 8):
+    1. Identifies the question table by header signature (not hardcoded index).
+    2. Resolves each question and subpart row.
+    3. Extracts embedded image bytes strictly inside that row's cells.
+    4. Verifies SHA-256, placement (question_id, subpart_id), caption, and rejects
+       missing, swapped, duplicated, misplaced, or unexpected images.
     """
-    import hashlib
     from docx import Document
 
     errors: List[str] = []
-    doc = Document(docx_path)
+    doc = Document(docx_source)
+    q_table = _find_question_table(doc)
+    if q_table is None:
+        return False, ["Question table with expected header signature not found in exported DOCX"]
 
-    embedded_hashes: List[str] = []
-    for shape in doc.inline_shapes:
-        try:
-            r_id = shape._inline.graphic.graphicData.pic.blipFill.blip.embed
-            image_part = doc.part.related_parts[r_id]
-            embedded_hashes.append(hashlib.sha256(image_part.blob).hexdigest())
-        except Exception as e:
-            errors.append(f"Failed to inspect embedded DOCX image: {e}")
+    # Normalize manifest entries
+    manifest_by_slot: Dict[str, Dict[str, Any]] = {}
+    approved_entries: List[Dict[str, Any]] = []
+    for entry in approved_manifest:
+        if isinstance(entry, dict):
+            dec = entry.get("decision") or ("PASS" if entry.get("approved") is True else "FAIL")
+            item = {
+                "question_id": str(entry.get("question_id") or "").strip(),
+                "subpart_id": str(entry.get("subpart_id") or "").strip(),
+                "figure_id": str(entry.get("figure_id") or ""),
+                "image_sha256": str(entry.get("image_sha256") or ""),
+                "expected_caption": str(entry.get("expected_caption") or entry.get("caption") or "").strip(),
+                "approved": dec == "PASS",
+                "decision": dec,
+            }
+        else:
+            dec = getattr(entry, "decision", "INDETERMINATE")
+            item = {
+                "question_id": str(getattr(entry, "question_id", "") or "").strip(),
+                "subpart_id": str(getattr(entry, "subpart_id", "") or "").strip(),
+                "figure_id": str(getattr(entry, "figure_id", "") or ""),
+                "image_sha256": str(getattr(entry, "image_sha256", "") or ""),
+                "expected_caption": str(getattr(entry, "expected_caption", "") or "").strip(),
+                "approved": dec == "PASS",
+                "decision": dec,
+            }
+        if not item["approved"]:
+            errors.append(f"Unapproved visual asset {item['figure_id']} (decision={item['decision']}) in manifest")
+        else:
+            approved_entries.append(item)
+            if item["subpart_id"]:
+                manifest_by_slot[item["subpart_id"]] = item
 
-    approved_only = [a for a in approved_audits if getattr(a, "decision", None) == "PASS"]
-    non_approved = [a for a in approved_audits if getattr(a, "decision", None) != "PASS"]
-    if non_approved:
-        for na in non_approved:
-            errors.append(
-                f"Unapproved visual asset {getattr(na, 'figure_id', '?')} "
-                f"(decision={getattr(na, 'decision', '?')}) in manifest"
-            )
+    # Walk question table rows and inspect per-row embedded images
+    current_q_num = ""
+    found_slots: Dict[str, Tuple[List[str], str]] = {}
+    all_row_hashes: List[str] = []
 
-    expected_hashes = [getattr(a, "image_sha256", "") for a in approved_only]
-    for exp_sha in expected_hashes:
-        if exp_sha not in embedded_hashes:
-            errors.append(f"Approved visual asset SHA-256 {exp_sha[:12]}... missing from exported DOCX")
+    for row in q_table.rows[1:]:
+        cells = row.cells
+        if len(cells) < 3:
+            continue
+        q_no_txt = cells[0].text.strip()
+        part_txt = cells[1].text.strip()
+        desc_txt = cells[2].text.strip()
+        if q_no_txt.upper().startswith("Q") and q_no_txt[1:].isdigit():
+            current_q_num = f"Q{q_no_txt[1:]}"
+        elif q_no_txt.isdigit():
+            current_q_num = f"Q{q_no_txt}"
 
-    for emb_sha in embedded_hashes:
-        if emb_sha not in expected_hashes:
-            errors.append(f"Unexpected/unapproved image SHA-256 {emb_sha[:12]}... embedded in exported DOCX")
+        row_hashes = _row_embedded_image_hashes(doc, row)
+        all_row_hashes.extend(row_hashes)
+
+        clean_part = part_txt.strip("(). ").lower()
+        if current_q_num and clean_part:
+            slot_key = f"{current_q_num}_{clean_part}"
+            found_slots[slot_key] = (row_hashes, desc_txt)
+
+    if manifest_by_slot:
+        for slot_key, m_item in manifest_by_slot.items():
+            if slot_key not in found_slots:
+                errors.append(f"Manifest slot {slot_key} ({m_item['figure_id']}) not found in exported DOCX table")
+                continue
+            row_hashes, row_desc = found_slots[slot_key]
+            if not row_hashes:
+                errors.append(f"Missing approved image in row {slot_key} ({m_item['figure_id']})")
+                continue
+            if m_item["image_sha256"] not in row_hashes:
+                errors.append(f"Swapped or wrong image in row {slot_key}: expected SHA-256 {m_item['image_sha256'][:12]}..., found {[h[:12] for h in row_hashes]}")
+            if m_item["expected_caption"] and m_item["expected_caption"].lower() not in row_desc.lower():
+                errors.append(f"Caption mismatch in row {slot_key}: expected {m_item['expected_caption']!r}")
+
+        for slot_key, (row_hashes, _) in found_slots.items():
+            if row_hashes and slot_key not in manifest_by_slot:
+                errors.append(f"Unexpected/unapproved image embedded in row {slot_key}")
+    else:
+        # Fallback if manifest entries omit subpart_id (legacy VisualAssetAudit list)
+        expected_hashes = [m["image_sha256"] for m in approved_entries]
+        for exp_sha in expected_hashes:
+            if exp_sha not in all_row_hashes:
+                errors.append(f"Approved visual asset SHA-256 {exp_sha[:12]}... missing from exported DOCX")
+        for emb_sha in all_row_hashes:
+            if emb_sha not in expected_hashes:
+                errors.append(f"Unexpected/unapproved image SHA-256 {emb_sha[:12]}... embedded in exported DOCX")
 
     return len(errors) == 0, errors
+
+
+def check_ocr_and_vllm_readiness(
+    text_host: Optional[str] = None,
+    vision_host: Optional[str] = None,
+    timeout_sec: float = 3.0,
+) -> Dict[str, Any]:
+    """
+    Operational readiness report distinguishing:
+    - OCR backend availability (missing OCR does NOT invalidate text-only generation)
+    - Text-generation server readiness (/health, /version, /v1/models)
+    - Vision-model readiness
+    """
+    import importlib.util
+    import requests
+
+    ocr_backend = None
+    if importlib.util.find_spec("rapidocr_onnxruntime") is not None:
+        ocr_backend = "rapidocr_onnxruntime"
+    elif importlib.util.find_spec("pytesseract") is not None:
+        ocr_backend = "pytesseract"
+
+    def _probe_server(host: Optional[str]) -> Dict[str, Any]:
+        if not host:
+            return {"configured": False, "healthy": False, "version": None, "models": []}
+        base = host.rstrip("/")
+        healthy = False
+        version = None
+        models: List[str] = []
+        try:
+            hr = requests.get(f"{base}/health", timeout=timeout_sec)
+            healthy = bool(hr.ok)
+        except Exception:
+            healthy = False
+        try:
+            vr = requests.get(f"{base}/version", timeout=timeout_sec)
+            if vr.ok:
+                version = vr.json().get("version")
+        except Exception:
+            pass
+        try:
+            mr = requests.get(f"{base}/v1/models", timeout=timeout_sec)
+            if mr.ok:
+                models = [m.get("id", "") for m in mr.json().get("data", []) if m.get("id")]
+        except Exception:
+            pass
+        return {"configured": True, "healthy": healthy, "version": version, "models": models}
+
+    return {
+        "ocr_available": ocr_backend is not None,
+        "ocr_backend": ocr_backend,
+        "text_server": _probe_server(text_host),
+        "vision_server": _probe_server(vision_host),
+    }

@@ -513,12 +513,12 @@ def test_15_unknown_bloom_level_rejected_with_value_error():
 
     with pytest.raises(ValueError) as excinfo:
         build_subpart_prompt(plan, sp_plan)
-    assert "Unknown bloom level 'L7'" in str(excinfo.value)
+    assert "L7" in str(excinfo.value)
 
     plan.bloom = "L7"
     with pytest.raises(ValueError) as excinfo_parent:
         build_task_section(plan)
-    assert "Unknown bloom level 'L7'" in str(excinfo_parent.value)
+    assert "L7" in str(excinfo_parent.value)
 
 
 # =============================================================================

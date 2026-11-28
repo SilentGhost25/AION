@@ -13,7 +13,8 @@ import os
 import re
 import threading
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from types import MappingProxyType
+from typing import Dict, List, Mapping, Optional, Set, Tuple
 
 ID_PATTERN = re.compile(r"^[A-Z0-9_]+$")
 
@@ -205,3 +206,95 @@ AssessmentRegistry.register(AssessmentConfig(
 
 # Automatically lock registry post-initialization during bootstrap
 AssessmentRegistry.freeze()
+
+
+@dataclass(frozen=True)
+class RuleSnapshot:
+    """
+    Immutable, request-scoped snapshot of active academic rules and assessment config.
+    Single source of truth for prompt compilation, JSON schema generation, and validation.
+    Guarantees deep immutability by wrapping mapping containers in MappingProxyType.
+    """
+    bloom_verb_map: Mapping[str, Tuple[str, ...]]
+    fingerprint: str
+    assessment_identity: Optional[Tuple[str, str, str, str]] = None
+    total_marks_per_question: Optional[int] = None
+    permitted_partitions: Tuple[Tuple[int, ...], ...] = ()
+    max_subparts: Optional[int] = None
+    cognitive_target: Optional[Mapping[str, float]] = None
+
+    def get_verbs(self, level: str) -> Tuple[str, ...]:
+        """Return canonical active Bloom verbs for `level`; fail closed if missing/empty."""
+        lvl = (level or "").strip().upper()
+        verbs = self.bloom_verb_map.get(lvl)
+        if not verbs:
+            raise ValueError(f"Active RuleSnapshot has no approved Bloom verbs for level {level!r}")
+        return verbs
+
+    def is_verb_allowed(self, verb: str, level: str) -> bool:
+        clean = (verb or "").strip().rstrip(".,:;!?").lower()
+        return clean in {v.lower() for v in self.get_verbs(level)}
+
+
+def capture_rule_snapshot(
+    assessment_identity: Optional[Tuple[str, str, str, str]] = None,
+    config: Optional[AssessmentConfig] = None,
+) -> RuleSnapshot:
+    """
+    Capture an immutable snapshot of active Bloom rules and assessment configuration.
+    Fails closed if BLOOM_VERB_LEVEL_MAP is empty or malformed, or if an explicit
+    assessment_identity is requested that is not registered.
+    """
+    import hashlib
+    import json
+    from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
+
+    if not BLOOM_VERB_LEVEL_MAP:
+        raise ValueError("BLOOM_VERB_LEVEL_MAP is empty; cannot capture rule snapshot")
+
+    # Validate configuration and identity consistency
+    if config is not None and assessment_identity is not None:
+        if config.identity != assessment_identity:
+            raise ValueError(
+                f"Conflicting configuration: config.identity {config.identity} != assessment_identity {assessment_identity}"
+            )
+
+    frozen_verbs: Dict[str, Tuple[str, ...]] = {}
+    for lvl, vset in sorted(BLOOM_VERB_LEVEL_MAP.items()):
+        if not isinstance(vset, (set, list, tuple)) or not vset:
+            raise ValueError(f"BLOOM_VERB_LEVEL_MAP has empty or invalid verb set for level {lvl!r}")
+        cleaned_list = []
+        for v in vset:
+            if not isinstance(v, str) or not v.strip():
+                raise TypeError(f"Bloom verb for level {lvl!r} must be non-empty string, got {type(v).__name__}: {v!r}")
+            cleaned_list.append(v.strip().lower())
+        frozen_verbs[str(lvl).upper()] = tuple(sorted(cleaned_list))
+
+    resolved_cfg = config
+    if resolved_cfg is None and assessment_identity is not None:
+        if any(str(x).strip() for x in assessment_identity):
+            try:
+                resolved_cfg = AssessmentRegistry.get(*assessment_identity)
+            except (KeyError, ValueError) as err:
+                raise ValueError(f"Unregistered or invalid assessment_identity {assessment_identity}: {err}") from err
+
+    fp_payload = {
+        "bloom_verb_map": {k: list(v) for k, v in frozen_verbs.items()},
+        "assessment_identity": list(resolved_cfg.identity) if resolved_cfg else (list(assessment_identity) if assessment_identity else None),
+        "total_marks_per_question": resolved_cfg.total_marks_per_question if resolved_cfg else None,
+        "permitted_partitions": [list(p) for p in resolved_cfg.permitted_partitions] if resolved_cfg else [],
+        "max_subparts": resolved_cfg.max_subparts if resolved_cfg else None,
+        "cognitive_target": dict(resolved_cfg.cognitive_target) if (resolved_cfg and resolved_cfg.cognitive_target) else None,
+        "rule_snapshot_version": "2026.11-v1",
+    }
+    fp = hashlib.sha256(json.dumps(fp_payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+    return RuleSnapshot(
+        bloom_verb_map=MappingProxyType(frozen_verbs),
+        fingerprint=fp,
+        assessment_identity=resolved_cfg.identity if resolved_cfg else assessment_identity,
+        total_marks_per_question=resolved_cfg.total_marks_per_question if resolved_cfg else None,
+        permitted_partitions=resolved_cfg.permitted_partitions if resolved_cfg else (),
+        max_subparts=resolved_cfg.max_subparts if resolved_cfg else None,
+        cognitive_target=MappingProxyType(dict(resolved_cfg.cognitive_target)) if (resolved_cfg and resolved_cfg.cognitive_target) else None,
+    )

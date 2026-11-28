@@ -62,10 +62,12 @@ from .prompts import (
     build_archetype_subpart_prompt,
     build_difficulty_feedback,
     build_prompt,
+    build_subpart_json_schema,
     build_subpart_prompt,
     get_figure_field,
     IMAGE_REFERENCE_PHRASES,
 )
+from core.generation.assessment_config import capture_rule_snapshot
 
 
 # -----------------------------------------------------------------------------
@@ -426,12 +428,16 @@ class WritingAgent(Agent):
 
         return None
 
-    def _validate_subpart_bloom(self, text_raw: str, bloom: str, marks: int, label: str = "a") -> Optional[str]:
+    def _validate_subpart_bloom(
+        self,
+        text_raw: str,
+        bloom: str,
+        marks: int,
+        label: str = "a",
+        rule_snapshot: Any = None,
+    ) -> Optional[str]:
         """
-        Validate opening Bloom verb and cognitive demand alignment for an individual subpart.
-        Enforces:
-          Layer 1 & 3: Exact canonical slot compliance (no adjacency tolerance).
-          Layer 2: Semantic cognitive demand (PASS / FAIL / INDETERMINATE with fail-closed policy).
+        Validate opening Bloom verb, singular directive, source tags, and cognitive demand.
         """
         if not bloom:
             bloom = "L2"
@@ -441,10 +447,22 @@ class WritingAgent(Agent):
         if not first:
             return "subpart text is empty or contains only stopwords"
 
-        # Layer 1 & 3: Exact Slot Compliance via Canonical Classifier
-        compliant, detected_lvl, slot_reason = is_exact_slot_compliant(first, bloom)
-        if not compliant:
-            return slot_reason
+        # Layer 1 & 3: Exact Slot Compliance via active RuleSnapshot or Canonical Classifier
+        from core.validation.bloom_validator import BLOOM_VERB_LEVEL_MAP
+        canonical_for_lvl = tuple(sorted(str(v).strip().lower() for v in (BLOOM_VERB_LEVEL_MAP.get(bloom) or ()) if str(v).strip()))
+        if rule_snapshot is not None and rule_snapshot.get_verbs(bloom) != canonical_for_lvl:
+            allowed_verbs = rule_snapshot.get_verbs(bloom)
+            if not rule_snapshot.is_verb_allowed(first, bloom):
+                return (
+                    f"Verb {first!r} is not in active approved verbs for {bloom}. "
+                    f"Allowed {bloom} verbs: {', '.join(allowed_verbs)}."
+                )
+        else:
+            if rule_snapshot is not None:
+                rule_snapshot.get_verbs(bloom)  # Fail closed if level is missing/empty in snapshot
+            compliant, detected_lvl, slot_reason = is_exact_slot_compliant(first, bloom)
+            if not compliant:
+                return slot_reason
 
         # Singular Directive Enforcement (no compound/multi-directive tasks)
         directive_err = validate_singular_directive(text_raw)
@@ -554,11 +572,30 @@ class WritingAgent(Agent):
                 vlm_used = True
 
             last_error = ""
+            last_category = ""
             subpart_succeeded = False
+            rule_snapshot = getattr(self, "_active_rule_snapshot", None)
+            if rule_snapshot is None:
+                _aid = getattr(plan, "assessment_identity", None)
+                # Only forward assessment_identity if it is a fully populated 4-tuple (no empty strings)
+                if (
+                    isinstance(_aid, (tuple, list))
+                    and len(_aid) == 4
+                    and all(isinstance(x, str) and x.strip() for x in _aid)
+                ):
+                    rule_snapshot = capture_rule_snapshot(assessment_identity=_aid)
+                else:
+                    rule_snapshot = capture_rule_snapshot(assessment_identity=None)
+            subpart_schema = build_subpart_json_schema(sp_plan, rule_snapshot=rule_snapshot)
+            sp_diag_failures: List[Dict[str, Any]] = []
 
             for attempt in range(1, self._max_attempts + 1):
                 strict_json = attempt > 1
                 sp_spec = getattr(sp_plan, "specification", None)
+                surgical_fb = (
+                    f"[{last_category}] {last_error} "
+                    f"Keep marks={sp_plan.marks}, CO={sp_plan.co}, Bloom={sp_plan.bloom}, topic={sp_plan.topic!r} unchanged."
+                ) if attempt > 1 and last_error else None
                 if sp_spec is not None:
                     prompt = build_archetype_subpart_prompt(
                         plan,
@@ -566,7 +603,8 @@ class WritingAgent(Agent):
                         sp_spec,
                         strict_json=strict_json,
                         difficulty_feedback=difficulty_feedback,
-                        validation_feedback=last_error if attempt > 1 else None,
+                        validation_feedback=surgical_fb,
+                        rule_snapshot=rule_snapshot,
                     )
                 else:
                     prompt = build_subpart_prompt(
@@ -574,7 +612,8 @@ class WritingAgent(Agent):
                         sp_plan,
                         strict_json=strict_json,
                         difficulty_feedback=difficulty_feedback,
-                        validation_feedback=last_error if attempt > 1 else None,
+                        validation_feedback=surgical_fb,
+                        rule_snapshot=rule_snapshot,
                     )
 
                 try:
@@ -582,46 +621,58 @@ class WritingAgent(Agent):
                         raw = self._vlm.call(
                             prompt,
                             image_path=get_figure_field(sp_plan.figure, "image_path", ""),
-                            schema=None,
+                            schema=subpart_schema,
                             seed=self._seed,
                         )
                     else:
                         raw = self._llm.call(
                             prompt,
-                            schema=None,
+                            schema=subpart_schema,
                             image_path=None,
                             seed=self._seed,
                         )
                 except Exception as e:
                     is_to = isinstance(e, TimeoutError) or "timeout" in str(e).lower() or "timed out" in str(e).lower()
+                    last_category = "CALLER_TIMEOUT" if is_to else "CALLER_ERROR"
                     last_error = f"caller raised: {'timeout: ' if is_to else ''}{e}"
+                    sp_diag_failures.append({"attempt": attempt, "category": last_category, "detail": last_error})
                     print(f"[WRITING-WARN] slot={plan.slot_id} subpart={sp_plan.label} attempt={attempt} caller raised: {e}", flush=True)
                     continue
 
                 parsed = self._parse_response(raw)
                 if parsed is None:
+                    last_category = "INVALID_JSON"
                     last_error = "response was not valid JSON"
+                    sp_diag_failures.append({"attempt": attempt, "category": last_category, "detail": last_error})
                     continue
 
                 # Check required keys for subpart: text, solution, marking_scheme
                 missing = [k for k in REQUIRED_SUBPART_KEYS if k not in parsed]
                 if missing:
+                    last_category = "INVALID_JSON"
                     last_error = f"missing required keys: {missing}"
+                    sp_diag_failures.append({"attempt": attempt, "category": last_category, "detail": last_error})
                     continue
 
                 text_raw = parsed.get("text")
                 if not isinstance(text_raw, str) or not text_raw.strip():
+                    last_category = "INVALID_JSON"
                     last_error = "subpart 'text' must be a non-empty string"
+                    sp_diag_failures.append({"attempt": attempt, "category": last_category, "detail": last_error})
                     continue
 
                 sol_raw = parsed.get("solution")
                 if not isinstance(sol_raw, str) or not sol_raw.strip():
+                    last_category = "INVALID_JSON"
                     last_error = "subpart 'solution' must be a non-empty string"
+                    sp_diag_failures.append({"attempt": attempt, "category": last_category, "detail": last_error})
                     continue
 
                 scheme_raw = parsed.get("marking_scheme")
                 if not isinstance(scheme_raw, list) or len(scheme_raw) < 1 or len(scheme_raw) > 4:
+                    last_category = "MARKING_SCHEME_TYPE"
                     last_error = f"marking_scheme must be list of 1 to 4 items, got {len(scheme_raw) if isinstance(scheme_raw, list) else type(scheme_raw).__name__}"
+                    sp_diag_failures.append({"attempt": attempt, "category": last_category, "detail": last_error})
                     continue
 
                 # Validate marking scheme entries and sum
@@ -639,7 +690,9 @@ class WritingAgent(Agent):
                         break
                     crit_marks = entry.get("marks")
                     if type(crit_marks) is not int or isinstance(crit_marks, bool) or crit_marks <= 0:
+                        last_category = "MARKING_SCHEME_TYPE"
                         last_error = f"marking_scheme[{i_c}] marks must be strictly positive int"
+                        sp_diag_failures.append({"attempt": attempt, "category": last_category, "detail": last_error})
                         valid_entries = False
                         break
                     scheme_sum += crit_marks
@@ -648,26 +701,60 @@ class WritingAgent(Agent):
                     continue
 
                 if scheme_sum != sp_plan.marks:
+                    last_category = "MARKING_SCHEME_SUM"
                     last_error = f"marking_scheme criteria sum ({scheme_sum}) != subpart marks ({sp_plan.marks})"
+                    sp_diag_failures.append({"attempt": attempt, "category": last_category, "detail": last_error})
                     continue
 
                 # --- TRACK A / STAGE G2 VALIDATION ---
                 # 1. Raw text formatting artifacts & template fragments (MUST run BEFORE cleaning)
                 raw_err = self._validate_subpart_raw_artifacts(text_raw)
                 if raw_err:
+                    last_category = "RAW_ARTIFACT"
                     last_error = raw_err
+                    sp_diag_failures.append({"attempt": attempt, "category": last_category, "detail": last_error})
                     continue
 
                 # 2. Sibling independence (must not chain to previous subparts)
                 indep_err = self._validate_subpart_independence(text_raw, sp_plan.label, subparts)
                 if indep_err:
+                    last_category = "SIBLING_CHAINING"
                     last_error = indep_err
+                    sp_diag_failures.append({"attempt": attempt, "category": last_category, "detail": last_error})
                     continue
 
-                # 3. Bloom verb, singular directive, and cognitive depth alignment
-                bloom_err = self._validate_subpart_bloom(text_raw, getattr(sp_plan, "bloom", "L2"), sp_plan.marks, label=sp_plan.label)
+                # 3. Opening-verb consistency (text opening verb must match bloom_verb_used)
+                claimed_verb = str(parsed.get("bloom_verb_used") or "").strip().lower()
+                if claimed_verb:
+                    actual_opening = (_first_meaningful_word(text_raw) or "").strip().lower()
+                    if actual_opening != claimed_verb:
+                        last_category = "BLOOM_VERB_MISMATCH"
+                        last_error = (
+                            f"Opening verb {actual_opening!r} in 'text' does not match "
+                            f"'bloom_verb_used' ({claimed_verb!r})."
+                        )
+                        sp_diag_failures.append({"attempt": attempt, "category": last_category, "detail": last_error})
+                        continue
+
+                # 4. Bloom verb, singular directive, source tags, and cognitive depth alignment
+                bloom_err = self._validate_subpart_bloom(
+                    text_raw,
+                    getattr(sp_plan, "bloom", "L2"),
+                    sp_plan.marks,
+                    label=sp_plan.label,
+                    rule_snapshot=rule_snapshot,
+                )
                 if bloom_err:
+                    if "Multiple directives" in bloom_err or "Multiple questions" in bloom_err:
+                        last_category = "MULTIPLE_DIRECTIVES"
+                    elif "Leaked source tag" in bloom_err:
+                        last_category = "SOURCE_TAG_LEAK"
+                    elif "Cognitive demand" in bloom_err:
+                        last_category = "COGNITIVE_DEMAND_MISMATCH"
+                    else:
+                        last_category = "BLOOM_VERB_MISMATCH"
                     last_error = bloom_err
+                    sp_diag_failures.append({"attempt": attempt, "category": last_category, "detail": last_error})
                     continue
 
                 # 4. Single-topic focus (must not bundle sibling topics)
@@ -678,7 +765,9 @@ class WritingAgent(Agent):
                 ]
                 topic_err = validate_single_topic(text_raw, getattr(sp_plan, "topic", None), sibling_topics)
                 if topic_err:
+                    last_category = "MULTIPLE_TOPICS"
                     last_error = topic_err
+                    sp_diag_failures.append({"attempt": attempt, "category": last_category, "detail": last_error})
                     continue
 
                 # Clean subpart text (strip preamble and any accidental leading label)

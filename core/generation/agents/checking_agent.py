@@ -1381,18 +1381,34 @@ def generate_assessment_profile(
     else:
         rubric_gate = "NOT_APPLICABLE"
 
-    # 10. Gate: visual_dependency_gate
-    # Applicable if paper contains visual assets
+    # 10. Gate: visual_dependency_gate (Stage B Mandatory Visual Audit)
+    # Applicable if paper contains visual assets or visual-required slots
     has_visual = any(
-        bool(getattr(sp, "visual_task", None) or getattr(sp, "image_path", None) or getattr(q, "image_path", None))
+        bool(
+            getattr(sp, "visual_required", False)
+            or getattr(sp, "visual_task", None)
+            or getattr(sp, "figure_id", None)
+            or getattr(sp, "image_path", None)
+            or getattr(q, "visual_required", False)
+            or getattr(q, "figure_id", None)
+            or getattr(q, "image_path", None)
+        )
         for q in questions
-        for sp in getattr(q, "sub_parts", [q])
+        for sp in (getattr(q, "sub_parts", None) or [q])
     )
     if has_visual:
         visual_gate = "PASS"
         from .local_evaluators import audit_visual_asset, evaluate_visual_dependency
         for q in questions:
-            for sp in getattr(q, "sub_parts", [q]):
+            for sp in (getattr(q, "sub_parts", None) or [q]):
+                sp_is_visual = bool(
+                    getattr(sp, "visual_required", False)
+                    or getattr(sp, "visual_task", None)
+                    or getattr(sp, "figure_id", None)
+                    or getattr(sp, "image_path", None)
+                )
+                if not sp_is_visual:
+                    continue
                 vt = getattr(sp, "visual_task", None)
                 fig_meta = getattr(sp, "figure_metadata", None) or ({"figure_id": vt.figure_id, "width": 800, "height": 600} if vt else None)
                 q_text = getattr(sp, "text", "") or getattr(q, "question_text", "")
@@ -1406,18 +1422,35 @@ def generate_assessment_profile(
                         rec_recommendations.append("REVISE_FOR_HUMAN_REVIEW")
                     rec_warnings.append(f"VISUAL_DEPENDENCY_AMBIGUOUS: {v_detail}")
 
-                # Mandatory Sub-Gate: Visual Asset Correctness & Answer-Leakage Audit
+                # Stage B Mandatory Visual Asset Correctness & Answer-Leakage Audit
                 va = getattr(sp, "visual_audit", None)
-                if va is None and (getattr(sp, "figure", None) is not None or (isinstance(fig_meta, dict) and fig_meta.get("ocr_payload"))):
-                    fig_obj = getattr(sp, "figure", None) or fig_meta
-                    va = audit_visual_asset(
-                        fig_obj,
-                        q_text,
-                        expected_answer=getattr(sp, "solution", None),
-                        visual_contract=vt,
-                        expected_response=getattr(sp, "expected_response", None),
-                    )
-                if va is not None:
+                if va is None:
+                    fig_obj = getattr(sp, "figure", None)
+                    if fig_obj is None and (getattr(sp, "image_path", None) or getattr(sp, "figure_id", None) or fig_meta):
+                        fig_obj = {
+                            "id": getattr(sp, "figure_id", None) or (vt.figure_id if vt else "unknown_fig"),
+                            "image_path": getattr(sp, "image_path", None),
+                            "image_sha256": getattr(sp, "image_sha256", None) or getattr(q, "image_sha256", None) or "missing_sha256",
+                            "caption": getattr(sp, "figure_caption", None) or "",
+                            "module_id": getattr(q, "module_id", None) or "unknown_module",
+                            "ocr_payload": fig_meta.get("ocr_payload") if isinstance(fig_meta, dict) else None,
+                        }
+                    if fig_obj is not None:
+                        va = audit_visual_asset(
+                            fig_obj,
+                            q_text,
+                            stage="post_generation",
+                            expected_answer=getattr(sp, "solution", None) or getattr(q, "solution", None),
+                            visual_contract=vt,
+                            expected_response=getattr(sp, "expected_response", None),
+                        )
+                if va is None:
+                    if visual_gate != "FAIL":
+                        visual_gate = "INDETERMINATE"
+                        if "REVISE_FOR_HUMAN_REVIEW" not in rec_recommendations:
+                            rec_recommendations.append("REVISE_FOR_HUMAN_REVIEW")
+                        rec_warnings.append("VISUAL_AUDIT_MISSING: visual subpart reached CheckingAgent without audit")
+                else:
                     va_dec = getattr(va, "decision", "INDETERMINATE")
                     if va_dec == "FAIL":
                         visual_gate = "FAIL"

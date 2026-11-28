@@ -2445,8 +2445,68 @@ def export_docx():
         return resp, code
 
     try:
+        from core.generation.agents.local_evaluators import audit_visual_asset, verify_exported_docx_visuals
+        from core.generation.agents.question_plan import VisualAssetAudit
+
         docx_buffer = render_docx_document(body)
-        
+
+        # Build server-side trusted visual manifest (never trust client 'approved' flags alone)
+        manifest_provider = app.config.get("TRUSTED_VISUAL_MANIFEST")
+        if manifest_provider is not None:
+            manifest = list(manifest_provider(body) if callable(manifest_provider) else manifest_provider)
+        else:
+            manifest = []
+            q_list = list(body.get("questions") or [])
+            if not q_list and body.get("modules"):
+                for mod in (body.get("modules") or []):
+                    if isinstance(mod, dict):
+                        q_list.extend(mod.get("questions") or [])
+            for q_idx, q in enumerate(q_list, start=1):
+                q_id = f"Q{q.get('question_number') or q_idx}"
+                sub_qs = q.get("sub_questions") or [q]
+                for sp_idx, sp in enumerate(sub_qs):
+                    if sp.get("image_path") or sp.get("figure_id") or sp.get("visual_required"):
+                        raw_label = str(sp.get("label") or chr(ord("a") + sp_idx)).strip("(). ").lower()
+                        sp_id = f"{q_id}_{raw_label}"
+                        server_audit = sp.get("server_visual_audit")
+                        if isinstance(server_audit, VisualAssetAudit):
+                            audit_obj = server_audit
+                        else:
+                            fig_data = {
+                                "id": sp.get("figure_id") or f"fig_{sp_id}",
+                                "image_path": sp.get("image_path"),
+                                "image_sha256": sp.get("image_sha256") or "missing_sha256",
+                                "caption": sp.get("figure_caption") or "",
+                                "module_id": q.get("module_id") or "unknown_module",
+                                "ocr_payload": sp.get("ocr_payload"),
+                            }
+                            audit_obj = audit_visual_asset(
+                                fig_data,
+                                str(sp.get("text") or ""),
+                                stage="post_generation",
+                                expected_answer=sp.get("solution"),
+                            )
+                        manifest.append({
+                            "question_id": q_id,
+                            "subpart_id": sp_id,
+                            "figure_id": audit_obj.figure_id,
+                            "image_sha256": audit_obj.image_sha256,
+                            "expected_caption": str(sp.get("figure_caption") or ""),
+                            "decision": audit_obj.decision,
+                            "approved": audit_obj.decision == "PASS",
+                        })
+
+        if hasattr(docx_buffer, "seek"):
+            docx_buffer.seek(0)
+        ok_manifest, manifest_errors = verify_exported_docx_visuals(docx_buffer, manifest)
+        if not ok_manifest:
+            return jsonify({
+                "error": "Export blocked: post-export visual manifest verification failed",
+                "details": manifest_errors,
+            }), 422
+        if hasattr(docx_buffer, "seek"):
+            docx_buffer.seek(0)
+
         config = body.get("config") or {}
         subject_code = config.get("subjectCode") or body.get("subject_code") or "VTU"
         exam_type = config.get("examType") or body.get("exam_type") or "IA"

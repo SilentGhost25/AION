@@ -180,21 +180,184 @@ def build_kg_section(neighborhood: List[Any]) -> str:
     return "\n".join(lines)
 
 
-def build_evidence_section(evidence_blocks: List[Any]) -> str:
+def get_active_bloom_verbs(level: str, rule_snapshot: Any = None) -> List[str]:
+    """
+    Resolve active Bloom verbs dynamically from rule_snapshot or canonical BLOOM_VERB_LEVEL_MAP.
+    Fails closed if level is unknown or empty (never falls back to stale defaults).
+    """
+    lvl = (level or "").strip().upper()
+    if rule_snapshot is not None and hasattr(rule_snapshot, "get_verbs"):
+        return list(rule_snapshot.get_verbs(lvl))
+    if lvl not in BLOOM_VERB_LEVEL_MAP or not BLOOM_VERB_LEVEL_MAP[lvl]:
+        raise ValueError(f"Unknown bloom level '{level}' in BLOOM_VERB_LEVEL_MAP")
+    return sorted(str(v).strip().lower() for v in BLOOM_VERB_LEVEL_MAP[lvl] if str(v).strip())
+
+
+def build_subpart_json_schema(sp_plan, rule_snapshot: Any = None) -> Dict[str, Any]:
+    """
+    Build a strict, dynamic JSON Schema for SubPart generation compatible with
+    vLLM guided_json / json_schema and Ollama format.
+    """
+    bloom = getattr(sp_plan, "bloom", "L2")
+    marks = int(getattr(sp_plan, "marks", 5))
+    visual_req = bool(getattr(sp_plan, "visual_required", False))
+    active_verbs = get_active_bloom_verbs(bloom, rule_snapshot=rule_snapshot)
+
+    properties: Dict[str, Any] = {
+        "text": {"type": "string", "minLength": 10},
+        "solution": {"type": "string", "minLength": 10},
+        "marking_scheme": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "required": ["criterion", "marks"],
+                "additionalProperties": False,
+                "properties": {
+                    "criterion": {"type": "string", "minLength": 2},
+                    "marks": {"type": "integer", "minimum": 1, "maximum": max(1, marks)},
+                },
+            },
+        },
+        "bloom_verb_used": {"type": "string", "enum": active_verbs},
+        "references_image": {"type": "boolean"},
+        "diagram_request": {
+            "type": "object",
+            "required": ["diagram_type", "description"],
+            "additionalProperties": False,
+            "properties": {
+                "diagram_type": {"type": "string", "minLength": 2},
+                "description": {"type": "string", "minLength": 5},
+            },
+        },
+    }
+
+    required = ["text", "solution", "marking_scheme", "bloom_verb_used"]
+    if visual_req:
+        properties["references_image"] = {"type": "boolean", "enum": [True]}
+        required.extend(["references_image", "diagram_request"])
+
+    return {
+        "type": "object",
+        "required": required,
+        "additionalProperties": False,
+        "properties": properties,
+    }
+
+
+def _sanitize_evidence_source_metadata(text: str) -> str:
+    """
+    Remove non-semantic source-label metadata (e.g. 'Figure 5.1:', 'Chapter 3:',
+    '[blk_m1_1]') from model-facing evidence while preserving equations, numbers,
+    definitions, conditions, and technical terminology.
+    """
+    import re
+    cleaned = text
+    # Strip bracketed source/page metadata tags like [Page 4], [Source: ...], [blk_1]
+    cleaned = re.sub(r"\[(?:Page|Source|Module|Block|blk_)[^\]]*\]", "", cleaned, flags=re.IGNORECASE)
+    # Strip leading numbered figure/chapter/section labels at start of sentence/line
+    cleaned = re.sub(r"(?:^|\n)\s*(?:Fig(?:ure)?|Table|Chapter|Section|Module|Unit)\s+\d+(?:\.\d+)*\s*[:\-]\s*", " ", cleaned, flags=re.IGNORECASE)
+    return re.sub(r"[ \t]+", " ", cleaned).strip()
+
+
+def compute_token_aware_evidence_budget(
+    *,
+    context_tokens: int = 8192,
+    system_tokens: int = 300,
+    task_tokens: int = 350,
+    schema_tokens: int = 350,
+    output_reserve_tokens: int = 1024,
+    safety_margin_tokens: int = 256,
+    image_tokens: int = 0,
+    chars_per_token: float = 3.5,
+) -> int:
+    """
+    Compute available evidence character budget from token-level context formula:
+    B_evidence = B_context - B_system - B_task - B_schema - B_output_reserve - B_safety_margin - B_image
+    """
+    avail_tokens = max(
+        256,
+        int(context_tokens)
+        - int(system_tokens)
+        - int(task_tokens)
+        - int(schema_tokens)
+        - int(output_reserve_tokens)
+        - int(safety_margin_tokens)
+        - int(image_tokens),
+    )
+    return int(avail_tokens * chars_per_token)
+
+
+def build_evidence_section(
+    evidence_blocks: List[Any],
+    *,
+    topic: Optional[str] = None,
+    char_budget: Optional[int] = None,
+    context_tokens: Optional[int] = None,
+    image_tokens: int = 0,
+) -> str:
+    """
+    Query-focused evidence selection within the model context budget.
+    Preserves equations, numeric values, definitions, and conditions while
+    stripping non-semantic source metadata tags.
+    """
+    import re
     if not evidence_blocks:
         return ""
+
+    if char_budget is None:
+        import os
+        env_budget = os.getenv("AION_EVIDENCE_CHAR_BUDGET")
+        if env_budget:
+            char_budget = int(env_budget)
+        elif context_tokens is not None:
+            char_budget = compute_token_aware_evidence_budget(
+                context_tokens=context_tokens,
+                image_tokens=image_tokens,
+            )
+        else:
+            char_budget = MAX_TOTAL_EVIDENCE_CHARS
+
+    topic_tokens = {t for t in re.findall(r"[a-z0-9]+", (topic or "").lower()) if len(t) > 2}
+
+    scored_blocks = []
+    for idx, block in enumerate(evidence_blocks):
+        raw_text = getattr(block, "text", "") if not isinstance(block, dict) else block.get("text", "")
+        if not raw_text or not str(raw_text).strip():
+            continue
+        sanitized = _sanitize_evidence_source_metadata(str(raw_text))
+        if not sanitized:
+            continue
+        if topic_tokens:
+            blk_tokens = set(re.findall(r"[a-z0-9]+", sanitized.lower()))
+            overlap = len(topic_tokens & blk_tokens)
+        else:
+            overlap = 0
+        # Prioritize high-value technical content: equations, numeric givens, definitions
+        high_val_bonus = 0
+        if re.search(r"[=<>±∑∫]|(?:\b\d+(?:\.\d+)?\s*(?:ms|s|hz|khz|mhz|gb|mb|kb|v|a|w|ohm|Ω|%)\b)", sanitized, re.IGNORECASE):
+            high_val_bonus += 3
+        if re.search(r"\b(?:defined as|is a|refers to|theorem|lemma|equation|formula|condition|where)\b", sanitized, re.IGNORECASE):
+            high_val_bonus += 2
+        # Preserve original relative order on ties
+        scored_blocks.append((-(overlap + high_val_bonus), idx, sanitized))
+
+    if topic_tokens or any(b[0] < 0 for b in scored_blocks):
+        scored_blocks.sort(key=lambda x: (x[0], x[1]))
+
     lines = ["[EVIDENCE FROM SOURCE MATERIAL]"]
     total = 0
-    for block in evidence_blocks:
-        text = getattr(block, "text", "")
-        if not text:
-            continue
-        text = text[:MAX_EVIDENCE_BLOCK_CHARS]
-        if total + len(text) > MAX_TOTAL_EVIDENCE_CHARS:
+    for _, _, text in scored_blocks:
+        # Preserve full relevant blocks up to remaining budget (not arbitrary tiny truncation)
+        remaining = char_budget - total
+        if remaining <= 0:
             break
-        lines.append(f"  • {text}")
-        total += len(text)
-    return "\n".join(lines)
+        chunk = text if len(text) <= remaining else text[:remaining].rsplit(" ", 1)[0]
+        if not chunk:
+            continue
+        lines.append(f"  • {chunk}")
+        total += len(chunk)
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 def build_visual_section(plan) -> str:
@@ -396,10 +559,53 @@ def build_subpart_visual_section(sp_plan) -> str:
     )
 
 
-def build_subpart_task_section(sp_plan, difficulty_feedback: Optional[str] = None) -> str:
-    if sp_plan.bloom not in BLOOM_VERBS:
-        raise ValueError(f"Unknown bloom level '{sp_plan.bloom}'. Must be one of {list(BLOOM_VERBS.keys())}")
-    verbs = BLOOM_VERBS[sp_plan.bloom]
+def build_critical_rules_header(sp_plan, rule_snapshot: Any = None) -> str:
+    """Top-of-prompt critical rules banner (Rule-First & Rule-Last sandwich)."""
+    verbs = get_active_bloom_verbs(sp_plan.bloom, rule_snapshot=rule_snapshot)
+    verb_list = ", ".join(verbs)
+    vis_rule = "MUST explicitly reference the provided diagram; " if getattr(sp_plan, "visual_required", False) else ""
+    return (
+        "[CRITICAL RULES — MUST FOLLOW]\n"
+        f"  1. Start with ONE approved {sp_plan.bloom} verb: {verb_list}.\n"
+        "  2. SINGULAR DIRECTIVE ONLY: Ask ONE task on ONE single topic; never combine two directives.\n"
+        f"  3. {vis_rule}NO textbook tags ('Figure 5.1', 'Chapter 3', 'Section 2.4', 'Module 1').\n"
+        f"  4. marking_scheme integer marks MUST sum to EXACTLY {sp_plan.marks}."
+    )
+
+
+def build_dynamic_exemplar_section(sp_plan, rule_snapshot: Any = None) -> str:
+    """
+    Generate compliant and forbidden examples dynamically from the active rule snapshot,
+    exact marks, and visual requirement (never hardcoded stale examples).
+    """
+    verbs = get_active_bloom_verbs(sp_plan.bloom, rule_snapshot=rule_snapshot)
+    v1 = verbs[0]
+    marks = int(getattr(sp_plan, "marks", 5))
+    m1 = max(1, marks // 2)
+    m2 = marks - m1
+    scheme_str = f'[{{"criterion": "Core concept", "marks": {m1}}}, {{"criterion": "Technical detail", "marks": {m2}}}]' if m2 > 0 else f'[{{"criterion": "Complete answer", "marks": {marks}}}]'
+    topic = (getattr(sp_plan, "topic", "") or "the assigned topic").strip()
+
+    if getattr(sp_plan, "visual_required", False):
+        good_text = f"With reference to the given diagram, {v1} the primary mechanism of {topic}."
+        bad_text = f"Using Figure 2.1, {v1} {topic} and also list its advantages."
+    else:
+        good_text = f"{v1.capitalize()} the core mechanism of {topic} given concrete system parameters."
+        bad_text = f"Define {topic} and {v1} an unrelated topic from Chapter 3."
+
+    return (
+        "[ACTIVE RULE EXEMPLAR]\n"
+        f"  COMPLIANT: {{\"text\": \"{good_text}\", \"bloom_verb_used\": \"{v1}\", \"marking_scheme\": {scheme_str}}}\n"
+        f"  FORBIDDEN (DO NOT COPY): \"{bad_text}\" (multi-directive / leaked source tag)"
+    )
+
+
+def build_subpart_task_section(
+    sp_plan,
+    difficulty_feedback: Optional[str] = None,
+    rule_snapshot: Any = None,
+) -> str:
+    verbs = get_active_bloom_verbs(sp_plan.bloom, rule_snapshot=rule_snapshot)
     verb_list = ", ".join(verbs)
     minutes = max(2, int(sp_plan.marks * 1.5))
 
@@ -413,6 +619,14 @@ def build_subpart_task_section(sp_plan, difficulty_feedback: Optional[str] = Non
         f"Provide a complete solution and a marking scheme totaling exactly {sp_plan.marks} marks.",
         "INDEPENDENCE: This sub-question must be completely self-contained and independently answerable. Do not reference other sub-parts.",
     ]
+
+    lvl_upper = (sp_plan.bloom or "").strip().upper()
+    if lvl_upper == "L4":
+        lines.append("COGNITIVE DEPTH (L4 - Analyze): Examine relationships, causes, components, or system/mathematical behavior (e.g., diagnose why behavior differs under two conditions), not mere recall.")
+    elif lvl_upper == "L5":
+        lines.append("COGNITIVE DEPTH (L5 - Evaluate): Apply explicit criteria, compare alternatives, and justify a judgment.")
+    elif lvl_upper == "L6":
+        lines.append("COGNITIVE DEPTH (L6 - Create): Design, construct, or develop a solution satisfying explicit constraints.")
 
     if difficulty_feedback:
         lines.append("")
@@ -481,12 +695,15 @@ def build_subpart_prompt(
     strict_json: bool = False,
     difficulty_feedback: Optional[str] = None,
     validation_feedback: Optional[str] = None,
+    rule_snapshot: Any = None,
 ) -> str:
     """
     Compose the Writing Agent prompt for an individual SubPartPlan.
+    Uses Rule-First & Rule-Last sandwich and query-focused evidence selection.
     """
     sections = [
         build_subpart_slot_contract(plan, sp_plan),
+        build_critical_rules_header(sp_plan, rule_snapshot=rule_snapshot),
         build_subpart_topic_section(sp_plan),
     ]
 
@@ -510,7 +727,7 @@ def build_subpart_prompt(
             seen_keys.add(dedup_key)
         merged_blocks.append(b)
 
-    ev = build_evidence_section(merged_blocks)
+    ev = build_evidence_section(merged_blocks, topic=getattr(sp_plan, "topic", None))
     if ev:
         sections.append(ev)
 
@@ -522,7 +739,8 @@ def build_subpart_prompt(
     if contract_guidance:
         sections.append(contract_guidance)
 
-    sections.append(build_subpart_task_section(sp_plan, difficulty_feedback=difficulty_feedback))
+    sections.append(build_subpart_task_section(sp_plan, difficulty_feedback=difficulty_feedback, rule_snapshot=rule_snapshot))
+    sections.append(build_dynamic_exemplar_section(sp_plan, rule_snapshot=rule_snapshot))
     sections.append(build_subpart_constraints_section(marks=sp_plan.marks))
     sections.append(f"[OUTPUT JSON SCHEMA]\n{SUBPART_OUTPUT_SCHEMA_DESCRIPTION}")
 
@@ -552,6 +770,7 @@ def build_archetype_subpart_prompt(
     strict_json: bool = False,
     difficulty_feedback: Optional[str] = None,
     validation_feedback: Optional[str] = None,
+    rule_snapshot: Any = None,
 ) -> str:
     """
     Compose a task-driven Writing Agent prompt for an individual SubPartPlan
@@ -559,6 +778,7 @@ def build_archetype_subpart_prompt(
     """
     sections = [
         build_subpart_slot_contract(plan, sp_plan),
+        build_critical_rules_header(sp_plan, rule_snapshot=rule_snapshot),
     ]
 
     # Archetype & Task Specification section
@@ -641,7 +861,7 @@ def build_archetype_subpart_prompt(
             seen_keys.add(dedup_key)
         merged_blocks.append(b)
 
-    ev = build_evidence_section(merged_blocks)
+    ev = build_evidence_section(merged_blocks, topic=getattr(sp_plan, "topic", None))
     if ev:
         sections.append(ev)
 
@@ -653,7 +873,8 @@ def build_archetype_subpart_prompt(
     if contract_guidance:
         sections.append(contract_guidance)
 
-    sections.append(build_subpart_task_section(sp_plan, difficulty_feedback=difficulty_feedback))
+    sections.append(build_subpart_task_section(sp_plan, difficulty_feedback=difficulty_feedback, rule_snapshot=rule_snapshot))
+    sections.append(build_dynamic_exemplar_section(sp_plan, rule_snapshot=rule_snapshot))
     sections.append(build_subpart_constraints_section(marks=sp_plan.marks))
     sections.append(f"[OUTPUT JSON SCHEMA]\n{SUBPART_OUTPUT_SCHEMA_DESCRIPTION}")
 

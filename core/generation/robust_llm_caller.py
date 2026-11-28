@@ -255,7 +255,101 @@ class RobustLLMCaller:
                 elapsed_sec=elapsed, error=f"JSON_PARSE_ERROR: {e}"
             )
 
+    _VLLM_CAPABILITY_CACHE: Dict[Tuple[str, str, str], Tuple[Optional[str], Optional[str]]] = {}
 
+    def _ensure_vllm_structured_mode(
+        self, req_module: Any, model_name: str, timeout_sec: float
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Inspect vLLM /version, select the appropriate structured decoding format
+        (structured_outputs for >=0.12, json_schema or guided_json for older),
+        run a small real capability probe, and cache by (host, model, version).
+        """
+        vllm_ver = "unknown"
+        try:
+            vr = req_module.get(f"{self.host}/version", timeout=min(5.0, timeout_sec))
+            if vr.ok:
+                vdata = vr.json()
+                vllm_ver = str(vdata.get("version") or "unknown")
+        except Exception:
+            pass
+
+        cache_key = (self.host, model_name, vllm_ver)
+        if cache_key in self._VLLM_CAPABILITY_CACHE:
+            return self._VLLM_CAPABILITY_CACHE[cache_key]
+
+        probe_schema = {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "enum": ["ok"]},
+                "count": {"type": "integer", "minimum": 1, "maximum": 5},
+            },
+            "required": ["status", "count"],
+            "additionalProperties": False,
+        }
+
+        # Version-aware candidate order: >=0.12 uses structured_outputs; older uses json_schema then guided_json
+        use_modern = False
+        try:
+            parts = [int(p) for p in vllm_ver.lstrip("v").split(".")[:2] if p.isdigit()]
+            if len(parts) >= 2 and (parts[0] > 0 or parts[1] >= 12):
+                use_modern = True
+        except Exception:
+            pass
+
+        candidates = (
+            ["structured_outputs", "json_schema"]
+            if use_modern
+            else ["json_schema", "structured_outputs", "guided_json"]
+        )
+
+        last_err = "No structured decoding mode succeeded"
+        for mode in candidates:
+            probe_payload: Dict[str, Any] = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": 'Return JSON {"status": "ok", "count": 1}.'}],
+                "max_tokens": 32,
+                "temperature": 0.0,
+            }
+            if mode == "structured_outputs":
+                probe_payload["extra_body"] = {"structured_outputs": {"json": probe_schema}}
+            elif mode == "json_schema":
+                probe_payload["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {"name": "cap_probe", "schema": probe_schema, "strict": True},
+                }
+            else:
+                probe_payload["guided_json"] = probe_schema
+
+            try:
+                pr = req_module.post(
+                    f"{self.host}/v1/chat/completions",
+                    json=probe_payload,
+                    timeout=min(10.0, timeout_sec),
+                )
+                if not pr.ok:
+                    last_err = f"{mode} HTTP {pr.status_code}: {pr.text[:120]}"
+                    continue
+                pdata = pr.json()
+                raw = ((pdata.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                parsed = _parse_json_response(raw)
+                if (
+                    isinstance(parsed, dict)
+                    and set(parsed.keys()) == {"status", "count"}
+                    and parsed.get("status") == "ok"
+                    and type(parsed.get("count")) is int
+                    and 1 <= parsed["count"] <= 5
+                ):
+                    res = (mode, None)
+                    self._VLLM_CAPABILITY_CACHE[cache_key] = res
+                    return res
+                last_err = f"{mode} probe returned non-conforming JSON: {raw[:120]}"
+            except Exception as e:
+                last_err = f"{mode} probe error: {e}"
+
+        fail_res = (None, f"Structured decoding unsupported on {self.host} ({model_name}, vLLM={vllm_ver}): {last_err}")
+        self._VLLM_CAPABILITY_CACHE[cache_key] = fail_res
+        return fail_res
     def _call_vllm(self, request: LLMRequest, start: float) -> LLMResponse:
         import requests as req
         max_tok = getattr(request, "max_tokens", 4096)
@@ -278,17 +372,28 @@ class RobustLLMCaller:
             "seed": request.seed,
         }
         if request.schema:
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "structured_response",
-                    "schema": request.schema,
-                    "strict": True,
+            mode, cap_err = self._ensure_vllm_structured_mode(req, model_name, request.timeout_sec)
+            if mode is None:
+                return LLMResponse(
+                    success=False,
+                    text=None,
+                    parsed=None,
+                    elapsed_sec=time.monotonic() - start,
+                    error=f"PROVIDER_CAPABILITY_FAILURE: {cap_err}",
+                )
+            if mode == "structured_outputs":
+                payload["extra_body"] = {"structured_outputs": {"json": request.schema}}
+            elif mode == "json_schema":
+                payload["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "structured_response",
+                        "schema": request.schema,
+                        "strict": True,
+                    },
                 }
-            }
-            # Native vLLM guided decoding via xgrammar / outlines
-            payload["guided_json"] = request.schema
-            payload["extra_body"] = {"guided_json": request.schema}
+            else:  # "guided_json" for legacy vLLM < 0.12
+                payload["guided_json"] = request.schema
         else:
             payload["response_format"] = {"type": "json_object"}
 
@@ -304,30 +409,10 @@ class RobustLLMCaller:
         elapsed = time.monotonic() - start
 
         if not response.ok:
-            # Resilient fallback for vLLM versions that reject custom fields or only support basic json_object
-            if response.status_code in (400, 422) and request.schema:
-                LOG.warning(
-                    f"[LLM] vLLM returned HTTP {response.status_code} on structured decoding payload. "
-                    f"Falling back to basic 'json_object'. Server details: {response.text[:200]}."
-                )
-                try:
-                    payload.pop("guided_json", None)
-                    payload.pop("extra_body", None)
-                    payload["response_format"] = {"type": "json_object"}
-                    response = req.post(
-                        f"{self.host}/v1/chat/completions",
-                        json=payload,
-                        timeout=request.timeout_sec,
-                    )
-                    elapsed = time.monotonic() - start
-                except Exception:
-                    pass
-
-            if not response.ok:
-                return LLMResponse(
-                    success=False, text=None, parsed=None,
-                    elapsed_sec=elapsed, error=f"HTTP {response.status_code}: {response.text[:200]}"
-                )
+            return LLMResponse(
+                success=False, text=None, parsed=None,
+                elapsed_sec=elapsed, error=f"HTTP {response.status_code}: {response.text[:200]}"
+            )
 
         resp_data = response.json()
         choices = resp_data.get("choices", [])
@@ -354,4 +439,3 @@ class RobustLLMCaller:
                 success=False, text=raw_text, parsed=None,
                 elapsed_sec=elapsed, error=f"JSON_PARSE_ERROR: {e}"
             )
-

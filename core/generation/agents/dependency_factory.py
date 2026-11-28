@@ -172,11 +172,24 @@ class RobustLLMCallerAdapter:
         if backend == "vllm" and (not model or model == "qwen2.5:14b" or ":" in model):
             model = os.getenv("AION_VLLM_MODEL") or "Qwen/Qwen2.5-14B-Instruct-AWQ"
         timeout = int(os.getenv("AION_LLM_TIMEOUT", "180"))
+        raw_temp = os.getenv("AION_LLM_TEMPERATURE")
+        if raw_temp is not None and raw_temp.strip():
+            try:
+                temperature = float(raw_temp.strip())
+            except ValueError as ex:
+                raise ValueError(f"Invalid AION_LLM_TEMPERATURE {raw_temp!r}; must be float") from ex
+            if not (0.0 <= temperature <= 2.0):
+                raise ValueError(f"AION_LLM_TEMPERATURE {temperature} out of bounds [0.0, 2.0]")
+        else:
+            temperature = 0.1
+
+        effective_seed = 42 if seed is None else seed
         req = LLMRequest(
             model=model,
             prompt=prompt,
             schema=schema,
-            seed=seed or 42,
+            temperature=temperature,
+            seed=effective_seed,
             timeout_sec=timeout,
         )
         res = self._caller.call(req)
