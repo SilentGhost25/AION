@@ -1572,11 +1572,43 @@ def v3_direct_generate():
 
 
     pdfs = []
+    from core.artifacts.store import ArtifactStore
+    store = ArtifactStore()
+
     if file_ids:
         for fid in file_ids:
-            p = ROOT / "workspace" / "uploads" / fid / "original.pdf"
-            if p.exists():
-                pdfs.append(p)
+            resolved_p = None
+            try:
+                manifest = store.get(fid)
+                if manifest and manifest.source and manifest.source.path:
+                    cand = Path(manifest.source.path)
+                    if cand.exists():
+                        resolved_p = cand
+            except Exception:
+                pass
+
+            if not resolved_p:
+                doc = doc_registry.get(fid)
+                if doc and doc.path and Path(doc.path).exists():
+                    resolved_p = Path(doc.path)
+                elif fid in file_registry:
+                    sp = file_registry[fid].get("storedPath")
+                    if sp and Path(sp).exists():
+                        resolved_p = Path(sp)
+
+            if not resolved_p:
+                upload_dir = ROOT / "workspace" / "uploads" / fid
+                if upload_dir.is_dir():
+                    for f in upload_dir.iterdir():
+                        if f.suffix.lower() == ".pdf":
+                            resolved_p = f
+                            break
+
+            if not resolved_p and Path(fid).exists() and Path(fid).suffix.lower() == ".pdf":
+                resolved_p = Path(fid)
+
+            if resolved_p and resolved_p.exists():
+                pdfs.append(resolved_p)
     elif file_path:
         if isinstance(file_path, list):
             pdfs = [Path(p) for p in file_path if Path(p).exists()]

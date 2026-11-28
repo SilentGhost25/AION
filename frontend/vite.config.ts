@@ -42,6 +42,9 @@ export default defineConfig({
       "/api": {
         target: process.env.VITE_AION_API_URL || "http://127.0.0.1:8100",
         changeOrigin: true,
+        secure: false,
+        timeout: 600000,
+        proxyTimeout: 600000,
       },
     },
   },
