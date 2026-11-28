@@ -2,7 +2,7 @@
 
 import os, time, json, logging, re
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 
 LOG = logging.getLogger("aion.llm")
 
