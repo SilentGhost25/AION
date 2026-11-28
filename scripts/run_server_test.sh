@@ -54,10 +54,10 @@ fi
 echo "Backend is live on port 8100."
 
 echo "=== [4/4] Executing Direct /api/v3/generate Request ==="
-# Determine sample upload file IDs
-SAMPLE_IDS="$(ls -1 workspace/uploads 2>/dev/null | head -3 | jq -R . | jq -s .)"
+# Determine sample upload file IDs (directories containing original.pdf)
+SAMPLE_IDS="$(find workspace/uploads -maxdepth 2 -name "original.pdf" 2>/dev/null | head -3 | xargs -n1 dirname | xargs -n1 basename | jq -R . | jq -s .)"
 if [ -z "$SAMPLE_IDS" ] || [ "$SAMPLE_IDS" = "[]" ]; then
-    SAMPLE_IDS='["b56ada8d-c9a","e59d96e4-d0b","081fcfb8-bf2"]'
+    SAMPLE_IDS='["0146bb06-199","0288b40a-3ae","1073c946-3c7"]'
 fi
 
 PAYLOAD=$(cat <<EOF
