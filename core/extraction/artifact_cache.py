@@ -463,6 +463,7 @@ def merge_artifacts(artifacts: List[DocumentArtifact], subject: str = "") -> Doc
     """
     Merges multiple DocumentArtifacts (e.g. 5 module PDFs) into a single composite DocumentArtifact.
     Preserves text blocks, figures, tables, and equations tagged with their source PDF SHA-256 and module index.
+    Generates and attaches sequential, non-overlapping ModuleSegments across merged modules.
     """
     if not artifacts:
         raise ValueError("Cannot merge empty artifacts list")
@@ -472,24 +473,38 @@ def merge_artifacts(artifacts: List[DocumentArtifact], subject: str = "") -> Doc
     combined_figures: List[FigureArtifact] = []
     combined_tables: List[TableArtifact] = []
     combined_equations: List[EquationArtifact] = []
+    merged_segments: List[Any] = []
+
+    current_page_offset = 0
 
     for mod_idx, art in enumerate(artifacts, 1):
-        for b in art.text_blocks:
+        art_blocks = getattr(art, "text_blocks", []) or []
+        art_min_page = min((getattr(b, "page", 1) for b in art_blocks), default=1)
+        art_max_page = max((getattr(b, "page", 0) for b in art_blocks), default=0)
+        if art_max_page <= 0:
+            art_max_page = getattr(art, "page_count", 0) or 1
+
+        # Defensive offset: if individual module pages are 1-indexed, apply current offset
+        page_offset = current_page_offset if art_min_page <= current_page_offset else 0
+        mod_page_start = (art_min_page + page_offset) if page_offset > 0 else (current_page_offset + 1)
+        mod_page_end = (art_max_page + page_offset) if page_offset > 0 else (current_page_offset + max(1, art_max_page - art_min_page + 1))
+
+        for b in art_blocks:
             combined_blocks.append(
                 TextBlock(
                     id=f"m{mod_idx}_{b.id}",
                     text=b.text,
-                    page=b.page,
+                    page=b.page + page_offset,
                     block_role=b.block_role,
                     bbox=b.bbox,
                     source_pdf_sha256=b.source_pdf_sha256,
                 )
             )
-        for f in art.figures:
+        for f in getattr(art, "figures", []) or []:
             combined_figures.append(
                 FigureArtifact(
                     id=f"m{mod_idx}_{f.id}",
-                    page=f.page,
+                    page=f.page + page_offset,
                     bbox=f.bbox,
                     caption=f.caption,
                     image_path=f.image_path,
@@ -499,11 +514,11 @@ def merge_artifacts(artifacts: List[DocumentArtifact], subject: str = "") -> Doc
                     image_sha256=getattr(f, "image_sha256", ""),
                 )
             )
-        for t in art.tables:
+        for t in getattr(art, "tables", []) or []:
             combined_tables.append(
                 TableArtifact(
                     id=f"m{mod_idx}_{t.id}",
-                    page=t.page,
+                    page=t.page + page_offset,
                     headers=t.headers,
                     rows=t.rows,
                     caption=t.caption,
@@ -512,18 +527,40 @@ def merge_artifacts(artifacts: List[DocumentArtifact], subject: str = "") -> Doc
                     module_id=f"module_{mod_idx}",
                 )
             )
-        for eq in art.equations:
+        for eq in getattr(art, "equations", []) or []:
             combined_equations.append(
                 EquationArtifact(
                     id=f"m{mod_idx}_{eq.id}",
-                    page=eq.page,
+                    page=eq.page + page_offset,
                     latex=eq.latex,
                     source_pdf_sha256=eq.source_pdf_sha256,
                     module_id=f"module_{mod_idx}",
                 )
             )
 
-    return DocumentArtifact(
+        try:
+            from core.extraction.module_segmenter import ModuleSegment, SegmentationStrategy
+            merged_segments.append(
+                ModuleSegment(
+                    module_id=mod_idx,
+                    title=getattr(art, "title", "") or f"Module {mod_idx}",
+                    page_start=mod_page_start,
+                    page_end=mod_page_end,
+                    confidence=1.0,
+                    strategy_used=SegmentationStrategy.EXPLICIT_MODULE_HEADING,
+                )
+            )
+        except Exception:
+            merged_segments.append({
+                "module_id": mod_idx,
+                "title": f"Module {mod_idx}",
+                "page_start": mod_page_start,
+                "page_end": mod_page_end,
+            })
+
+        current_page_offset = mod_page_end
+
+    merged_doc = DocumentArtifact(
         source_pdf_sha256=combined_sha,
         source_pdf_path=artifacts[0].source_pdf_path if len(artifacts) == 1 else "multi_pdf_composite",
         extractor_version=EXTRACTOR_VERSION,
@@ -533,3 +570,9 @@ def merge_artifacts(artifacts: List[DocumentArtifact], subject: str = "") -> Doc
         equations=combined_equations,
         title=subject or "Composite Academic Modules",
     )
+    if merged_segments:
+        setattr(merged_doc, "module_segments", merged_segments)
+    if current_page_offset > 0:
+        setattr(merged_doc, "page_count", current_page_offset)
+
+    return merged_doc

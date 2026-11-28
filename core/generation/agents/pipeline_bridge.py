@@ -2705,6 +2705,26 @@ def run_v3_pipeline(
             )
             if not context.plans:
                 context.plans = None
+
+            # Propagate or auto-resolve module segments
+            if getattr(artifact, "module_segments", None) is not None:
+                context.module_segments = artifact.module_segments
+            elif getattr(artifact, "segments", None) is not None:
+                context.module_segments = artifact.segments
+            elif not getattr(paper_spec, "allow_synthetic", False) and getattr(paper_spec, "course_type", "") != "SYNTHETIC_TEST":
+                if hasattr(artifact, "text_blocks") and artifact.text_blocks:
+                    try:
+                        from core.extraction.module_segmenter import ModuleSegmenter
+                        auto_segs = ModuleSegmenter.segment(artifact)
+                        if auto_segs:
+                            context.module_segments = auto_segs
+                            try:
+                                setattr(artifact, "module_segments", auto_segs)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+
             from .checking_agent import CheckingAgent
 
             expected_ids = CheckingAgent()._get_validated_expected_slots(context)

@@ -58,8 +58,12 @@ class ModuleSegmenter:
 
     @classmethod
     def segment(cls, artifact: Any, syllabus_topics: Optional[List[str]] = None) -> List[ModuleSegment]:
-        text_blocks = getattr(artifact, "text_blocks", [])
-        page_count = getattr(artifact, "page_count", 1)
+        text_blocks = getattr(artifact, "text_blocks", []) or []
+        page_count = getattr(artifact, "page_count", 0)
+        if page_count <= 0 and text_blocks:
+            page_count = max((getattr(b, "page", 0) if not isinstance(b, dict) else b.get("page", 0) for b in text_blocks), default=1)
+        if page_count <= 0:
+            page_count = 1
 
         # Strategy 1: EXPLICIT_MODULE_HEADING
         explicit_segments = cls._try_explicit_headings(text_blocks, page_count)
@@ -145,12 +149,15 @@ class ModuleSegmenter:
         return None
 
     @classmethod
-    def _try_page_structure(cls, page_count: int) -> List[ModuleSegment]:
-        pages_per_mod = max(1, page_count // 5)
+    def _try_page_structure(cls, page_count: int, num_modules: int = 5) -> List[ModuleSegment]:
+        n_mods = min(num_modules, page_count) if page_count > 0 else 1
+        pages_per_mod = max(1, page_count // n_mods)
         segments = []
-        for m in range(1, 6):
+        for m in range(1, n_mods + 1):
             p_start = (m - 1) * pages_per_mod + 1
-            p_end = m * pages_per_mod if m < 5 else page_count
+            p_end = m * pages_per_mod if m < n_mods else page_count
+            if p_end < p_start:
+                p_end = p_start
             segments.append(
                 ModuleSegment(
                     module_id=m,

@@ -1595,6 +1595,17 @@ def v3_direct_generate():
         artifacts = [load_or_extract_artifact(p) for p in pdfs]
         artifact = merge_artifacts(artifacts) if len(artifacts) > 1 else artifacts[0]
 
+        # Auto-segment artifact if module segments not already present
+        if not getattr(artifact, "module_segments", None) and not getattr(artifact, "segments", None):
+            try:
+                from core.extraction.module_segmenter import ModuleSegmenter
+                auto_segs = ModuleSegmenter.segment(artifact)
+                if auto_segs:
+                    setattr(artifact, "module_segments", auto_segs)
+                    logger.info(f"[API] Auto-segmented artifact into {len(auto_segs)} module segments")
+            except Exception as _se:
+                logger.warning(f"[API] Auto-segmentation failed: {_se}")
+
         spec = PaperSpecResolver.resolve(exam_type)
         raw_splits = body.get("marks_split") or body.get("marksDistribution") or STANDARD_MARKS_SPLITS.get(exam_type)
         splits = raw_splits or [[spec.marks_per_question] for _ in range(spec.total_questions)]
