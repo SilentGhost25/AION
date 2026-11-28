@@ -190,16 +190,57 @@ class AssessmentRegistry:
             cls._FROZEN = False
 
 
-# Verified AEC Baseline Registration
+# Verified AEC Baseline Registration (CIE 10M)
 AssessmentRegistry.register(AssessmentConfig(
     scheme_id="VTU_2022_NEP",
     course_type="AEC_GENERAL_THEORY",
     assessment_type="CIE_IAT",
     blueprint_id="VTU_AEC_ANNEXURE_II",
     total_marks_per_question=10,
-    permitted_partitions=((5, 5), (4, 6), (3, 7), (10,)),
+    permitted_partitions=((6, 4), (4, 6), (5, 5), (7, 3), (3, 7), (10,)),
     max_subparts=2,
-    reference_source="VTU 2022 Scheme AEC Regulations (2024), Annexure-II, Clause 4(a) (10M questions, max 2 subquestions: 5+5, 4+6, 3+7, 10)",
+    reference_source="VTU 2022 Scheme AEC Regulations (2024), Annexure-II, Clause 4(a) (10M questions, max 2 subquestions: 6+4, 5+5, 4+6, 3+7, 10)",
+    allow_choice=None,
+    questions_per_module=None,
+))
+
+# Verified Engineering Theory Baseline Registration (CIE 10M)
+AssessmentRegistry.register(AssessmentConfig(
+    scheme_id="VTU_2022_NEP",
+    course_type="ENGINEERING_THEORY",
+    assessment_type="CIE_IAT",
+    blueprint_id="VTU_CIE_50M",
+    total_marks_per_question=10,
+    permitted_partitions=((6, 4), (4, 6), (5, 5), (7, 3), (3, 7), (10,)),
+    max_subparts=2,
+    reference_source="VTU 2022 Scheme Engineering Regulations, Annexure-I (10M questions, max 2 subquestions: 6+4, 5+5, 10)",
+    allow_choice=None,
+    questions_per_module=None,
+))
+
+# Verified Engineering Theory SEE Baseline Registration (SEE 20M)
+AssessmentRegistry.register(AssessmentConfig(
+    scheme_id="VTU_2022_NEP",
+    course_type="ENGINEERING_THEORY",
+    assessment_type="SEE",
+    blueprint_id="VTU_SEE_100M",
+    total_marks_per_question=20,
+    permitted_partitions=((8, 6, 6), (6, 8, 6), (6, 6, 8), (10, 10), (7, 7, 6), (20,)),
+    max_subparts=3,
+    reference_source="VTU 2022 Scheme SEE Regulations (2024), 20M per question (8+6+6, 10+10, 20)",
+    allow_choice=None,
+    questions_per_module=None,
+))
+
+AssessmentRegistry.register(AssessmentConfig(
+    scheme_id="VTU_2022_NEP",
+    course_type="ENGINEERING_THEORY",
+    assessment_type="SEE_THEORY",
+    blueprint_id="VTU_SEE_100M",
+    total_marks_per_question=20,
+    permitted_partitions=((8, 6, 6), (6, 8, 6), (6, 6, 8), (10, 10), (7, 7, 6), (20,)),
+    max_subparts=3,
+    reference_source="VTU 2022 Scheme SEE Regulations (2024), 20M per question (8+6+6, 10+10, 20)",
     allow_choice=None,
     questions_per_module=None,
 ))

@@ -97,7 +97,7 @@ EVIDENCE_ROLES = frozenset({"BODY", "HEADING"})
 def find_module_segment(module_segments: List[Any], module_idx: int) -> Optional[Any]:
     """Find the ModuleSegment corresponding to module_idx."""
     for seg in module_segments:
-        seg_id = getattr(seg, "module_id", None)
+        seg_id = seg.get("module_id") if isinstance(seg, dict) else getattr(seg, "module_id", None)
         if isinstance(seg_id, int) and seg_id == module_idx:
             return seg
         if isinstance(seg_id, str):
@@ -490,8 +490,8 @@ class PlanningAgent(Agent):
             visual_slots_used = 0
 
             segment = find_module_segment(segments_source, module_idx)
-            page_start = getattr(segment, "page_start", None)
-            page_end = getattr(segment, "page_end", None)
+            page_start = segment.get("page_start", segment.get("start")) if isinstance(segment, dict) else getattr(segment, "page_start", None)
+            page_end = segment.get("page_end", segment.get("end")) if isinstance(segment, dict) else getattr(segment, "page_end", None)
 
             for within_idx in range(spec.questions_per_module):
                 assignment_key = (module_idx - 1, within_idx)
@@ -555,6 +555,25 @@ class PlanningAgent(Agent):
                             slot_idx=within_idx,
                             within_idx=within_idx,
                         )
+
+                        if not topic_candidate:
+                            # Attempt extraction from module heading text blocks or segment title
+                            if hasattr(artifact, "text_blocks"):
+                                mod_headings = [
+                                    b.text.strip() for b in getattr(artifact, "text_blocks", []) or []
+                                    if (page_start is None or page_start <= getattr(b, "page", 0) <= (page_end or 9999))
+                                    and getattr(b, "block_role", "") == "HEADING"
+                                ]
+                                for h in mod_headings:
+                                    h_clean = self._clean_topic(h)
+                                    if self._is_valid_topic(h_clean) and h_clean.lower() not in attempt_used_topics:
+                                        topic_candidate = h_clean
+                                        break
+
+                            if not topic_candidate and segment and getattr(segment, "title", None):
+                                t_clean = self._clean_topic(segment.title)
+                                if self._is_valid_topic(t_clean) and t_clean.lower() not in attempt_used_topics:
+                                    topic_candidate = t_clean
 
                         if not topic_candidate:
                             if config.course_type == "SYNTHETIC_TEST":
@@ -937,7 +956,7 @@ class PlanningAgent(Agent):
                 cleaned = self._clean_topic(concept)
                 if self._is_valid_topic(cleaned):
                     norm = normalize_concept(cleaned)
-                    if cleaned.lower() not in exclude and norm not in exclude:
+                    if cleaned.lower() not in exclude_lower and norm not in exclude_lower:
                         valid_candidates.append(cleaned)
 
             if not valid_candidates:

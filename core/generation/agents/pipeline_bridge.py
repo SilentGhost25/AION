@@ -2696,8 +2696,17 @@ def run_v3_pipeline(
     try:
         # 1. Protected Context Construction
         try:
+            req_dict = dict(request or {})
+            if "exam_type" in req_dict and not (req_dict.get("scheme_id") and req_dict.get("course_type") and req_dict.get("blueprint_id")):
+                norm_exam = str(req_dict.get("exam_type") or getattr(paper_spec, "exam_type", "IAT1")).strip().upper()
+                is_see = "SEE" in norm_exam or getattr(paper_spec, "marks_per_question", 10) == 20
+                req_dict.setdefault("scheme_id", "VTU_2022_NEP")
+                req_dict.setdefault("course_type", "ENGINEERING_THEORY" if is_see else "AEC_GENERAL_THEORY")
+                req_dict.setdefault("assessment_type", "SEE" if is_see else "CIE_IAT")
+                req_dict.setdefault("blueprint_id", "VTU_SEE_100M" if is_see else "VTU_AEC_ANNEXURE_II")
+
             context = AgentContext(
-                request=request or {},
+                request=req_dict,
                 paper_spec=paper_spec,
                 artifact=artifact,
                 knowledge_graph=knowledge_graph,

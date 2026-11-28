@@ -1610,6 +1610,23 @@ def v3_direct_generate():
         raw_splits = body.get("marks_split") or body.get("marksDistribution") or STANDARD_MARKS_SPLITS.get(exam_type)
         splits = raw_splits or [[spec.marks_per_question] for _ in range(spec.total_questions)]
 
+        norm_exam = str(exam_type).strip().upper()
+        is_see = "SEE" in norm_exam or spec.marks_per_question == 20
+
+        scheme_id = str(body.get("scheme_id") or "VTU_2022_NEP").strip().upper()
+        course_type = str(body.get("course_type") or ("ENGINEERING_THEORY" if is_see else "AEC_GENERAL_THEORY")).strip().upper()
+        assessment_type = str(body.get("assessment_type") or ("SEE" if is_see else "CIE_IAT")).strip().upper()
+        blueprint_id = str(body.get("blueprint_id") or ("VTU_SEE_100M" if is_see else "VTU_AEC_ANNEXURE_II")).strip().upper()
+
+        req_payload = {
+            "exam_type": exam_type,
+            "subject": subject,
+            "scheme_id": scheme_id,
+            "course_type": course_type,
+            "assessment_type": assessment_type,
+            "blueprint_id": blueprint_id,
+        }
+
         from core.api.circuit_breaker import get_groq_breaker
         groq_breaker = get_groq_breaker()
         groq_breaker.reset()  # reset breaker per-run
@@ -1618,7 +1635,7 @@ def v3_direct_generate():
                 paper_spec=spec,
                 artifact=artifact,
                 marks_split=splits,
-                request={"exam_type": exam_type, "subject": subject},
+                request=req_payload,
             )
         finally:
             groq_breaker.reset()  # reset breaker post-run
